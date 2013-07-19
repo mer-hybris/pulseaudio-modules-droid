@@ -13,10 +13,10 @@ Source0:    %{name}-%{version}.tar.bz2
 Requires:   pulseaudio >= 2.1
 BuildRequires:  automake
 BuildRequires:  libtool
-BuildRequires:  pkgconfig(pulsecore) >= 2.1
 BuildRequires:  libtool-ltdl-devel
-BuildRequires:  droid-system-%{device}-devel
-BuildRequires:  libhybris-%{device}-devel
+BuildRequires:  pkgconfig(pulsecore) >= 2.1
+BuildRequires:  pkgconfig(android-headers)
+BuildRequires:  pkgconfig(libhardware)
 Provides: pulseaudio-modules-droid
 
 %description
