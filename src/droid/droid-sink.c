@@ -78,6 +78,8 @@ struct userdata {
     audio_devices_t primary_devices;
     audio_devices_t enabled_devices;
 
+    pa_bool_t use_hw_volume;
+
     pa_droid_config_audio *config; /* Only used when used without card */
     pa_droid_hw_module *hw_module;
     struct audio_stream_out *stream_out;
@@ -407,33 +409,44 @@ static void sink_set_volume_cb(pa_sink *s) {
         float val = pa_sw_volume_to_linear(r.values[0]);
         pa_log_debug("Set hw volume %f", val);
         if (u->stream_out->set_volume(u->stream_out, val, val) < 0)
-            return;
+            pa_log_warn("Failed to set hw volume.");
     } else if (r.channels == 2) {
         float val[2];
         for (unsigned i = 0; i < 2; i++)
             val[i] = pa_sw_volume_to_linear(r.values[i]);
         pa_log_debug("Set hw volume %f : %f", val[0], val[1]);
         if (u->stream_out->set_volume(u->stream_out, val[0], val[1]) < 0)
-            return;
+            pa_log_warn("Failed to set hw volume.");
     }
+}
+
+static void sink_set_voice_volume_cb(pa_sink *s) {
+    struct userdata *u = s->userdata;
+    pa_cvolume r;
+    float val;
+
+    /* Shift up by the base volume */
+    pa_sw_cvolume_divide_scalar(&r, &s->real_volume, s->base_volume);
+
+    val = pa_sw_volume_to_linear(pa_cvolume_avg(&r));
+    pa_log_debug("Set voice volume %f", val);
+    if (u->hw_module->device->set_voice_volume(u->hw_module->device, val) < 0)
+        pa_log_warn("Failed to set voice volume.");
 }
 
 static void update_volumes(struct userdata *u) {
     int ret = -1;
 
+    /* set_volume returns 0 if hw volume control is implemented, < 0 otherwise. */
     if (u->stream_out->set_volume) {
         pa_log_debug("Probe hw volume support for %s", u->sink->name);
         ret = u->stream_out->set_volume(u->stream_out, 1.0f, 1.0f);
     }
 
-    /* Use hardware volume */
-    if (ret == 0) {
-        pa_log_debug("Using hardware volume control for %s", u->sink->name);
-        pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
-    } else {
-        pa_log_debug("Using software volume control for %s", u->sink->name);
-        pa_sink_set_set_volume_callback(u->sink, NULL);
-    }
+    u->use_hw_volume = (ret == 0);
+
+    /* Apply callbacks */
+    pa_droid_sink_set_voice_control(u->sink, FALSE);
 }
 
 static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *module_id) {
@@ -451,6 +464,26 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
         pa_sink_new_data_set_name(data, tt);
         pa_xfree(tt);
         data->namereg_fail = FALSE;
+    }
+}
+
+void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable) {
+    struct userdata *u = sink->userdata;
+
+    pa_assert(u);
+    pa_assert(sink);
+
+    if (enable) {
+        pa_log_debug("Using voice volume control for %s", u->sink->name);
+        pa_sink_set_set_volume_callback(u->sink, sink_set_voice_volume_cb);
+    } else {
+        if (u->use_hw_volume) {
+            pa_log_debug("Using hardware volume control for %s", u->sink->name);
+            pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
+        } else {
+            pa_log_debug("Using software volume control for %s", u->sink->name);
+            pa_sink_set_set_volume_callback(u->sink, NULL);
+        }
     }
 }
 

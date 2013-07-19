@@ -292,11 +292,15 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         /* Transfer ownership of sinks and sources to
          * call profile */
         u->call_profile.old_profile = od->profile;
+        pa_droid_sink_set_voice_control(u->call_profile.old_profile->output->sink, TRUE);
         return 0;
     }
 
     if (od->profile == u->call_profile.profile) {
+        pa_assert(u->call_profile.old_profile);
+
         set_call_mode(u, AUDIO_MODE_NORMAL);
+        pa_droid_sink_set_voice_control(u->call_profile.old_profile->output->sink, FALSE);
 
         /* If new profile is the same as from which we switched to
          * call profile, transfer ownership back to that profile.
