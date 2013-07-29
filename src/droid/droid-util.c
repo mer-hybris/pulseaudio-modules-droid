@@ -128,13 +128,13 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
 
     for (unsigned int i = 0; list[i].str; i++) {
 #ifdef HAL_V2
-        if (list[i].value & AUDIO_DEVICE_BIT_IN &&
-            popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN))
-            continue;
-#else
+        if (list[i].value & AUDIO_DEVICE_BIT_IN) {
+            if (popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN) != 1)
+                continue;
+        } else
+#endif
         if (popcount(list[i].value) != 1)
             continue;
-#endif
 
         if (flags & list[i].value) {
             if (str) {
