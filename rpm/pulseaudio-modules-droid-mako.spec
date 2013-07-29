@@ -27,7 +27,7 @@ PulseAudio Droid HAL modules.
 %setup -q -n %{name}-%{version}
 
 %build
-%reconfigure --disable-static
+%reconfigure --disable-static --with-droid-device=%{device}
 make %{?jobs:-j%jobs}
 
 %install
