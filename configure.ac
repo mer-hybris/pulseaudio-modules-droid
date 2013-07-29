@@ -186,31 +186,16 @@ AC_ARG_WITH([module-dir],
 AC_SUBST(modlibexecdir)
 
 ############################################
-# Processing
-AC_ARG_ENABLE([processing],
-    AS_HELP_STRING([--disable-processing],[Disable optional processing support]),
-        [
-            case "${enableval}" in
-                yes) processing=yes ;;
-                no) processing=no ;;
-                *) AC_MSG_ERROR(bad value ${enableval} for --disable-processing) ;;
-            esac
-        ],
-        [processing=yes])
-
-
-############################################
-# x86
-AC_MSG_CHECKING([Use x86 libraries])
-case $host_cpu in
-     arm*) x86=no; AC_MSG_RESULT([no]) ;;
-     *) x86=yes; AC_MSG_RESULT([yes]) ;;
-esac
-AM_CONDITIONAL([X86], [test "x$x86" = xyes])
-ENABLE_X86=no
-if test "x$x86" = xyes ; then
-    AC_DEFINE([X86], 1, [x86 libraries used.])
-    ENABLE_X86=yes
+# Droid device type
+droiddevice="generic"
+AC_ARG_WITH([droid-device],
+        AS_HELP_STRING([--with-droid-device], [Droid device type for possible specific quirks (defaults to generic).]),
+        [droiddevice=$withval], [droiddevice="generic"]
+        )
+if test "x$droiddevice" = xmako ; then
+    AC_DEFINE([DROID_DEVICE_MAKO],      [1], [Using droid device mako.])
+else
+    AC_DEFINE([DROID_DEVICE_GENERIC],   [1], [Using droid device generic.])
 fi
 
 AC_MSG_CHECKING([If we are using hardfp tool chain])
@@ -244,5 +229,5 @@ echo "
     PulseAudio prefix:      ${pulseaudiodir}
     modules directory:      ${modlibexecdir}
 
-    Enable x86 libraries    ${ENABLE_X86}
+    Droid device            ${droiddevice}
     "
