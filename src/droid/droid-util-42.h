@@ -130,7 +130,7 @@ static struct string_conversion string_conversion_table_output_device_fancy[] = 
 };
 
 /* Input devices */
-#ifdef MAKO
+#ifdef DROID_DEVICE_MAKO
 static struct string_conversion string_conversion_table_input_device[] = {
     { 0x10000,      "AUDIO_DEVICE_IN_COMMUNICATION" },
     { 0x20000,      "AUDIO_DEVICE_IN_AMBIENT" },
