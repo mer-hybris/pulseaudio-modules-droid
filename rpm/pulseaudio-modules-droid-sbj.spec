@@ -1,4 +1,4 @@
-%define device boston
+%define device sbj
 %define pulseversion 2.1
 
 Name:       pulseaudio-modules-droid-%{device}

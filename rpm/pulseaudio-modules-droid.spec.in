@@ -10,6 +10,8 @@ Group:      Multimedia/PulseAudio
 License:    LGPLv2.1+
 URL:        https://github.com/nemomobile/pulseaudio-modules-nemo
 Source0:    %{name}-%{version}.tar.bz2
+Source1:    pulseaudio-modules-droid.spec.in
+Source2:    precheckin.sh
 Requires:   pulseaudio >= 2.1
 BuildRequires:  automake
 BuildRequires:  libtool
