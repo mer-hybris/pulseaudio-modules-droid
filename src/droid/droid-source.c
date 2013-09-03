@@ -298,6 +298,46 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
     }
 }
 
+static void source_get_mute_cb(pa_source *s) {
+    struct userdata *u = s->userdata;
+    pa_bool_t b;
+
+    pa_assert(u);
+    pa_assert(u->hw_module && u->hw_module->device);
+
+    if (u->hw_module->device->get_mic_mute(u->hw_module->device, &b) < 0) {
+        pa_log("Failed to get mute state.");
+        return;
+    }
+
+    s->muted = b;
+}
+
+static void source_set_mute_cb(pa_source *s) {
+    struct userdata *u = s->userdata;
+
+    pa_assert(u);
+    pa_assert(u->hw_module && u->hw_module->device);
+
+    if (u->hw_module->device->set_mic_mute(u->hw_module->device, s->muted) < 0)
+        pa_log("Failed to set mute state to %smuted.", s->muted ? "" : "un");
+}
+
+static void source_set_mute_control(struct userdata *u) {
+    pa_assert(u);
+    pa_assert(u->hw_module && u->hw_module->device);
+
+    if (u->hw_module->device->set_mic_mute) {
+        pa_log_info("Using hardware mute control for %s", u->source->name);
+        pa_source_set_get_mute_callback(u->source, source_get_mute_cb);
+        pa_source_set_set_mute_callback(u->source, source_set_mute_cb);
+    } else {
+        pa_log_info("Using software mute control for %s", u->source->name);
+        pa_source_set_get_mute_callback(u->source, NULL);
+        pa_source_set_set_mute_callback(u->source, NULL);
+    }
+}
+
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
@@ -468,6 +508,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     u->source->userdata = u;
 
     u->source->parent.process_msg = source_process_msg;
+
+    source_set_mute_control(u);
 
     u->source->set_port = source_set_port_cb;
 
