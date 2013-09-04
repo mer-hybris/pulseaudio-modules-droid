@@ -229,6 +229,7 @@ static void add_profiles(struct userdata *u, pa_hashmap *h, pa_hashmap *ports) {
 
     pa_assert(u);
     pa_assert(h);
+    pa_assert(ports);
 
     PA_HASHMAP_FOREACH(ap, u->profile_set->profiles, state) {
         add_profile(u, h, ports, ap);
@@ -431,8 +432,6 @@ int pa__init(pa_module *m) {
     }
     data.namereg_fail = namereg_fail;
 
-    /* FIXME hashmap_new not needed with 4.0 */
-    data.profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
     add_profiles(u, data.profiles, data.ports);
 
     if (pa_hashmap_isempty(data.profiles)) {
@@ -484,20 +483,11 @@ void pa__done(pa_module *m) {
 
     if ((u = m->userdata)) {
 
-        /* FIXME _remove_all in 4.x */
-        if (u->card && u->card->sinks) {
-            pa_sink *s;
+        if (u->card && u->card->sinks)
+            pa_idxset_remove_all(u->card->sinks, (pa_free_cb_t) pa_droid_sink_free);
 
-            while ((s = pa_idxset_steal_first(u->card->sinks, NULL)))
-                pa_droid_sink_free(s);
-        }
-
-        if (u->card && u->card->sources) {
-            pa_source *s;
-
-            while ((s = pa_idxset_steal_first(u->card->sources, NULL)))
-                pa_droid_source_free(s);
-        }
+        if (u->card && u->card->sources)
+            pa_idxset_remove_all(u->card->sources, (pa_free_cb_t) pa_droid_source_free);
 
 
         if (u->card)

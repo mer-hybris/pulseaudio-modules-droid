@@ -495,7 +495,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_source_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     if (am)
-        pa_droid_add_ports(&data.ports, am, card);
+        pa_droid_add_ports(data.ports, am, card);
 
     u->source = pa_source_new(m->core, &data, PA_SOURCE_HARDWARE);
     pa_source_new_data_done(&data);

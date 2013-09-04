@@ -680,7 +680,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     */
 
     if (am)
-        pa_droid_add_ports(&data.ports, am, card);
+        pa_droid_add_ports(data.ports, am, card);
 
     u->sink = pa_sink_new(m->core, &data, PA_SINK_HARDWARE | PA_SINK_LATENCY | PA_SINK_FLAT_VOLUME);
     pa_sink_new_data_done(&data);
