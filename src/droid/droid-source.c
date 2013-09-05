@@ -67,6 +67,8 @@ struct userdata {
     pa_memchunk memchunk;
     audio_devices_t primary_devices;
     audio_devices_t enabled_devices;
+    pa_bool_t routing_changes_enabled;
+
     size_t buffer_size;
     pa_usec_t timestamp;
 
@@ -85,6 +87,11 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
 
     pa_assert(u);
     pa_assert(u->stream);
+
+    if (!u->routing_changes_enabled) {
+        pa_log_debug("Skipping routing change.");
+        return FALSE;
+    }
 
     if (u->primary_devices == devices)
         pa_log_debug("Refresh active device routing.");
@@ -336,6 +343,17 @@ static void source_set_mute_control(struct userdata *u) {
     }
 }
 
+void pa_droid_source_set_routing(pa_source *s, pa_bool_t enabled) {
+    struct userdata *u = s->userdata;
+
+    pa_assert(s);
+    pa_assert(s->userdata);
+
+    if (u->routing_changes_enabled != enabled)
+        pa_log_debug("%s source routing changes.", enabled ? "Enabling" : "Disabling");
+    u->routing_changes_enabled = enabled;
+}
+
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
@@ -389,6 +407,9 @@ pa_source *pa_droid_source_new(pa_module *m,
     u->card = card;
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
+
+    /* Enabled routing changes by default. */
+    u->routing_changes_enabled = TRUE;
 
     if (hw_module) {
         pa_assert(card);
