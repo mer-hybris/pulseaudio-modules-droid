@@ -86,10 +86,8 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
     pa_assert(u);
     pa_assert(u->stream);
 
-    if (u->primary_devices == devices) {
-        pa_log_debug("No change in enabled devices.");
-        return FALSE;
-    }
+    if (u->primary_devices == devices)
+        pa_log_debug("Refresh active device routing.");
 
     u->enabled_devices &= ~u->primary_devices;
     u->primary_devices = devices;
