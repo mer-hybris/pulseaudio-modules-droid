@@ -78,6 +78,7 @@ PA_MODULE_USAGE(
         "rate=<sample rate> "
         "output_flags=<flags for sink> "
         "module_id=<which droid hw module to load, default primary> "
+        "voice_source_routing=<route source ports during voice call, default FALSE> "
         "deferred_volume=<synchronize software and hardware volume changes to avoid momentary jumps?> "
         "config=<location for droid audio configuration>"
 );
@@ -91,6 +92,7 @@ static const char* const valid_modargs[] = {
     "rate",
     "output_flags",
     "module_id",
+    "voice_source_routing",
     "deferred_volume",
     "config",
     NULL,
@@ -117,6 +119,8 @@ struct userdata {
         pa_droid_profile *profile;
         pa_droid_profile *old_profile;
     } call_profile;
+
+    pa_bool_t voice_source_routing;
 
     pa_modargs *modargs;
     pa_card *card;
@@ -229,6 +233,7 @@ static void add_profiles(struct userdata *u, pa_hashmap *h, pa_hashmap *ports) {
 
     pa_assert(u);
     pa_assert(h);
+    pa_assert(ports);
 
     PA_HASHMAP_FOREACH(ap, u->profile_set->profiles, state) {
         add_profile(u, h, ports, ap);
@@ -293,6 +298,8 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
          * call profile */
         u->call_profile.old_profile = od->profile;
         pa_droid_sink_set_voice_control(u->call_profile.old_profile->output->sink, TRUE);
+        if (!u->voice_source_routing)
+            pa_droid_source_set_routing(u->call_profile.old_profile->input->source, FALSE);
         return 0;
     }
 
@@ -301,6 +308,8 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
 
         set_call_mode(u, AUDIO_MODE_NORMAL);
         pa_droid_sink_set_voice_control(u->call_profile.old_profile->output->sink, FALSE);
+        if (!u->voice_source_routing)
+            pa_droid_source_set_routing(u->call_profile.old_profile->input->source, TRUE);
 
         /* If new profile is the same as from which we switched to
          * call profile, transfer ownership back to that profile.
@@ -390,6 +399,7 @@ int pa__init(pa_module *m) {
     pa_card_new_data data;
     const char *module_id;
     pa_bool_t namereg_fail = FALSE;
+    pa_bool_t voice_source_routing = FALSE;
 
     pa_assert(m);
 
@@ -403,6 +413,12 @@ int pa__init(pa_module *m) {
 
     if (!(u->config = pa_droid_config_load(ma)))
         goto fail;
+
+    if (pa_modargs_get_value_boolean(ma, "voice_source_routing", &voice_source_routing) < 0) {
+        pa_log("Failed to parse voice_source_routing argument.");
+        goto fail;
+    }
+    u->voice_source_routing = voice_source_routing;
 
     module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
@@ -431,8 +447,6 @@ int pa__init(pa_module *m) {
     }
     data.namereg_fail = namereg_fail;
 
-    /* FIXME hashmap_new not needed with 4.0 */
-    data.profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
     add_profiles(u, data.profiles, data.ports);
 
     if (pa_hashmap_isempty(data.profiles)) {
@@ -484,20 +498,11 @@ void pa__done(pa_module *m) {
 
     if ((u = m->userdata)) {
 
-        /* FIXME _remove_all in 4.x */
-        if (u->card && u->card->sinks) {
-            pa_sink *s;
+        if (u->card && u->card->sinks)
+            pa_idxset_remove_all(u->card->sinks, (pa_free_cb_t) pa_droid_sink_free);
 
-            while ((s = pa_idxset_steal_first(u->card->sinks, NULL)))
-                pa_droid_sink_free(s);
-        }
-
-        if (u->card && u->card->sources) {
-            pa_source *s;
-
-            while ((s = pa_idxset_steal_first(u->card->sources, NULL)))
-                pa_droid_source_free(s);
-        }
+        if (u->card && u->card->sources)
+            pa_idxset_remove_all(u->card->sources, (pa_free_cb_t) pa_droid_source_free);
 
 
         if (u->card)

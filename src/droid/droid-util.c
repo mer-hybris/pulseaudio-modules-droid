@@ -659,7 +659,7 @@ void pa_droid_mapping_free(pa_droid_mapping *am) {
 
     pa_xfree(am->name);
     pa_proplist_free(am->proplist);
-    pa_idxset_free(am->ports, NULL, NULL);
+    pa_idxset_free(am->ports, NULL);
     pa_xfree(am);
 }
 
@@ -685,37 +685,25 @@ void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
     if (ps->output_mappings) {
         pa_droid_mapping *am;
 
-        while ((am = pa_hashmap_steal_first(ps->output_mappings)))
-            pa_droid_mapping_free(am);
-
-        pa_hashmap_free(ps->output_mappings, NULL, NULL);
+        pa_hashmap_free(ps->output_mappings, pa_droid_mapping_free);
     }
 
     if (ps->input_mappings) {
         pa_droid_mapping *am;
 
-        while ((am = pa_hashmap_steal_first(ps->input_mappings)))
-            pa_droid_mapping_free(am);
-
-        pa_hashmap_free(ps->input_mappings, NULL, NULL);
+        pa_hashmap_free(ps->input_mappings, pa_droid_mapping_free);
     }
 
     if (ps->all_ports) {
         pa_droid_port *p;
 
-        while ((p = pa_hashmap_steal_first(ps->all_ports)))
-            droid_port_free(p);
-
-        pa_hashmap_free(ps->all_ports, NULL, NULL);
+        pa_hashmap_free(ps->all_ports, droid_port_free);
     }
 
     if (ps->profiles) {
         pa_droid_profile *p;
 
-        while ((p = pa_hashmap_steal_first(ps->profiles)))
-            pa_droid_profile_free(p);
-
-        pa_hashmap_free(ps->profiles, NULL, NULL);
+        pa_hashmap_free(ps->profiles, pa_droid_profile_free);
     }
 
     pa_xfree(ps);
@@ -906,14 +894,10 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
 }
 
 
-void pa_droid_add_ports(pa_hashmap **p, pa_droid_mapping *am, pa_card *card) {
+void pa_droid_add_ports(pa_hashmap *p, pa_droid_mapping *am, pa_card *card) {
     pa_assert(p);
-    pa_assert(!*p);
 
-    if (!*p)
-        *p = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-
-    add_ports(card->core, NULL, card->ports, am, *p);
+    add_ports(card->core, NULL, card->ports, am, p);
 }
 
 void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_core *core) {

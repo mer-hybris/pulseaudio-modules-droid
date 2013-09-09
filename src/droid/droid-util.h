@@ -216,7 +216,7 @@ pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t 
 void pa_droid_mapping_free(pa_droid_mapping *am);
 
 /* Add ports from sinks/sources */
-void pa_droid_add_ports(pa_hashmap **p, pa_droid_mapping *am, pa_card *card);
+void pa_droid_add_ports(pa_hashmap *ports, pa_droid_mapping *am, pa_card *card);
 /* Add ports from card */
 void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_core *core);
 

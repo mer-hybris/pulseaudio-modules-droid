@@ -95,10 +95,8 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
     pa_assert(u);
     pa_assert(u->stream_out);
 
-    if (u->primary_devices == devices) {
-        pa_log_debug("No change in enabled devices.");
-        return FALSE;
-    }
+    if (u->primary_devices == devices)
+        pa_log_debug("Refresh active device routing.");
 
     u->enabled_devices &= ~u->primary_devices;
     u->primary_devices = devices;
@@ -680,7 +678,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     */
 
     if (am)
-        pa_droid_add_ports(&data.ports, am, card);
+        pa_droid_add_ports(data.ports, am, card);
 
     u->sink = pa_sink_new(m->core, &data, PA_SINK_HARDWARE | PA_SINK_LATENCY | PA_SINK_FLAT_VOLUME);
     pa_sink_new_data_done(&data);
