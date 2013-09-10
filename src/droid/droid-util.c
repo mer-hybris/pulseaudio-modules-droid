@@ -685,25 +685,25 @@ void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
     if (ps->output_mappings) {
         pa_droid_mapping *am;
 
-        pa_hashmap_free(ps->output_mappings, pa_droid_mapping_free);
+        pa_hashmap_free(ps->output_mappings, (pa_free_cb_t) pa_droid_mapping_free);
     }
 
     if (ps->input_mappings) {
         pa_droid_mapping *am;
 
-        pa_hashmap_free(ps->input_mappings, pa_droid_mapping_free);
+        pa_hashmap_free(ps->input_mappings, (pa_free_cb_t) pa_droid_mapping_free);
     }
 
     if (ps->all_ports) {
         pa_droid_port *p;
 
-        pa_hashmap_free(ps->all_ports, droid_port_free);
+        pa_hashmap_free(ps->all_ports, (pa_free_cb_t) droid_port_free);
     }
 
     if (ps->profiles) {
         pa_droid_profile *p;
 
-        pa_hashmap_free(ps->profiles, pa_droid_profile_free);
+        pa_hashmap_free(ps->profiles, (pa_free_cb_t) pa_droid_profile_free);
     }
 
     pa_xfree(ps);
