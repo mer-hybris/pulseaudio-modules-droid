@@ -12,11 +12,17 @@ modlibexec_LTLIBRARIES = \
 	libdroid-util.la \
 	libdroid-sink.la \
 	libdroid-source.la \
+	module-droid-keepalive.la \
 	module-droid-sink.la \
 	module-droid-source.la \
 	module-droid-card.la
 
-noinst_HEADERS = module-droid-sink-symdef.h module-droid-card-symdef.h
+noinst_HEADERS = module-droid-sink-symdef.h module-droid-source-symdef.h module-droid-card-symdef.h module-droid-keepalive-symdef.h
+
+module_droid_keepalive_la_SOURCES = keepalive.c keepalive.h module-droid-keepalive.c
+module_droid_keepalive_la_LDFLAGS = -module -avoid-version -Wl,-no-undefined -Wl,-z,noexecstack
+module_droid_keepalive_la_LIBADD = $(AM_LIBADD) $(DBUS_LIBS)
+module_droid_keepalive_la_CFLAGS = $(AM_CFLAGS) $(DBUS_CFLAGS)
 
 libdroid_util_la_SOURCES = droid-util.c droid-util.h
 libdroid_util_la_LDFLAGS = -avoid-version -Wl,-no-undefined -Wl,-z,noexecstack -lhybris-common
