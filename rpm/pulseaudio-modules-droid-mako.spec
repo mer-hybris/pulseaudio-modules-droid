@@ -19,6 +19,7 @@ BuildRequires:  libtool-ltdl-devel
 BuildRequires:  pkgconfig(pulsecore) >= %{pulseversion}
 BuildRequires:  pkgconfig(android-headers)
 BuildRequires:  pkgconfig(libhardware)
+BuildRequires:  pkgconfig(dbus-1)
 Provides: pulseaudio-modules-droid
 
 %description
