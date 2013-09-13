@@ -27,6 +27,7 @@
 #endif
 #include <pulsecore/core-util.h>
 #include <pulsecore/macro.h>
+#include <pulsecore/mutex.h>
 
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
@@ -49,6 +50,7 @@ struct pa_droid_hw_module {
 
     pa_droid_config_audio *config;
     const pa_droid_config_hw_module *enabled_module;
+    pa_mutex *hw_mutex;
 
     struct hw_module_t *hwmod;
     audio_hw_device_t *device;
@@ -183,6 +185,10 @@ struct pa_droid_profile_set {
 pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, pa_droid_config_audio *config, const char *module_id);
 pa_droid_hw_module *pa_droid_hw_module_ref(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unref(pa_droid_hw_module *hw);
+
+void pa_droid_hw_module_lock(pa_droid_hw_module *hw);
+pa_bool_t pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
+void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
 
 /* Conversion helpers */
 typedef enum {

@@ -104,7 +104,9 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
 
     pa_snprintf(tmp, sizeof(tmp), "routing=%u;", u->enabled_devices);
     pa_log_debug("set_parameters(): %s", tmp);
+    pa_droid_hw_module_lock(u->hw_module);
     u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
+    pa_droid_hw_module_unlock(u->hw_module);
 
     return TRUE;
 }
@@ -406,15 +408,19 @@ static void sink_set_volume_cb(pa_sink *s) {
     if (r.channels == 1) {
         float val = pa_sw_volume_to_linear(r.values[0]);
         pa_log_debug("Set hw volume %f", val);
+        pa_droid_hw_module_lock(u->hw_module);
         if (u->stream_out->set_volume(u->stream_out, val, val) < 0)
             pa_log_warn("Failed to set hw volume.");
+        pa_droid_hw_module_unlock(u->hw_module);
     } else if (r.channels == 2) {
         float val[2];
         for (unsigned i = 0; i < 2; i++)
             val[i] = pa_sw_volume_to_linear(r.values[i]);
         pa_log_debug("Set hw volume %f : %f", val[0], val[1]);
+        pa_droid_hw_module_lock(u->hw_module);
         if (u->stream_out->set_volume(u->stream_out, val[0], val[1]) < 0)
             pa_log_warn("Failed to set hw volume.");
+        pa_droid_hw_module_unlock(u->hw_module);
     }
 }
 
@@ -428,18 +434,23 @@ static void sink_set_voice_volume_cb(pa_sink *s) {
 
     val = pa_sw_volume_to_linear(pa_cvolume_avg(&r));
     pa_log_debug("Set voice volume %f", val);
+
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->hw_module->device->set_voice_volume(u->hw_module->device, val) < 0)
         pa_log_warn("Failed to set voice volume.");
+    pa_droid_hw_module_unlock(u->hw_module);
 }
 
 static void update_volumes(struct userdata *u) {
     int ret = -1;
 
     /* set_volume returns 0 if hw volume control is implemented, < 0 otherwise. */
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->stream_out->set_volume) {
         pa_log_debug("Probe hw volume support for %s", u->sink->name);
         ret = u->stream_out->set_volume(u->stream_out, 1.0f, 1.0f);
     }
+    pa_droid_hw_module_unlock(u->hw_module);
 
     u->use_hw_volume = (ret == 0);
 
@@ -602,12 +613,14 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     if (am)
         flags = am->output->flags;
 
+    pa_droid_hw_module_lock(u->hw_module);
     ret = u->hw_module->device->open_output_stream(u->hw_module->device,
                                                    u->hw_module->stream_out_id++,
                                                    dev_out,
                                                    flags,
                                                    &config_out,
                                                    &u->stream_out);
+    pa_droid_hw_module_unlock(u->hw_module);
 
     if (!u->stream_out) {
         pa_log("Failed to open output stream. (errno %d)", ret);
@@ -764,8 +777,11 @@ static void userdata_free(struct userdata *u) {
     if (u->sink)
         pa_sink_unref(u->sink);
 
-    if (u->hw_module && u->stream_out)
+    if (u->hw_module && u->stream_out) {
+        pa_droid_hw_module_lock(u->hw_module);
         u->hw_module->device->close_output_stream(u->hw_module->device, u->stream_out);
+        pa_droid_hw_module_unlock(u->hw_module);
+    }
 
     if (u->memblockq)
         pa_memblockq_free(u->memblockq);

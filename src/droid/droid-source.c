@@ -310,10 +310,13 @@ static void source_get_mute_cb(pa_source *s) {
     pa_assert(u);
     pa_assert(u->hw_module && u->hw_module->device);
 
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->hw_module->device->get_mic_mute(u->hw_module->device, &b) < 0) {
         pa_log("Failed to get mute state.");
+        pa_droid_hw_module_unlock(u->hw_module);
         return;
     }
+    pa_droid_hw_module_unlock(u->hw_module);
 
     s->muted = b;
 }
@@ -324,8 +327,10 @@ static void source_set_mute_cb(pa_source *s) {
     pa_assert(u);
     pa_assert(u->hw_module && u->hw_module->device);
 
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->hw_module->device->set_mic_mute(u->hw_module->device, s->muted) < 0)
         pa_log("Failed to set mute state to %smuted.", s->muted ? "" : "un");
+    pa_droid_hw_module_unlock(u->hw_module);
 }
 
 static void source_set_mute_control(struct userdata *u) {
@@ -466,11 +471,13 @@ pa_source *pa_droid_source_new(pa_module *m,
     dev_in = AUDIO_DEVICE_IN_BUILTIN_MIC;
 #endif
     dev_in = AUDIO_DEVICE_IN_DEFAULT;
+    pa_droid_hw_module_lock(u->hw_module);
     ret = u->hw_module->device->open_input_stream(u->hw_module->device,
                                                   u->hw_module->stream_in_id++,
                                                   dev_in,
                                                   &config_in,
                                                   &u->stream);
+    pa_droid_hw_module_unlock(u->hw_module);
 
     if (ret < 0) {
         pa_log("Failed to open input stream.");
@@ -600,8 +607,11 @@ static void userdata_free(struct userdata *u) {
     if (u->memchunk.memblock)
         pa_memblock_unref(u->memchunk.memblock);
 
-    if (u->hw_module && u->stream)
+    if (u->hw_module && u->stream) {
+        pa_droid_hw_module_lock(u->hw_module);
         u->hw_module->device->close_input_stream(u->hw_module->device, u->stream);
+        pa_droid_hw_module_unlock(u->hw_module);
+    }
 
     // Stand alone source
     if (u->hw_module)

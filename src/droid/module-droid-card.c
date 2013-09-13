@@ -178,8 +178,11 @@ static void set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
 
     u = card_data->userdata;
 
-    if (u)
+    if (u) {
+        pa_droid_hw_module_lock(u->hw_module);
         u->hw_module->device->set_parameters(u->hw_module->device, str);
+        pa_droid_hw_module_unlock(u->hw_module);
+    }
 }
 
 static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *module_id) {
@@ -266,18 +269,20 @@ static void init_profile(struct userdata *u) {
 }
 
 static int set_call_mode(struct userdata *u, audio_mode_t mode) {
+    int ret;
+
     pa_assert(u);
     pa_assert(u->hw_module);
     pa_assert(u->hw_module->device);
 
     pa_log_debug("Set mode to %s.", mode == AUDIO_MODE_IN_CALL ? "AUDIO_MODE_IN_CALL" : "AUDIO_MODE_NORMAL");
 
-    if (u->hw_module->device->set_mode(u->hw_module->device, mode) < 0) {
+    pa_droid_hw_module_lock(u->hw_module);
+    if ((ret = u->hw_module->device->set_mode(u->hw_module->device, mode)) < 0)
         pa_log("Failed to set mode.");
-        return -1;
-    }
+    pa_droid_hw_module_unlock(u->hw_module);
 
-    return 0;
+    return ret;
 }
 
 static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {

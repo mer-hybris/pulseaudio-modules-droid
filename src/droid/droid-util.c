@@ -53,6 +53,7 @@
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/refcnt.h>
 #include <pulsecore/shared.h>
+#include <pulsecore/mutex.h>
 
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
@@ -959,6 +960,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     PA_REFCNT_INIT(hw);
     hw->core = core;
     hw->hwmod = hwmod;
+    hw->hw_mutex = pa_mutex_new(TRUE, FALSE);
     hw->device = device;
     hw->config = pa_xnew(pa_droid_config_audio, 1);
     memcpy(hw->config, config, sizeof(pa_droid_config_audio));
@@ -1016,6 +1018,9 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     if (hw->device)
         audio_hw_device_close(hw->device);
 
+    if (hw->hw_mutex)
+        pa_mutex_free(hw->hw_mutex);
+
     pa_xfree(hw);
 }
 
@@ -1067,4 +1072,22 @@ pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
 fail:
     pa_xfree(config);
     return NULL;
+}
+
+void pa_droid_hw_module_lock(pa_droid_hw_module *hw) {
+    pa_assert(hw);
+
+    pa_mutex_lock(hw->hw_mutex);
+}
+
+pa_bool_t pa_droid_hw_module_try_lock(pa_droid_hw_module *hw) {
+    pa_assert(hw);
+
+    return pa_mutex_try_lock(hw->hw_mutex);
+}
+
+void pa_droid_hw_module_unlock(pa_droid_hw_module *hw) {
+    pa_assert(hw);
+
+    pa_mutex_unlock(hw->hw_mutex);
 }
