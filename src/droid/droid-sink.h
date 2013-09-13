@@ -46,7 +46,7 @@
 pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_modargs *ma,
                              const char *driver,
-                             pa_droid_hw_module *hw_module,
+                             pa_droid_card_data *card_data,
                              audio_output_flags_t flags,
                              pa_droid_mapping *am,
                              pa_card *card);

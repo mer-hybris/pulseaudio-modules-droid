@@ -72,7 +72,7 @@ struct userdata {
     size_t buffer_size;
     pa_usec_t timestamp;
 
-    pa_droid_config_audio *config; /* Only used when used without card */
+    pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     audio_stream_in_t *stream;
 };
@@ -107,7 +107,7 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
     pa_xfree(devlist);
 #ifdef DROID_DEVICE_MAKO
 #warning Using mako set_parameters hack.
-    u->hw_module->set_parameters(u->hw_module, tmp);
+    u->card_data->set_parameters(u->card_data, tmp);
 #else
     u->stream->common.set_parameters(&u->stream->common, tmp);
 #endif
@@ -357,7 +357,7 @@ void pa_droid_source_set_routing(pa_source *s, pa_bool_t enabled) {
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
-                                 pa_droid_hw_module *hw_module,
+                                 pa_droid_card_data *card_data,
                                  pa_droid_mapping *am,
                                  pa_card *card) {
 
@@ -372,6 +372,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_bool_t namereg_fail = FALSE;
+    pa_droid_config_audio *config = NULL; /* Only used when used without card */
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -411,16 +412,17 @@ pa_source *pa_droid_source_new(pa_module *m,
     /* Enabled routing changes by default. */
     u->routing_changes_enabled = TRUE;
 
-    if (hw_module) {
+    if (card_data) {
         pa_assert(card);
-        u->hw_module = hw_module;
+        u->card_data = card_data;
+        pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
         /* Stand-alone source */
 
-        if (!(u->config = pa_droid_config_load(ma)))
+        if (!(config = pa_droid_config_load(ma)))
             goto fail;
 
-        if (!(u->hw_module = pa_droid_hw_module_open(u->config, module_id, u)))
+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
             goto fail;
     }
 
@@ -554,10 +556,16 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     pa_source_put(u->source);
 
+    if (config)
+        pa_xfree(config);
+
     return u->source;
 
 fail:
     pa_xfree(thread_name);
+
+    if (config)
+        pa_xfree(config);
 
     if (u)
         userdata_free(u);
@@ -596,11 +604,8 @@ static void userdata_free(struct userdata *u) {
         u->hw_module->device->close_input_stream(u->hw_module->device, u->stream);
 
     // Stand alone source
-    if (!u->card && u->hw_module)
-        pa_droid_hw_module_close(u->hw_module);
-
-    if (u->config)
-        pa_xfree(u->config);
+    if (u->hw_module)
+        pa_droid_hw_module_unref(u->hw_module);
 
     pa_xfree(u);
 }

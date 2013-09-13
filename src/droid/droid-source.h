@@ -46,7 +46,7 @@
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
-                                 pa_droid_hw_module *hw_module,
+                                 pa_droid_card_data *card_data,
                                  pa_droid_mapping *am,
                                  pa_card *card);
 void pa_droid_source_free(pa_source *s);

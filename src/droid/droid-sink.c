@@ -80,7 +80,7 @@ struct userdata {
 
     pa_bool_t use_hw_volume;
 
-    pa_droid_config_audio *config; /* Only used when used without card */
+    pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     struct audio_stream_out *stream_out;
 };
@@ -488,7 +488,7 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable) {
 pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_modargs *ma,
                              const char *driver,
-                             pa_droid_hw_module *hw_module,
+                             pa_droid_card_data *card_data,
                              audio_output_flags_t flags,
                              pa_droid_mapping *am,
                              pa_card *card) {
@@ -507,6 +507,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_channel_map channel_map;
     pa_bool_t namereg_fail = FALSE;
     uint32_t total_latency;
+    pa_droid_config_audio *config = NULL; /* Only used when used without card */
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -549,19 +550,20 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
-    if (hw_module) {
+    if (card_data) {
+        u->card_data = card_data;
         pa_assert(card);
-        u->hw_module = hw_module;
+        pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
         /* Sink wasn't created from inside card module, so we'll need to open
          * hw module ourselves.
          * TODO some way to share hw module between other sinks/sources since
          * opening same module from different places likely isn't a good thing. */
 
-        if (!(u->config = pa_droid_config_load(ma)))
+        if (!(config = pa_droid_config_load(ma)))
             goto fail;
 
-        if (!(u->hw_module = pa_droid_hw_module_open(u->config, module_id, u)))
+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
             goto fail;
     }
 
@@ -721,10 +723,16 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     pa_sink_put(u->sink);
 
+    if (config)
+        pa_xfree(config);
+
     return u->sink;
 
 fail:
     pa_xfree(thread_name);
+
+    if (config)
+        pa_xfree(config);
 
     if (u)
         userdata_free(u);
@@ -765,12 +773,8 @@ static void userdata_free(struct userdata *u) {
     if (u->silence.memblock)
         pa_memblock_unref(u->silence.memblock);
 
-    /* Stand-alone sink */
-    if (!u->card && u->hw_module)
-        pa_droid_hw_module_close(u->hw_module);
-
-    if (u->config)
-        pa_xfree(u->config);
+    if (u->hw_module)
+        pa_droid_hw_module_unref(u->hw_module);
 
     pa_xfree(u);
 }

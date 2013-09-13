@@ -112,8 +112,8 @@ struct userdata {
 
     pa_droid_profile_set *profile_set;
 
-    pa_droid_config_audio *config;
     pa_droid_hw_module *hw_module;
+    pa_droid_card_data card_data;
 
     struct call_profile_data {
         pa_droid_profile *profile;
@@ -170,12 +170,16 @@ static void add_call_profile(struct userdata *u, pa_hashmap *profiles) {
     pa_hashmap_put(profiles, cp->name, cp);
 }
 
-static void set_parameters_cb(pa_droid_hw_module *module, const char *str) {
-    pa_assert(module);
+static void set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
+    struct userdata *u;
+
+    pa_assert(card_data);
     pa_assert(str);
 
-    if (module->device)
-        module->device->set_parameters(module->device, str);
+    u = card_data->userdata;
+
+    if (u)
+        u->hw_module->device->set_parameters(u->hw_module->device, str);
 }
 
 static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *module_id) {
@@ -252,12 +256,12 @@ static void init_profile(struct userdata *u) {
 
     if (d->profile && d->profile->output) {
         am = d->profile->output;
-        am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, u->hw_module, 0, am, u->card);
+        am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
     }
 
     if (d->profile && d->profile->input) {
         am = d->profile->input;
-        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, u->hw_module, am, u->card);
+        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
     }
 }
 
@@ -364,7 +368,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         am = nd->profile->output;
 
         if (!am->sink)
-            am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, u->hw_module, 0, am, u->card);
+            am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
 
         if (sink_inputs && am->sink) {
             pa_sink_move_all_finish(am->sink, sink_inputs, FALSE);
@@ -376,7 +380,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         am = nd->profile->input;
 
         if (!am->source)
-            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, u->hw_module, am, u->card);
+            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
 
         if (source_outputs && am->source) {
             pa_source_move_all_finish(am->source, source_outputs, FALSE);
@@ -397,6 +401,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
 int pa__init(pa_module *m) {
     pa_modargs *ma = NULL;
     pa_card_new_data data;
+    pa_droid_config_audio *config = NULL;
     const char *module_id;
     pa_bool_t namereg_fail = FALSE;
     pa_bool_t voice_source_routing = FALSE;
@@ -411,7 +416,7 @@ int pa__init(pa_module *m) {
     struct userdata *u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
 
-    if (!(u->config = pa_droid_config_load(ma)))
+    if (!(config = pa_droid_config_load(ma)))
         goto fail;
 
     if (pa_modargs_get_value_boolean(ma, "voice_source_routing", &voice_source_routing) < 0) {
@@ -422,10 +427,12 @@ int pa__init(pa_module *m) {
 
     module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
-    if (!(u->hw_module = pa_droid_hw_module_open(u->config, module_id, u)))
+    if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
         goto fail;
 
-    u->hw_module->set_parameters = set_parameters_cb;
+    u->card_data.set_parameters = set_parameters_cb;
+    u->card_data.module_id = pa_xstrdup(module_id);
+    u->card_data.userdata = u;
 
     u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
 
@@ -479,12 +486,15 @@ int pa__init(pa_module *m) {
 
     init_profile(u);
 
+    pa_xfree(config);
 
     return 0;
 
 fail:
     if (ma)
         pa_modargs_free(ma);
+
+    pa_xfree(config);
 
     pa__done(m);
 
@@ -514,11 +524,11 @@ void pa__done(pa_module *m) {
         if (u->profile_set)
             pa_droid_profile_set_free(u->profile_set);
 
-        if (u->hw_module)
-            pa_droid_hw_module_close(u->hw_module);
+        if (u->card_data.module_id)
+            pa_xfree(u->card_data.module_id);
 
-        if (u->config)
-            pa_xfree(u->config);
+        if (u->hw_module)
+            pa_droid_hw_module_unref(u->hw_module);
 
         pa_xfree(u);
     }

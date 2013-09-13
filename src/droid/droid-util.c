@@ -51,6 +51,8 @@
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/time-smoother.h>
+#include <pulsecore/refcnt.h>
+#include <pulsecore/shared.h>
 
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
@@ -908,15 +910,26 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
     add_ports(core, cp, ports, am, NULL);
 }
 
-pa_droid_hw_module *pa_droid_hw_module_open(pa_droid_config_audio *config, const char *module_id, void *userdata) {
+static char *shared_name_get(const char *module_id) {
+    pa_assert(module_id);
+    return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
+}
+
+static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_audio *config, const char *module_id) {
     const pa_droid_config_hw_module *module;
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
     audio_hw_device_t *device = NULL;
+    char *shared_name;
     int ret;
 
-    pa_assert(config);
+    pa_assert(core);
     pa_assert(module_id);
+
+    if (!config) {
+        pa_log("No configuration provided for opening module with id %s", module_id);
+        goto fail;
+    }
 
     if (!(module = pa_droid_config_find_module(config, module_id))) {
         pa_log("Couldn't find module with id %s", module_id);
@@ -929,7 +942,7 @@ pa_droid_hw_module *pa_droid_hw_module_open(pa_droid_config_audio *config, const
         goto fail;
     }
 
-    pa_log_debug("Loaded hw module %s", module->name);
+    pa_log_info("Loaded hw module %s", module->name);
 
     ret = audio_hw_device_open(hwmod, &device);
     if (!device) {
@@ -943,12 +956,17 @@ pa_droid_hw_module *pa_droid_hw_module_open(pa_droid_config_audio *config, const
     }
 
     hw = pa_xnew0(pa_droid_hw_module, 1);
+    PA_REFCNT_INIT(hw);
+    hw->core = core;
     hw->hwmod = hwmod;
     hw->device = device;
-    hw->config = config;
+    hw->config = pa_xnew(pa_droid_config_audio, 1);
+    memcpy(hw->config, config, sizeof(pa_droid_config_audio));
     hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
     hw->module_id = hw->enabled_module->name;
-    hw->userdata = userdata;
+
+    shared_name = shared_name_get(hw->module_id);
+    pa_assert_se(pa_shared_set(core, shared_name, hw) >= 0);
 
     return hw;
 
@@ -962,18 +980,58 @@ fail:
     return NULL;
 }
 
-void pa_droid_hw_module_close(pa_droid_hw_module *hw) {
+pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, pa_droid_config_audio *config, const char *module_id) {
+    pa_droid_hw_module *hw;
+    char *shared_name;
+
+    pa_assert(core);
+    pa_assert(module_id);
+
+    shared_name = shared_name_get(module_id);
+    if ((hw = pa_shared_get(core, shared_name)))
+        hw = pa_droid_hw_module_ref(hw);
+    else
+        hw = droid_hw_module_open(core, config, module_id);
+
+    pa_xfree(shared_name);
+    return hw;
+}
+
+pa_droid_hw_module *pa_droid_hw_module_ref(pa_droid_hw_module *hw) {
+    pa_assert(hw);
+    pa_assert(PA_REFCNT_VALUE(hw) >= 1);
+
+    PA_REFCNT_INC(hw);
+    return hw;
+}
+
+static void droid_hw_module_close(pa_droid_hw_module *hw) {
     pa_assert(hw);
 
-    /*
+    pa_log_info("Closing hw module %s", hw->enabled_module->name);
+
     if (hw->config)
         pa_xfree(hw->config);
-    */
 
     if (hw->device)
         audio_hw_device_close(hw->device);
 
     pa_xfree(hw);
+}
+
+void pa_droid_hw_module_unref(pa_droid_hw_module *hw) {
+    char *shared_name;
+
+    pa_assert(hw);
+    pa_assert(PA_REFCNT_VALUE(hw) >= 1);
+
+    if (PA_REFCNT_DEC(hw) > 0)
+        return;
+
+    shared_name = shared_name_get(hw->module_id);
+    pa_assert_se(pa_shared_remove(hw->core, shared_name) >= 0);
+    pa_xfree(shared_name);
+    droid_hw_module_close(hw);
 }
 
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
