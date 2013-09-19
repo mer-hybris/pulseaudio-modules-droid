@@ -76,9 +76,12 @@ struct userdata {
     pa_usec_t timestamp;
 
     audio_devices_t primary_devices;
-    audio_devices_t enabled_devices;
+    audio_devices_t extra_devices;
 
     pa_bool_t use_hw_volume;
+
+    pa_hook_slot *sink_input_put_hook_slot;
+    pa_hook_slot *sink_input_unlink_hook_slot;
 
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
@@ -87,22 +90,41 @@ struct userdata {
 
 #define DEFAULT_MODULE_ID "primary"
 
+#define PROP_DROID_ROUTE "droid.device.additional-route"
+
 static void userdata_free(struct userdata *u);
 
-static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
+static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
+    pa_assert(u);
+    pa_assert(devices);
+
+    u->primary_devices = devices;
+}
+
+static void add_extra_devices(struct userdata *u, audio_devices_t devices) {
+    pa_assert(u);
+    pa_assert(devices);
+
+    u->extra_devices |= devices;
+}
+
+static void remove_extra_devices(struct userdata *u, audio_devices_t devices) {
+    pa_assert(u);
+    pa_assert(devices);
+
+    u->extra_devices &= ~devices;
+}
+
+static pa_bool_t do_routing(struct userdata *u) {
+    audio_devices_t routing;
     char tmp[32];
 
     pa_assert(u);
     pa_assert(u->stream_out);
 
-    if (u->primary_devices == devices)
-        pa_log_debug("Refresh active device routing.");
+    routing = u->primary_devices | u->extra_devices;
 
-    u->enabled_devices &= ~u->primary_devices;
-    u->primary_devices = devices;
-    u->enabled_devices |= u->primary_devices;
-
-    pa_snprintf(tmp, sizeof(tmp), "routing=%u;", u->enabled_devices);
+    pa_snprintf(tmp, sizeof(tmp), "routing=%u;", routing);
     pa_log_debug("set_parameters(): %s", tmp);
     pa_droid_hw_module_lock(u->hw_module);
     u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
@@ -393,7 +415,8 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
     pa_log_debug("Sink set port %u", data->device);
 
-    do_routing(u, data->device);
+    set_primary_devices(u, data->device);
+    do_routing(u);
 
     return 0;
 }
@@ -494,6 +517,45 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable) {
             pa_sink_set_set_volume_callback(u->sink, NULL);
         }
     }
+}
+
+/* When sink-input with proper proplist variable appears, do extra routing configuration
+ * for the lifetime of that sink-input. */
+static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_input, struct userdata *u) {
+    const char *dev_str;
+    audio_devices_t devices;
+
+    if ((dev_str = pa_proplist_gets(sink_input->proplist, PROP_DROID_ROUTE))) {
+
+        if (parse_device_list(dev_str, &devices) && devices) {
+
+            pa_log_debug("Add extra route %s (%u).", dev_str, devices);
+
+            add_extra_devices(u, devices);
+            do_routing(u);
+        }
+    }
+
+    return PA_HOOK_OK;
+}
+
+/* Remove extra routing when sink-inputs disappear. */
+static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sink_input, struct userdata *u) {
+    const char *dev_str;
+    audio_devices_t devices;
+
+    if ((dev_str = pa_proplist_gets(sink_input->proplist, PROP_DROID_ROUTE))) {
+
+        if (parse_device_list(dev_str, &devices) && devices) {
+
+            pa_log_debug("Remove extra route %s (%u).", dev_str, devices);
+
+            remove_extra_devices(u, devices);
+            do_routing(u);
+        }
+    }
+
+    return PA_HOOK_OK;
 }
 
 pa_sink *pa_droid_sink_new(pa_module *m,
@@ -732,6 +794,13 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     if (u->sink->active_port)
         sink_set_port_cb(u->sink, u->sink->active_port);
 
+    /* Hooks to track appearance and disappearance of sink-inputs. */
+    /* Hook a little bit later than module-role-cork. */
+    u->sink_input_put_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_PUT], PA_HOOK_LATE+10,
+            (pa_hook_cb_t) sink_input_put_hook_cb, u);
+    u->sink_input_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_LATE+10,
+            (pa_hook_cb_t) sink_input_unlink_hook_cb, u);
+
     update_volumes(u);
 
     pa_sink_put(u->sink);
@@ -773,6 +842,12 @@ static void userdata_free(struct userdata *u) {
     }
 
     pa_thread_mq_done(&u->thread_mq);
+
+    if (u->sink_input_put_hook_slot)
+        pa_hook_slot_free(u->sink_input_put_hook_slot);
+
+    if (u->sink_input_unlink_hook_slot)
+        pa_hook_slot_free(u->sink_input_unlink_hook_slot);
 
     if (u->sink)
         pa_sink_unref(u->sink);
