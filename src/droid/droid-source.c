@@ -277,6 +277,14 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     data = PA_DEVICE_PORT_DATA(p);
 
+    if (!data->device) {
+        /* If there is no device defined, just return 0 to say everything is ok.
+         * Then next port change can be whatever source port, even the one enabled
+         * before parking. */
+        pa_log_debug("Source set port to parking");
+        return 0;
+    }
+
     pa_log_debug("Source set port %u", data->device);
 
     do_routing(u, data->device);

@@ -413,6 +413,14 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
     data = PA_DEVICE_PORT_DATA(p);
 
+    if (!data->device) {
+        /* If there is no device defined, just return 0 to say everything is ok.
+         * Then next port change can be whatever sink port, even the one enabled
+         * before parking. */
+        pa_log_debug("Sink set port to parking");
+        return 0;
+    }
+
     pa_log_debug("Sink set port %u", data->device);
 
     set_primary_devices(u, data->device);

@@ -180,6 +180,9 @@ struct pa_droid_profile_set {
     pa_hashmap *profiles;
 };
 
+#define PA_DROID_OUTPUT_PARKING "output-parking"
+#define PA_DROID_INPUT_PARKING "input-parking"
+
 /* Open hardware module */
 /* 'config' can be NULL if it is assumed that hw module with module_id already is open. */
 pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, pa_droid_config_audio *config, const char *module_id);

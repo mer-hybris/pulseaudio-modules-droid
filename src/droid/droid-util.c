@@ -757,6 +757,22 @@ static void add_o_ports(pa_droid_mapping *am) {
             devices &= ~cur_device;
         }
     }
+
+    if (!(p = pa_hashmap_get(am->profile_set->all_ports, PA_DROID_OUTPUT_PARKING))) {
+        pa_log_debug("  New output port %s", PA_DROID_OUTPUT_PARKING);
+        /* Create parking port for output mapping to be used when audio_mode_t changes. */
+        p = pa_xnew0(pa_droid_port, 1);
+        p->mapping = am;
+        p->name = pa_sprintf_malloc(PA_DROID_OUTPUT_PARKING);
+        p->description = pa_sprintf_malloc("Parking port");
+        p->priority = 50;
+        p->device = 0; /* No routing */
+
+        pa_hashmap_put(am->profile_set->all_ports, p->name, p);
+    } else
+        pa_log_debug("  Output port %s from cache", PA_DROID_OUTPUT_PARKING);
+
+    pa_idxset_put(am->ports, p, NULL);
 }
 
 static void add_i_ports(pa_droid_mapping *am) {
@@ -804,6 +820,22 @@ static void add_i_ports(pa_droid_mapping *am) {
             devices &= ~cur_device;
         }
     }
+
+    if (!(p = pa_hashmap_get(am->profile_set->all_ports, PA_DROID_INPUT_PARKING))) {
+        pa_log_debug("  New input port %s", PA_DROID_INPUT_PARKING);
+        /* Create parking port for input mapping to be used when audio_mode_t changes. */
+        p = pa_xnew0(pa_droid_port, 1);
+        p->mapping = am;
+        p->name = pa_sprintf_malloc(PA_DROID_INPUT_PARKING);
+        p->description = pa_sprintf_malloc("Parking port");
+        p->priority = 50;
+        p->device = 0; /* No routing */
+
+        pa_hashmap_put(am->profile_set->all_ports, p->name, p);
+    } else
+        pa_log_debug("  Input port %s from cache", PA_DROID_INPUT_PARKING);
+
+    pa_idxset_put(am->ports, p, NULL);
 }
 
 pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t direction, const void *data) {

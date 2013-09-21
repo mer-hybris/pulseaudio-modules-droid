@@ -268,7 +268,7 @@ static void init_profile(struct userdata *u) {
     }
 }
 
-static int set_call_mode(struct userdata *u, audio_mode_t mode) {
+static int set_mode(struct userdata *u, audio_mode_t mode) {
     int ret;
 
     pa_assert(u);
@@ -283,6 +283,15 @@ static int set_call_mode(struct userdata *u, audio_mode_t mode) {
     pa_droid_hw_module_unlock(u->hw_module);
 
     return ret;
+}
+
+static void park_profile(pa_droid_profile *dp) {
+    pa_assert(dp);
+
+    if (dp->output && dp->output->sink)
+        pa_sink_set_port(dp->output->sink, PA_DROID_OUTPUT_PARKING, FALSE);
+    if (dp->input && dp->input->source)
+        pa_source_set_port(dp->input->source, PA_DROID_INPUT_PARKING, FALSE);
 }
 
 static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
@@ -301,7 +310,8 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     if (nd->profile == u->call_profile.profile) {
         pa_assert(u->call_profile.old_profile == NULL);
 
-        set_call_mode(u, AUDIO_MODE_IN_CALL);
+        park_profile(od->profile);
+        set_mode(u, AUDIO_MODE_IN_CALL);
 
         /* Transfer ownership of sinks and sources to
          * call profile */
@@ -315,7 +325,8 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     if (od->profile == u->call_profile.profile) {
         pa_assert(u->call_profile.old_profile);
 
-        set_call_mode(u, AUDIO_MODE_NORMAL);
+        park_profile(nd->profile);
+        set_mode(u, AUDIO_MODE_NORMAL);
         pa_droid_sink_set_voice_control(u->call_profile.old_profile->output->sink, FALSE);
         if (!u->voice_source_routing)
             pa_droid_source_set_routing(u->call_profile.old_profile->input->source, TRUE);
