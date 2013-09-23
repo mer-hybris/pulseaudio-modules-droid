@@ -72,7 +72,7 @@ struct userdata {
     size_t buffer_size;
     pa_usec_t timestamp;
 
-    pa_droid_config_audio *config; /* Only used when used without card */
+    pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     audio_stream_in_t *stream;
 };
@@ -107,7 +107,7 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
     pa_xfree(devlist);
 #ifdef DROID_DEVICE_MAKO
 #warning Using mako set_parameters hack.
-    u->hw_module->set_parameters(u->hw_module, tmp);
+    u->card_data->set_parameters(u->card_data, tmp);
 #else
     u->stream->common.set_parameters(&u->stream->common, tmp);
 #endif
@@ -277,6 +277,14 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     data = PA_DEVICE_PORT_DATA(p);
 
+    if (!data->device) {
+        /* If there is no device defined, just return 0 to say everything is ok.
+         * Then next port change can be whatever source port, even the one enabled
+         * before parking. */
+        pa_log_debug("Source set port to parking");
+        return 0;
+    }
+
     pa_log_debug("Source set port %u", data->device);
 
     do_routing(u, data->device);
@@ -310,10 +318,13 @@ static void source_get_mute_cb(pa_source *s) {
     pa_assert(u);
     pa_assert(u->hw_module && u->hw_module->device);
 
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->hw_module->device->get_mic_mute(u->hw_module->device, &b) < 0) {
         pa_log("Failed to get mute state.");
+        pa_droid_hw_module_unlock(u->hw_module);
         return;
     }
+    pa_droid_hw_module_unlock(u->hw_module);
 
     s->muted = b;
 }
@@ -324,8 +335,10 @@ static void source_set_mute_cb(pa_source *s) {
     pa_assert(u);
     pa_assert(u->hw_module && u->hw_module->device);
 
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->hw_module->device->set_mic_mute(u->hw_module->device, s->muted) < 0)
         pa_log("Failed to set mute state to %smuted.", s->muted ? "" : "un");
+    pa_droid_hw_module_unlock(u->hw_module);
 }
 
 static void source_set_mute_control(struct userdata *u) {
@@ -357,7 +370,7 @@ void pa_droid_source_set_routing(pa_source *s, pa_bool_t enabled) {
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
-                                 pa_droid_hw_module *hw_module,
+                                 pa_droid_card_data *card_data,
                                  pa_droid_mapping *am,
                                  pa_card *card) {
 
@@ -372,6 +385,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_bool_t namereg_fail = FALSE;
+    pa_droid_config_audio *config = NULL; /* Only used when used without card */
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -411,16 +425,17 @@ pa_source *pa_droid_source_new(pa_module *m,
     /* Enabled routing changes by default. */
     u->routing_changes_enabled = TRUE;
 
-    if (hw_module) {
+    if (card_data) {
         pa_assert(card);
-        u->hw_module = hw_module;
+        u->card_data = card_data;
+        pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
         /* Stand-alone source */
 
-        if (!(u->config = pa_droid_config_load(ma)))
+        if (!(config = pa_droid_config_load(ma)))
             goto fail;
 
-        if (!(u->hw_module = pa_droid_hw_module_open(u->config, module_id, u)))
+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
             goto fail;
     }
 
@@ -464,11 +479,13 @@ pa_source *pa_droid_source_new(pa_module *m,
     dev_in = AUDIO_DEVICE_IN_BUILTIN_MIC;
 #endif
     dev_in = AUDIO_DEVICE_IN_DEFAULT;
+    pa_droid_hw_module_lock(u->hw_module);
     ret = u->hw_module->device->open_input_stream(u->hw_module->device,
                                                   u->hw_module->stream_in_id++,
                                                   dev_in,
                                                   &config_in,
                                                   &u->stream);
+    pa_droid_hw_module_unlock(u->hw_module);
 
     if (ret < 0) {
         pa_log("Failed to open input stream.");
@@ -554,10 +571,16 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     pa_source_put(u->source);
 
+    if (config)
+        pa_xfree(config);
+
     return u->source;
 
 fail:
     pa_xfree(thread_name);
+
+    if (config)
+        pa_xfree(config);
 
     if (u)
         userdata_free(u);
@@ -592,15 +615,15 @@ static void userdata_free(struct userdata *u) {
     if (u->memchunk.memblock)
         pa_memblock_unref(u->memchunk.memblock);
 
-    if (u->hw_module && u->stream)
+    if (u->hw_module && u->stream) {
+        pa_droid_hw_module_lock(u->hw_module);
         u->hw_module->device->close_input_stream(u->hw_module->device, u->stream);
+        pa_droid_hw_module_unlock(u->hw_module);
+    }
 
     // Stand alone source
-    if (!u->card && u->hw_module)
-        pa_droid_hw_module_close(u->hw_module);
-
-    if (u->config)
-        pa_xfree(u->config);
+    if (u->hw_module)
+        pa_droid_hw_module_unref(u->hw_module);
 
     pa_xfree(u);
 }

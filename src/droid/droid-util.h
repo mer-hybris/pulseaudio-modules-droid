@@ -27,6 +27,7 @@
 #endif
 #include <pulsecore/core-util.h>
 #include <pulsecore/macro.h>
+#include <pulsecore/mutex.h>
 
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
@@ -36,16 +37,20 @@
 #define PROP_DROID_HW_MODULE  "droid.hw_module"
 
 typedef struct pa_droid_hw_module pa_droid_hw_module;
-typedef void (*common_set_parameters_cb_t)(pa_droid_hw_module *module, const char *str);
+typedef struct pa_droid_card_data pa_droid_card_data;
+typedef void (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
 typedef struct pa_droid_config_audio pa_droid_config_audio;
 typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
 
 struct pa_droid_hw_module {
-    void *userdata;
+    PA_REFCNT_DECLARE;
+
+    pa_core *core;
 
     pa_droid_config_audio *config;
     const pa_droid_config_hw_module *enabled_module;
+    pa_mutex *hw_mutex;
 
     struct hw_module_t *hwmod;
     audio_hw_device_t *device;
@@ -55,7 +60,12 @@ struct pa_droid_hw_module {
     uint32_t stream_out_id;
     uint32_t stream_in_id;
 
+};
+
+struct pa_droid_card_data {
+    void *userdata;
     /* General functions */
+    char *module_id;
     common_set_parameters_cb_t set_parameters;
 };
 
@@ -170,9 +180,18 @@ struct pa_droid_profile_set {
     pa_hashmap *profiles;
 };
 
+#define PA_DROID_OUTPUT_PARKING "output-parking"
+#define PA_DROID_INPUT_PARKING "input-parking"
+
 /* Open hardware module */
-pa_droid_hw_module *pa_droid_hw_module_open(pa_droid_config_audio *config, const char *module_id, void *userdata);
-void pa_droid_hw_module_close(pa_droid_hw_module *hw);
+/* 'config' can be NULL if it is assumed that hw module with module_id already is open. */
+pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, pa_droid_config_audio *config, const char *module_id);
+pa_droid_hw_module *pa_droid_hw_module_ref(pa_droid_hw_module *hw);
+void pa_droid_hw_module_unref(pa_droid_hw_module *hw);
+
+void pa_droid_hw_module_lock(pa_droid_hw_module *hw);
+pa_bool_t pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
+void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
 
 /* Conversion helpers */
 typedef enum {

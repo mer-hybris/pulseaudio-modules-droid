@@ -76,35 +76,59 @@ struct userdata {
     pa_usec_t timestamp;
 
     audio_devices_t primary_devices;
-    audio_devices_t enabled_devices;
+    audio_devices_t extra_devices;
 
     pa_bool_t use_hw_volume;
 
-    pa_droid_config_audio *config; /* Only used when used without card */
+    pa_hook_slot *sink_input_put_hook_slot;
+    pa_hook_slot *sink_input_unlink_hook_slot;
+
+    pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     struct audio_stream_out *stream_out;
 };
 
 #define DEFAULT_MODULE_ID "primary"
 
+#define PROP_DROID_ROUTE "droid.device.additional-route"
+
 static void userdata_free(struct userdata *u);
 
-static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
+static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
+    pa_assert(u);
+    pa_assert(devices);
+
+    u->primary_devices = devices;
+}
+
+static void add_extra_devices(struct userdata *u, audio_devices_t devices) {
+    pa_assert(u);
+    pa_assert(devices);
+
+    u->extra_devices |= devices;
+}
+
+static void remove_extra_devices(struct userdata *u, audio_devices_t devices) {
+    pa_assert(u);
+    pa_assert(devices);
+
+    u->extra_devices &= ~devices;
+}
+
+static pa_bool_t do_routing(struct userdata *u) {
+    audio_devices_t routing;
     char tmp[32];
 
     pa_assert(u);
     pa_assert(u->stream_out);
 
-    if (u->primary_devices == devices)
-        pa_log_debug("Refresh active device routing.");
+    routing = u->primary_devices | u->extra_devices;
 
-    u->enabled_devices &= ~u->primary_devices;
-    u->primary_devices = devices;
-    u->enabled_devices |= u->primary_devices;
-
-    pa_snprintf(tmp, sizeof(tmp), "routing=%u;", u->enabled_devices);
+    pa_snprintf(tmp, sizeof(tmp), "routing=%u;", routing);
     pa_log_debug("set_parameters(): %s", tmp);
+    pa_droid_hw_module_lock(u->hw_module);
     u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
+    pa_droid_hw_module_unlock(u->hw_module);
 
     return TRUE;
 }
@@ -389,9 +413,18 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
     data = PA_DEVICE_PORT_DATA(p);
 
+    if (!data->device) {
+        /* If there is no device defined, just return 0 to say everything is ok.
+         * Then next port change can be whatever sink port, even the one enabled
+         * before parking. */
+        pa_log_debug("Sink set port to parking");
+        return 0;
+    }
+
     pa_log_debug("Sink set port %u", data->device);
 
-    do_routing(u, data->device);
+    set_primary_devices(u, data->device);
+    do_routing(u);
 
     return 0;
 }
@@ -406,15 +439,19 @@ static void sink_set_volume_cb(pa_sink *s) {
     if (r.channels == 1) {
         float val = pa_sw_volume_to_linear(r.values[0]);
         pa_log_debug("Set hw volume %f", val);
+        pa_droid_hw_module_lock(u->hw_module);
         if (u->stream_out->set_volume(u->stream_out, val, val) < 0)
             pa_log_warn("Failed to set hw volume.");
+        pa_droid_hw_module_unlock(u->hw_module);
     } else if (r.channels == 2) {
         float val[2];
         for (unsigned i = 0; i < 2; i++)
             val[i] = pa_sw_volume_to_linear(r.values[i]);
         pa_log_debug("Set hw volume %f : %f", val[0], val[1]);
+        pa_droid_hw_module_lock(u->hw_module);
         if (u->stream_out->set_volume(u->stream_out, val[0], val[1]) < 0)
             pa_log_warn("Failed to set hw volume.");
+        pa_droid_hw_module_unlock(u->hw_module);
     }
 }
 
@@ -428,18 +465,23 @@ static void sink_set_voice_volume_cb(pa_sink *s) {
 
     val = pa_sw_volume_to_linear(pa_cvolume_avg(&r));
     pa_log_debug("Set voice volume %f", val);
+
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->hw_module->device->set_voice_volume(u->hw_module->device, val) < 0)
         pa_log_warn("Failed to set voice volume.");
+    pa_droid_hw_module_unlock(u->hw_module);
 }
 
 static void update_volumes(struct userdata *u) {
     int ret = -1;
 
     /* set_volume returns 0 if hw volume control is implemented, < 0 otherwise. */
+    pa_droid_hw_module_lock(u->hw_module);
     if (u->stream_out->set_volume) {
         pa_log_debug("Probe hw volume support for %s", u->sink->name);
         ret = u->stream_out->set_volume(u->stream_out, 1.0f, 1.0f);
     }
+    pa_droid_hw_module_unlock(u->hw_module);
 
     u->use_hw_volume = (ret == 0);
 
@@ -485,10 +527,49 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable) {
     }
 }
 
+/* When sink-input with proper proplist variable appears, do extra routing configuration
+ * for the lifetime of that sink-input. */
+static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_input, struct userdata *u) {
+    const char *dev_str;
+    audio_devices_t devices;
+
+    if ((dev_str = pa_proplist_gets(sink_input->proplist, PROP_DROID_ROUTE))) {
+
+        if (parse_device_list(dev_str, &devices) && devices) {
+
+            pa_log_debug("Add extra route %s (%u).", dev_str, devices);
+
+            add_extra_devices(u, devices);
+            do_routing(u);
+        }
+    }
+
+    return PA_HOOK_OK;
+}
+
+/* Remove extra routing when sink-inputs disappear. */
+static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sink_input, struct userdata *u) {
+    const char *dev_str;
+    audio_devices_t devices;
+
+    if ((dev_str = pa_proplist_gets(sink_input->proplist, PROP_DROID_ROUTE))) {
+
+        if (parse_device_list(dev_str, &devices) && devices) {
+
+            pa_log_debug("Remove extra route %s (%u).", dev_str, devices);
+
+            remove_extra_devices(u, devices);
+            do_routing(u);
+        }
+    }
+
+    return PA_HOOK_OK;
+}
+
 pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_modargs *ma,
                              const char *driver,
-                             pa_droid_hw_module *hw_module,
+                             pa_droid_card_data *card_data,
                              audio_output_flags_t flags,
                              pa_droid_mapping *am,
                              pa_card *card) {
@@ -507,6 +588,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_channel_map channel_map;
     pa_bool_t namereg_fail = FALSE;
     uint32_t total_latency;
+    pa_droid_config_audio *config = NULL; /* Only used when used without card */
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -549,19 +631,20 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
-    if (hw_module) {
+    if (card_data) {
+        u->card_data = card_data;
         pa_assert(card);
-        u->hw_module = hw_module;
+        pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
         /* Sink wasn't created from inside card module, so we'll need to open
          * hw module ourselves.
          * TODO some way to share hw module between other sinks/sources since
          * opening same module from different places likely isn't a good thing. */
 
-        if (!(u->config = pa_droid_config_load(ma)))
+        if (!(config = pa_droid_config_load(ma)))
             goto fail;
 
-        if (!(u->hw_module = pa_droid_hw_module_open(u->config, module_id, u)))
+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
             goto fail;
     }
 
@@ -600,12 +683,14 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     if (am)
         flags = am->output->flags;
 
+    pa_droid_hw_module_lock(u->hw_module);
     ret = u->hw_module->device->open_output_stream(u->hw_module->device,
                                                    u->hw_module->stream_out_id++,
                                                    dev_out,
                                                    flags,
                                                    &config_out,
                                                    &u->stream_out);
+    pa_droid_hw_module_unlock(u->hw_module);
 
     if (!u->stream_out) {
         pa_log("Failed to open output stream. (errno %d)", ret);
@@ -717,14 +802,27 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     if (u->sink->active_port)
         sink_set_port_cb(u->sink, u->sink->active_port);
 
+    /* Hooks to track appearance and disappearance of sink-inputs. */
+    /* Hook a little bit later than module-role-cork. */
+    u->sink_input_put_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_PUT], PA_HOOK_LATE+10,
+            (pa_hook_cb_t) sink_input_put_hook_cb, u);
+    u->sink_input_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_LATE+10,
+            (pa_hook_cb_t) sink_input_unlink_hook_cb, u);
+
     update_volumes(u);
 
     pa_sink_put(u->sink);
+
+    if (config)
+        pa_xfree(config);
 
     return u->sink;
 
 fail:
     pa_xfree(thread_name);
+
+    if (config)
+        pa_xfree(config);
 
     if (u)
         userdata_free(u);
@@ -753,11 +851,20 @@ static void userdata_free(struct userdata *u) {
 
     pa_thread_mq_done(&u->thread_mq);
 
+    if (u->sink_input_put_hook_slot)
+        pa_hook_slot_free(u->sink_input_put_hook_slot);
+
+    if (u->sink_input_unlink_hook_slot)
+        pa_hook_slot_free(u->sink_input_unlink_hook_slot);
+
     if (u->sink)
         pa_sink_unref(u->sink);
 
-    if (u->hw_module && u->stream_out)
+    if (u->hw_module && u->stream_out) {
+        pa_droid_hw_module_lock(u->hw_module);
         u->hw_module->device->close_output_stream(u->hw_module->device, u->stream_out);
+        pa_droid_hw_module_unlock(u->hw_module);
+    }
 
     if (u->memblockq)
         pa_memblockq_free(u->memblockq);
@@ -765,12 +872,8 @@ static void userdata_free(struct userdata *u) {
     if (u->silence.memblock)
         pa_memblock_unref(u->silence.memblock);
 
-    /* Stand-alone sink */
-    if (!u->card && u->hw_module)
-        pa_droid_hw_module_close(u->hw_module);
-
-    if (u->config)
-        pa_xfree(u->config);
+    if (u->hw_module)
+        pa_droid_hw_module_unref(u->hw_module);
 
     pa_xfree(u);
 }
