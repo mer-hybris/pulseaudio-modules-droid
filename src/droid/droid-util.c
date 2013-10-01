@@ -92,6 +92,7 @@ CONVERT_FUNC(format);
 CONVERT_FUNC(output_channel);
 CONVERT_FUNC(input_channel);
 
+#define DEFAULT_PRIORITY (100)
 
 static pa_bool_t string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
@@ -599,12 +600,12 @@ pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_
                                                           input ? " and " : "",
                                                           input ? input->name : "",
                                                           input ? " input." : "");
-    p->priority = 100;
+    p->priority = DEFAULT_PRIORITY;
     if (pa_streq(output->name, "primary")) {
-        p->priority += 100;
+        p->priority += DEFAULT_PRIORITY;
 
         if (input && pa_streq(input->name, "primary"))
-            p->priority += 100;
+            p->priority += DEFAULT_PRIORITY;
     }
 
     if (output)
@@ -685,31 +686,50 @@ static void droid_port_free(pa_droid_port *p) {
 void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
     pa_assert(ps);
 
-    if (ps->output_mappings) {
-        pa_droid_mapping *am;
-
+    if (ps->output_mappings)
         pa_hashmap_free(ps->output_mappings, (pa_free_cb_t) pa_droid_mapping_free);
-    }
 
-    if (ps->input_mappings) {
-        pa_droid_mapping *am;
-
+    if (ps->input_mappings)
         pa_hashmap_free(ps->input_mappings, (pa_free_cb_t) pa_droid_mapping_free);
-    }
 
-    if (ps->all_ports) {
-        pa_droid_port *p;
-
+    if (ps->all_ports)
         pa_hashmap_free(ps->all_ports, (pa_free_cb_t) droid_port_free);
-    }
 
-    if (ps->profiles) {
-        pa_droid_profile *p;
-
+    if (ps->profiles)
         pa_hashmap_free(ps->profiles, (pa_free_cb_t) pa_droid_profile_free);
-    }
 
     pa_xfree(ps);
+}
+
+static pa_droid_port *create_o_port(pa_droid_mapping *am, uint32_t device, const char *name, const char *description) {
+    pa_droid_port *p;
+    char *desc;
+
+    pa_assert(am);
+    pa_assert(name);
+
+    pa_log_debug("  New output port %s", name);
+    p = pa_xnew0(pa_droid_port, 1);
+
+    p->mapping = am;
+    p->name = pa_xstrdup(name);
+    if (description) {
+        p->description = pa_xstrdup(description);
+    } else {
+        desc = pa_replace(name, "output-", "Output to ");
+        p->description = pa_replace(desc, "_", " ");
+        pa_xfree(desc);
+    }
+    p->priority = DEFAULT_PRIORITY;
+    p->device = device;
+
+    if (am->profile_set->config->global_config.attached_output_devices & device)
+        p->priority += DEFAULT_PRIORITY;
+
+    if (am->profile_set->config->global_config.default_output_device & device)
+        p->priority += DEFAULT_PRIORITY;
+
+    return p;
 }
 
 static void add_o_ports(pa_droid_mapping *am) {
@@ -717,11 +737,15 @@ static void add_o_ports(pa_droid_mapping *am) {
     const char *name;
     char *desc;
     uint32_t devices;
+    uint32_t combo_devices;
     uint32_t i = 0;
 
     pa_assert(am);
 
     devices = am->output->devices;
+
+    /* IHF combo devices, these devices are combined with IHF */
+    combo_devices = AUDIO_DEVICE_OUT_SPEAKER | AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
 
     while (devices) {
         uint32_t cur_device = (1 << i++);
@@ -731,23 +755,8 @@ static void add_o_ports(pa_droid_mapping *am) {
             pa_droid_output_port_name(cur_device, &name);
 
             if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
-                pa_log_debug("  New output port %s", name);
-                p = pa_xnew0(pa_droid_port, 1);
 
-                p->mapping = am;
-                p->name = pa_xstrdup(name);
-                desc = pa_replace(name, "output-", "Output to ");
-                p->description = pa_replace(desc, "_", " ");
-                pa_xfree(desc);
-                p->priority = 100;
-                p->device = cur_device;
-
-                if (am->profile_set->config->global_config.attached_output_devices & cur_device)
-                    p->priority += 100;
-
-                if (am->profile_set->config->global_config.default_output_device & cur_device)
-                    p->priority += 100;
-
+                p = create_o_port(am, cur_device, name, NULL);
                 pa_hashmap_put(am->profile_set->all_ports, p->name, p);
             } else
                 pa_log_debug("  Output port %s from cache", name);
@@ -758,15 +767,27 @@ static void add_o_ports(pa_droid_mapping *am) {
         }
     }
 
+    /* Combo devices, route to multiple routing targets simultaneously. */
+    if (am->output->devices & combo_devices) {
+        pa_droid_output_port_name(combo_devices, &name);
+        if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
+            p = create_o_port(am, combo_devices, name, NULL);
+            /* Reset priority to default. */
+            p->priority = DEFAULT_PRIORITY;
+
+            pa_hashmap_put(am->profile_set->all_ports, p->name, p);
+        } else
+            pa_log_debug("  Output port %s from cache", name);
+
+        pa_idxset_put(am->ports, p, NULL);
+    }
+
     if (!(p = pa_hashmap_get(am->profile_set->all_ports, PA_DROID_OUTPUT_PARKING))) {
         pa_log_debug("  New output port %s", PA_DROID_OUTPUT_PARKING);
         /* Create parking port for output mapping to be used when audio_mode_t changes. */
-        p = pa_xnew0(pa_droid_port, 1);
-        p->mapping = am;
-        p->name = pa_sprintf_malloc(PA_DROID_OUTPUT_PARKING);
-        p->description = pa_sprintf_malloc("Parking port");
-        p->priority = 50;
-        p->device = 0; /* No routing */
+        p = create_o_port(am, 0, PA_DROID_OUTPUT_PARKING, "Parking port");
+        /* Reset priority to half of default */
+        p->priority = DEFAULT_PRIORITY / 2;
 
         pa_hashmap_put(am->profile_set->all_ports, p->name, p);
     } else
@@ -805,11 +826,11 @@ static void add_i_ports(pa_droid_mapping *am) {
                 desc = pa_replace(name, "input-", "Input from ");
                 p->description = pa_replace(desc, "_", " ");
                 pa_xfree(desc);
-                p->priority = 100;
+                p->priority = DEFAULT_PRIORITY;
                 p->device = cur_device;
 
                 if (am->profile_set->config->global_config.attached_input_devices & cur_device)
-                    p->priority += 100;
+                    p->priority += DEFAULT_PRIORITY;
 
                 pa_hashmap_put(am->profile_set->all_ports, p->name, p);
             } else
