@@ -112,6 +112,8 @@ static struct string_conversion string_conversion_table_output_device[] = {
 static struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_EARPIECE,                    "output-earpiece" },
     { AUDIO_DEVICE_OUT_SPEAKER,                     "output-speaker" },
+    { AUDIO_DEVICE_OUT_SPEAKER
+        | AUDIO_DEVICE_OUT_WIRED_HEADPHONE,         "output-speaker+wired_headphone" },
     { AUDIO_DEVICE_OUT_WIRED_HEADSET,               "output-wired_headset" },
     { AUDIO_DEVICE_OUT_WIRED_HEADPHONE,             "output-wired_headphone" },
     { AUDIO_DEVICE_OUT_BLUETOOTH_SCO,               "output-bluetooth_sco" },
