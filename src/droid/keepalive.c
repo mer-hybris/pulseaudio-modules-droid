@@ -71,7 +71,8 @@ pa_droid_keepalive* pa_droid_keepalive_new(pa_core *c) {
 
     dbus = pa_dbus_bus_get(c, MCE_BUS, &error);
     if (dbus_error_is_set(&error)) {
-        pa_log("Failed to get %s bus.", MCE_BUS == DBUS_BUS_SESSION ? "session" : "system");
+        pa_log("Failed to get %s bus: %s", MCE_BUS == DBUS_BUS_SESSION ? "session" : "system", error.message);
+        dbus_error_free(&error);
         return NULL;
     }
 
