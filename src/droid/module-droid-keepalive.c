@@ -173,10 +173,11 @@ void pa__done(pa_module *m) {
         if (u->source_state_changed_slot)
             pa_hook_slot_free(u->source_state_changed_slot);
 
-        if (u->active)
+        if (u->keepalive) {
             stop(u);
+            pa_droid_keepalive_free(u->keepalive);
+        }
 
-        pa_droid_keepalive_free(u->keepalive);
         pa_xfree(u);
     }
 }
