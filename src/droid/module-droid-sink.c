@@ -54,6 +54,8 @@ static const char* const valid_modargs[] = {
     "devices",
     "sink_name",
     "module_id",
+    "mute_routing_before",
+    "mute_routing_after",
     "deferred_volume",
     NULL,
 };
