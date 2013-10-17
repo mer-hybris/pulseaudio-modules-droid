@@ -94,6 +94,8 @@ static const char* const valid_modargs[] = {
     "module_id",
     "voice_source_routing",
     "deferred_volume",
+    "mute_routing_before",
+    "mute_routing_after",
     "config",
     NULL,
 };

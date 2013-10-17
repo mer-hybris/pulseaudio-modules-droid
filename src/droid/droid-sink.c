@@ -65,6 +65,9 @@ struct userdata {
     pa_thread *thread;
     pa_thread_mq thread_mq;
     pa_rtpoll *rtpoll;
+    int32_t routing_counter;
+    int32_t mute_routing_before;
+    int32_t mute_routing_after;
 
     pa_bool_t deferred_volume; /* TODO */
 
@@ -79,6 +82,7 @@ struct userdata {
     audio_devices_t extra_devices;
 
     pa_bool_t use_hw_volume;
+    pa_bool_t use_voice_volume;
 
     pa_hook_slot *sink_input_put_hook_slot;
     pa_hook_slot *sink_input_unlink_hook_slot;
@@ -86,6 +90,10 @@ struct userdata {
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     struct audio_stream_out *stream_out;
+};
+
+enum {
+    SINK_MESSAGE_DO_ROUTING = PA_SINK_MESSAGE_MAX,
 };
 
 #define DEFAULT_MODULE_ID "primary"
@@ -115,6 +123,7 @@ static void remove_extra_devices(struct userdata *u, audio_devices_t devices) {
     u->extra_devices &= ~devices;
 }
 
+/* Called from main context during voice calls, and from IO context during media operation. */
 static pa_bool_t do_routing(struct userdata *u) {
     audio_devices_t routing;
     char tmp[32];
@@ -157,6 +166,27 @@ static pa_bool_t parse_device_list(const char *str, audio_devices_t *dst) {
     }
 
     return TRUE;
+}
+
+static int thread_write_silence(struct userdata *u) {
+    const void *p;
+    ssize_t wrote;
+
+    /* Drop our rendered audio and write silence to HAL. */
+    pa_memblockq_drop(u->memblockq, u->buffer_size);
+
+    /* We should be able to write everything in one go as long as memblock size
+     * is multiples of buffer_size. Even if we don't write whole buffer size
+     * here it's okay, as long as mute time isn't configured too strictly. */
+
+    p = pa_memblock_acquire(u->silence.memblock);
+    wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + u->silence.index, u->silence.length);
+    pa_memblock_release(u->silence.memblock);
+
+    if (wrote < 0)
+        return -1;
+
+    return 0;
 }
 
 static int thread_write(struct userdata *u) {
@@ -278,7 +308,14 @@ static void thread_func(void *userdata) {
             if (pa_rtpoll_timer_elapsed(u->rtpoll)) {
                 pa_usec_t now, sleept;
 
-                thread_write(u);
+                if (u->routing_counter == u->mute_routing_after) {
+                    do_routing(u);
+                    u->routing_counter--;
+                } else if (u->routing_counter > -1) {
+                    thread_write_silence(u);
+                    u->routing_counter--;
+                } else
+                    thread_write(u);
 
                 now = pa_rtclock_now();
 
@@ -351,6 +388,15 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
     struct userdata *u = PA_SINK(o)->userdata;
 
     switch (code) {
+        case SINK_MESSAGE_DO_ROUTING: {
+            /* When mute_routing_before & mute_routing_after are 0, routing change is done
+             * immediately when next round in thread_func. Otherwise write silence until
+             * counter equals mute_routing_after, execute routing, and write silence until
+             * routing_counter is 0. */
+            u->routing_counter = u->mute_routing_before + u->mute_routing_after;
+            return 0;
+        }
+
         case PA_SINK_MESSAGE_GET_LATENCY: {
             pa_usec_t r = 0;
 
@@ -424,7 +470,13 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_log_debug("Sink set port %u", data->device);
 
     set_primary_devices(u, data->device);
-    do_routing(u);
+    /* If we are in voice call, sink is usually in suspended state and routing change can be applied immediately.
+     * When in media use cases, do the routing change in IO thread. */
+    if (u->use_voice_volume)
+        do_routing(u);
+    else {
+        pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
+    }
 
     return 0;
 }
@@ -513,7 +565,9 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable) {
     pa_assert(u);
     pa_assert(sink);
 
-    if (enable) {
+    u->use_voice_volume = enable;
+
+    if (u->use_voice_volume) {
         pa_log_debug("Using voice volume control for %s", u->sink->name);
         pa_sink_set_set_volume_callback(u->sink, sink_set_voice_volume_cb);
     } else {
@@ -531,16 +585,28 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable) {
  * for the lifetime of that sink-input. */
 static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_input, struct userdata *u) {
     const char *dev_str;
+    const char *media_str;
     audio_devices_t devices;
 
+    /* Dynamic routing changes do not apply during active voice call. */
+    if (u->use_voice_volume)
+        return PA_HOOK_OK;
+
     if ((dev_str = pa_proplist_gets(sink_input->proplist, PROP_DROID_ROUTE))) {
+
+        /* Do not change routing for gstreamer pulsesink probe. Workaround for unnecessary routing changes when gst-plugin
+         * pulsesink connects to our sink. Not the best fix or the best place for a fix, but let's have this here
+         * for now anyway. */
+        if ((media_str = pa_proplist_gets(sink_input->proplist, PA_PROP_MEDIA_NAME)) && pa_streq(media_str, "pulsesink probe"))
+            return PA_HOOK_OK;
 
         if (parse_device_list(dev_str, &devices) && devices) {
 
             pa_log_debug("Add extra route %s (%u).", dev_str, devices);
 
             add_extra_devices(u, devices);
-            do_routing(u);
+            /* post routing change */
+            pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
         }
     }
 
@@ -550,16 +616,28 @@ static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_i
 /* Remove extra routing when sink-inputs disappear. */
 static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sink_input, struct userdata *u) {
     const char *dev_str;
+    const char *media_str;
     audio_devices_t devices;
 
+    /* Dynamic routing changes do not apply during active voice call. */
+    if (u->use_voice_volume)
+        return PA_HOOK_OK;
+
     if ((dev_str = pa_proplist_gets(sink_input->proplist, PROP_DROID_ROUTE))) {
+
+        /* Do not change routing for gstreamer pulsesink probe. Workaround for unnecessary routing changes when gst-plugin
+         * pulsesink connects to our sink. Not the best fix or the best place for a fix, but let's have this here
+         * for now anyway. */
+        if ((media_str = pa_proplist_gets(sink_input->proplist, PA_PROP_MEDIA_NAME)) && pa_streq(media_str, "pulsesink probe"))
+            return PA_HOOK_OK;
 
         if (parse_device_list(dev_str, &devices) && devices) {
 
             pa_log_debug("Remove extra route %s (%u).", dev_str, devices);
 
             remove_extra_devices(u, devices);
-            do_routing(u);
+            /* post routing change */
+            pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
         }
     }
 
@@ -589,6 +667,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_bool_t namereg_fail = FALSE;
     uint32_t total_latency;
     pa_droid_config_audio *config = NULL; /* Only used when used without card */
+    int32_t mute_routing_before = 0;
+    int32_t mute_routing_after = 0;
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -620,6 +700,16 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     alternate_sample_rate = m->core->alternate_sample_rate;
     if (pa_modargs_get_alternate_sample_rate(ma, &alternate_sample_rate) < 0) {
         pa_log("Failed to parse alternate sample rate.");
+        goto fail;
+    }
+
+    if ((pa_modargs_get_value_s32(ma, "mute_routing_before", &mute_routing_before) < 0) || mute_routing_before < 0) {
+        pa_log("Failed to parse mute_routing_before. Needs to be integer >= 0.");
+        goto fail;
+    }
+
+    if ((pa_modargs_get_value_s32(ma, "mute_routing_after", &mute_routing_after) < 0) || mute_routing_after < 0) {
+        pa_log("Failed to parse mute_routing_after. Needs to be integer >= 0.");
         goto fail;
     }
 
@@ -716,7 +806,17 @@ pa_sink *pa_droid_sink_new(pa_module *m,
             u->buffer_size);
 
 
-    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &sample_spec, 0);
+    u->mute_routing_before = mute_routing_before / u->buffer_size;
+    u->mute_routing_after = mute_routing_after / u->buffer_size;
+    if (u->mute_routing_before == 0 && mute_routing_before)
+        u->mute_routing_before = u->buffer_size;
+    if (u->mute_routing_after == 0 && mute_routing_after)
+        u->mute_routing_after = u->buffer_size;
+    if (u->mute_routing_before || u->mute_routing_after)
+        pa_log_debug("Mute playback when routing is changing, %u before and %u after.",
+                     u->mute_routing_before * u->buffer_size,
+                     u->mute_routing_after * u->buffer_size);
+    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &sample_spec, u->buffer_size);
     u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size * u->buffer_count, u->buffer_size * u->buffer_count, &sample_spec, 1, 0, 0, &u->silence);
 
     pa_sink_new_data_init(&data);
@@ -803,10 +903,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         sink_set_port_cb(u->sink, u->sink->active_port);
 
     /* Hooks to track appearance and disappearance of sink-inputs. */
-    /* Hook a little bit later than module-role-cork. */
+    /* Hook a little bit earlier and later than module-role-ducking. */
     u->sink_input_put_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_PUT], PA_HOOK_LATE+10,
             (pa_hook_cb_t) sink_input_put_hook_cb, u);
-    u->sink_input_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_LATE+10,
+    u->sink_input_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_EARLY-10,
             (pa_hook_cb_t) sink_input_unlink_hook_cb, u);
 
     update_volumes(u);
