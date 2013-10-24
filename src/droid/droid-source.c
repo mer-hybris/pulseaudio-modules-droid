@@ -389,6 +389,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_channel_map channel_map;
     pa_bool_t namereg_fail = FALSE;
     pa_droid_config_audio *config = NULL; /* Only used when used without card */
+    uint32_t source_buffer = 0;
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -415,6 +416,11 @@ pa_source *pa_droid_source_new(pa_module *m,
     alternate_sample_rate = m->core->alternate_sample_rate;
     if (pa_modargs_get_alternate_sample_rate(ma, &alternate_sample_rate) < 0) {
         pa_log("Failed to parse alternate sample rate.");
+        goto fail;
+    }
+
+    if (pa_modargs_get_value_u32(ma, "source_buffer", &source_buffer) < 0) {
+        pa_log("Failed to parse source_buffer. Needs to be integer >= 0.");
         goto fail;
     }
 
@@ -495,11 +501,23 @@ pa_source *pa_droid_source_new(pa_module *m,
         goto fail;
     }
 
-    u->buffer_size = u->stream->common.get_buffer_size(&u->stream->common);
-
     if ((sample_rate = u->stream->common.get_sample_rate(&u->stream->common)) != sample_spec.rate) {
         pa_log_warn("Requested sample rate %u but got %u instead.", sample_spec.rate, sample_rate);
         sample_spec.rate = sample_rate;
+    }
+
+    u->buffer_size = u->stream->common.get_buffer_size(&u->stream->common);
+    if (source_buffer) {
+        if (source_buffer < u->buffer_size)
+            pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", source_buffer, u->buffer_size);
+        else if (source_buffer % u->buffer_size) {
+            uint32_t trunc = (source_buffer / u->buffer_size) * u->buffer_size;
+            pa_log_warn("Requested buffer size %u not multiple of HAL buffer size (%u). Using buffer size %u", source_buffer, u->buffer_size, trunc);
+            u->buffer_size = trunc;
+        } else {
+            pa_log_info("Using requested buffer size %u.", source_buffer);
+            u->buffer_size = source_buffer;
+        }
     }
 
     pa_log_info("Created Android stream with device: %u sample rate: %u channel mask: %u format: %u buffer size: %u",

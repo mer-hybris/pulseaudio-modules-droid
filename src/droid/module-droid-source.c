@@ -54,6 +54,7 @@ static const char* const valid_modargs[] = {
     "devices",
     "source_name",
     "module_id",
+    "source_buffer",
     "deferred_volume",
     NULL,
 };

@@ -93,6 +93,8 @@ static const char* const valid_modargs[] = {
     "output_flags",
     "module_id",
     "voice_source_routing",
+    "sink_buffer",
+    "source_buffer",
     "deferred_volume",
     "mute_routing_before",
     "mute_routing_after",
