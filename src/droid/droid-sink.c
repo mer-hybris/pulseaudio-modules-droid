@@ -546,16 +546,19 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
 
     pa_assert(ma);
     pa_assert(data);
-    pa_assert(module_id);
 
     if ((tmp = pa_modargs_get_value(ma, "sink_name", NULL))) {
         pa_sink_new_data_set_name(data, tmp);
         data->namereg_fail = TRUE;
+        pa_proplist_sets(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink");
     } else {
-        char *tt = pa_sprintf_malloc("sink.%s", module_id);
+        char *tt;
+        pa_assert(module_id);
+        tt = pa_sprintf_malloc("sink.%s", module_id);
         pa_sink_new_data_set_name(data, tt);
         pa_xfree(tt);
         data->namereg_fail = FALSE;
+        pa_proplist_setf(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink %s", module_id);
     }
 }
 
@@ -825,6 +828,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     data.card = card;
 
     set_sink_name(ma, &data, module_id);
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because

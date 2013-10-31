@@ -298,16 +298,19 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
 
     pa_assert(ma);
     pa_assert(data);
-    pa_assert(module_id);
 
     if ((tmp = pa_modargs_get_value(ma, "source_name", NULL))) {
         pa_source_new_data_set_name(data, tmp);
         data->namereg_fail = TRUE;
+        pa_proplist_sets(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid source");
     } else {
-        char *tt = pa_sprintf_malloc("source.%s", module_id);
+        char *tt;
+        pa_assert(module_id);
+        tt = pa_sprintf_malloc("source.%s", module_id);
         pa_source_new_data_set_name(data, tt);
         pa_xfree(tt);
         data->namereg_fail = FALSE;
+        pa_proplist_setf(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid source %s", module_id);
     }
 }
 
