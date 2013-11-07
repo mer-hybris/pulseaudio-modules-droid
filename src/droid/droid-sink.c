@@ -546,16 +546,19 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
 
     pa_assert(ma);
     pa_assert(data);
-    pa_assert(module_id);
 
     if ((tmp = pa_modargs_get_value(ma, "sink_name", NULL))) {
         pa_sink_new_data_set_name(data, tmp);
         data->namereg_fail = TRUE;
+        pa_proplist_sets(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink");
     } else {
-        char *tt = pa_sprintf_malloc("sink.%s", module_id);
+        char *tt;
+        pa_assert(module_id);
+        tt = pa_sprintf_malloc("sink.%s", module_id);
         pa_sink_new_data_set_name(data, tt);
         pa_xfree(tt);
         data->namereg_fail = FALSE;
+        pa_proplist_setf(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink %s", module_id);
     }
 }
 
@@ -669,6 +672,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_droid_config_audio *config = NULL; /* Only used when used without card */
     int32_t mute_routing_before = 0;
     int32_t mute_routing_after = 0;
+    uint32_t sink_buffer = 0;
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -710,6 +714,11 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     if ((pa_modargs_get_value_s32(ma, "mute_routing_after", &mute_routing_after) < 0) || mute_routing_after < 0) {
         pa_log("Failed to parse mute_routing_after. Needs to be integer >= 0.");
+        goto fail;
+    }
+
+    if (pa_modargs_get_value_u32(ma, "sink_buffer", &sink_buffer) < 0) {
+        pa_log("Failed to parse sink_buffer. Needs to be integer >= 0.");
         goto fail;
     }
 
@@ -787,15 +796,28 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
-    u->buffer_size = u->stream_out->common.get_buffer_size(&u->stream_out->common);
-    u->buffer_latency = pa_bytes_to_usec(u->buffer_size, &sample_spec);
-    /* Disable internal rewinding for now. */
-    u->buffer_count = 1;
-
     if ((sample_rate = u->stream_out->common.get_sample_rate(&u->stream_out->common)) != sample_spec.rate) {
         pa_log_warn("Requested sample rate %u but got %u instead.", sample_spec.rate, sample_rate);
         sample_spec.rate = sample_rate;
     }
+
+    u->buffer_size = u->stream_out->common.get_buffer_size(&u->stream_out->common);
+    if (sink_buffer) {
+        if (sink_buffer < u->buffer_size)
+            pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", sink_buffer, u->buffer_size);
+        else if (sink_buffer % u->buffer_size) {
+            uint32_t trunc = (sink_buffer / u->buffer_size) * u->buffer_size;
+            pa_log_warn("Requested buffer size %u not multiple of HAL buffer size (%u). Using buffer size %u", sink_buffer, u->buffer_size, trunc);
+            u->buffer_size = trunc;
+        } else {
+            pa_log_info("Using requested buffer size %u.", sink_buffer);
+            u->buffer_size = sink_buffer;
+        }
+    }
+
+    u->buffer_latency = pa_bytes_to_usec(u->buffer_size, &sample_spec);
+    /* Disable internal rewinding for now. */
+    u->buffer_count = 1;
 
     pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u",
             dev_out,
@@ -825,6 +847,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     data.card = card;
 
     set_sink_name(ma, &data, module_id);
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because
