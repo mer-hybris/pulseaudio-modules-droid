@@ -141,6 +141,8 @@ int pa__init(pa_module *m) {
     struct userdata *u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->active = FALSE;
+    u->module = m;
+    m->userdata = u;
 
     if (!(u->keepalive = pa_droid_keepalive_new(u->core))) {
         pa_log("Failed to create keepalive handler.");
@@ -149,9 +151,6 @@ int pa__init(pa_module *m) {
 
     u->sink_state_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_STATE_CHANGED], PA_HOOK_NORMAL, (pa_hook_cb_t) device_state_changed_hook_cb, u);
     u->source_state_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SOURCE_STATE_CHANGED], PA_HOOK_NORMAL, (pa_hook_cb_t) device_state_changed_hook_cb, u);
-
-    u->module = m;
-    m->userdata = u;
 
     return 0;
 
