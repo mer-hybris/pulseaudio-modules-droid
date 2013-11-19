@@ -669,7 +669,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_channel_map channel_map;
     pa_bool_t namereg_fail = FALSE;
     uint32_t total_latency;
-    pa_droid_config_audio *config = NULL; /* Only used when used without card */
+    pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
     int32_t mute_routing_before = 0;
     int32_t mute_routing_after = 0;
     uint32_t sink_buffer = 0;
@@ -743,6 +743,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         if (!(config = pa_droid_config_load(ma)))
             goto fail;
 
+        /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
         if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
             goto fail;
     }
@@ -935,9 +936,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     update_volumes(u);
 
     pa_sink_put(u->sink);
-
-    if (config)
-        pa_xfree(config);
 
     return u->sink;
 

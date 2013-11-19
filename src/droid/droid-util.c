@@ -1015,8 +1015,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     hw->hwmod = hwmod;
     hw->hw_mutex = pa_mutex_new(TRUE, FALSE);
     hw->device = device;
-    hw->config = pa_xnew(pa_droid_config_audio, 1);
-    memcpy(hw->config, config, sizeof(pa_droid_config_audio));
+    hw->config = config; /* We take ownership of config struct. */
     hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
     hw->module_id = hw->enabled_module->name;
 
