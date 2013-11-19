@@ -481,6 +481,7 @@ int pa__init(pa_module *m) {
 
     module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
+    /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
     if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
         goto fail;
 
@@ -544,8 +545,6 @@ int pa__init(pa_module *m) {
     m->userdata = u;
 
     init_profile(u);
-
-    pa_xfree(config);
 
     return 0;
 

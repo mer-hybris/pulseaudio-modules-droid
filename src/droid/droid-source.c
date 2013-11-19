@@ -388,7 +388,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_bool_t namereg_fail = FALSE;
-    pa_droid_config_audio *config = NULL; /* Only used when used without card */
+    pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
     int ret;
 
@@ -444,6 +444,7 @@ pa_source *pa_droid_source_new(pa_module *m,
         if (!(config = pa_droid_config_load(ma)))
             goto fail;
 
+        /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
         if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
             goto fail;
     }
@@ -591,9 +592,6 @@ pa_source *pa_droid_source_new(pa_module *m,
         source_set_port_cb(u->source, u->source->active_port);
 
     pa_source_put(u->source);
-
-    if (config)
-        pa_xfree(config);
 
     return u->source;
 
