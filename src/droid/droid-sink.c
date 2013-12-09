@@ -52,6 +52,7 @@
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/time-smoother.h>
+#include <pulsecore/hashmap.h>
 
 #include "droid-sink.h"
 #include "droid-util.h"
@@ -86,6 +87,8 @@ struct userdata {
 
     pa_hook_slot *sink_input_put_hook_slot;
     pa_hook_slot *sink_input_unlink_hook_slot;
+    pa_hook_slot *sink_proplist_changed_hook_slot;
+    pa_hashmap *parameters;
 
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
@@ -98,6 +101,14 @@ enum {
 
 #define DEFAULT_MODULE_ID "primary"
 
+/* sink properties */
+#define PROP_DROID_PARAMETER_PREFIX "droid.parameter."
+typedef struct droid_parameter_mapping {
+    char *key;
+    char *value;
+} droid_parameter_mapping;
+
+/* sink-input properties */
 #define PROP_DROID_ROUTE "droid.device.additional-route"
 
 static void userdata_free(struct userdata *u);
@@ -647,6 +658,60 @@ static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sin
     return PA_HOOK_OK;
 }
 
+/* Watch for properties starting with droid.parameter. and translate them directly to
+ * HAL set_parameters() calls. */
+static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
+    pa_bool_t changed = FALSE;
+    const char *pkey;
+    const char *key;
+    const char *value;
+    char *tmp;
+    void *state = NULL;
+    droid_parameter_mapping *parameter = NULL;
+
+    pa_assert(sink);
+    pa_assert(u);
+
+    if (u->sink != sink)
+        return PA_HOOK_OK;
+
+    while ((key = pa_proplist_iterate(sink->proplist, &state))) {
+        if (!pa_startswith(key, PROP_DROID_PARAMETER_PREFIX))
+            continue;
+
+        pkey = key + strlen(PROP_DROID_PARAMETER_PREFIX);
+        if (pkey[0] == '\0')
+            continue;
+
+        if (!(parameter = pa_hashmap_get(u->parameters, pkey))) {
+            parameter = pa_xnew0(droid_parameter_mapping, 1);
+            parameter->key = pa_xstrdup(pkey);
+            parameter->value = pa_xstrdup(pa_proplist_gets(sink->proplist, key));
+            pa_hashmap_put(u->parameters, parameter->key, parameter);
+            changed = TRUE;
+        } else {
+            value = pa_proplist_gets(sink->proplist, key);
+            if (!pa_streq(parameter->value, value)) {
+                pa_xfree(parameter->value);
+                parameter->value = pa_xstrdup(value);
+                changed = TRUE;
+            }
+        }
+    }
+
+    if (changed) {
+        pa_assert(parameter);
+        tmp = pa_sprintf_malloc("%s=%s;", parameter->key, parameter->value);
+        pa_log_debug("set_parameters(): %s", tmp);
+        pa_droid_hw_module_lock(u->hw_module);
+        u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
+        pa_droid_hw_module_unlock(u->hw_module);
+        pa_xfree(tmp);
+    }
+
+    return PA_HOOK_OK;
+}
+
 pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_modargs *ma,
                              const char *driver,
@@ -729,6 +794,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->deferred_volume = deferred_volume;
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
+    u->parameters = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
     if (card_data) {
         u->card_data = card_data;
@@ -932,6 +998,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
             (pa_hook_cb_t) sink_input_put_hook_cb, u);
     u->sink_input_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_EARLY-10,
             (pa_hook_cb_t) sink_input_unlink_hook_cb, u);
+    u->sink_proplist_changed_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_PROPLIST_CHANGED], PA_HOOK_EARLY,
+            (pa_hook_cb_t) sink_proplist_changed_hook_cb, u);
 
     update_volumes(u);
 
@@ -960,6 +1028,14 @@ void pa_droid_sink_free(pa_sink *s) {
     userdata_free(u);
 }
 
+static void parameter_free(droid_parameter_mapping *m) {
+    pa_assert(m);
+
+    pa_xfree(m->key);
+    pa_xfree(m->value);
+    pa_xfree(m);
+}
+
 static void userdata_free(struct userdata *u) {
 
     if (u->sink)
@@ -978,8 +1054,14 @@ static void userdata_free(struct userdata *u) {
     if (u->sink_input_unlink_hook_slot)
         pa_hook_slot_free(u->sink_input_unlink_hook_slot);
 
+    if (u->sink_proplist_changed_hook_slot)
+        pa_hook_slot_free(u->sink_proplist_changed_hook_slot);
+
     if (u->sink)
         pa_sink_unref(u->sink);
+
+    if (u->parameters)
+        pa_hashmap_free(u->parameters, (pa_free_cb_t) parameter_free);
 
     if (u->hw_module && u->stream_out) {
         pa_droid_hw_module_lock(u->hw_module);
