@@ -108,6 +108,8 @@ static const char* const valid_modargs[] = {
 #define VOICE_CALL_PROFILE_DESC     "Call mode"
 #define RINGTONE_PROFILE_NAME       "ringtone"
 #define RINGTONE_PROFILE_DESC       "Ringtone mode"
+#define COMMUNICATION_PROFILE_NAME  "communication"
+#define COMMUNICATION_PROFILE_DESC  "Communication mode"
 
 struct virtual_profile {
     pa_droid_profile *profile;
@@ -128,6 +130,7 @@ struct userdata {
     pa_droid_card_data card_data;
 
     struct virtual_profile call_profile;
+    struct virtual_profile comm_profile;
     struct virtual_profile ring_profile;
     pa_droid_profile *old_profile;
 
@@ -287,12 +290,20 @@ static int set_mode(struct userdata *u, audio_mode_t mode) {
     pa_assert(u->hw_module);
     pa_assert(u->hw_module->device);
 
-    if (mode == AUDIO_MODE_RINGTONE)
-        mode_str = "AUDIO_MODE_RINGTONE";
-    else if (mode == AUDIO_MODE_IN_CALL)
-        mode_str = "AUDIO_MODE_IN_CALL";
-    else
-        mode_str = "AUDIO_MODE_NORMAL";
+    switch (mode) {
+        case AUDIO_MODE_RINGTONE:
+            mode_str = "AUDIO_MODE_RINGTONE";
+            break;
+        case AUDIO_MODE_IN_CALL:
+            mode_str = "AUDIO_MODE_IN_CALL";
+            break;
+        case AUDIO_MODE_IN_COMMUNICATION:
+            mode_str = "AUDIO_MODE_IN_COMMUNICATION";
+            break;
+        default:
+            mode_str = "AUDIO_MODE_NORMAL";
+            break;
+    }
 
     pa_log_debug("Set mode to %s.", mode_str);
 
@@ -332,6 +343,8 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         new_vp = &u->call_profile;
     if (nd->profile == u->ring_profile.profile)
         new_vp = &u->ring_profile;
+    if (nd->profile == u->comm_profile.profile)
+        new_vp = &u->comm_profile;
 
     if (new_vp) {
         if (u->old_profile == NULL)
@@ -354,6 +367,8 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         old_vp = &u->call_profile;
     if (od->profile == u->ring_profile.profile)
         old_vp = &u->ring_profile;
+    if (od->profile == u->comm_profile.profile)
+        old_vp = &u->comm_profile;
 
     if (old_vp) {
         pa_assert(u->old_profile);
@@ -520,6 +535,9 @@ int pa__init(pa_module *m) {
     u->call_profile.profile = add_virtual_profile(u, VOICE_CALL_PROFILE_NAME,
                                                   VOICE_CALL_PROFILE_DESC, data.profiles);
     u->call_profile.mode = AUDIO_MODE_IN_CALL;
+    u->comm_profile.profile = add_virtual_profile(u, COMMUNICATION_PROFILE_NAME,
+                                                  COMMUNICATION_PROFILE_DESC, data.profiles);
+    u->comm_profile.mode = AUDIO_MODE_IN_COMMUNICATION;
     u->ring_profile.profile = add_virtual_profile(u, RINGTONE_PROFILE_NAME,
                                                   RINGTONE_PROFILE_DESC, data.profiles);
     u->ring_profile.mode = AUDIO_MODE_RINGTONE;
