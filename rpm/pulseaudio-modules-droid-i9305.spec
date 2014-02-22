@@ -1,4 +1,4 @@
-%define device boston
+%define device i9305
 %define pulseversion 4.0
 
 Name:       pulseaudio-modules-droid-%{device}
