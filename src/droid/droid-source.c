@@ -488,7 +488,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_log_info("FIXME: Setting AUDIO_DEVICE_IN_BUILTIN_MIC as initial device.");
     dev_in = AUDIO_DEVICE_IN_BUILTIN_MIC;
 #endif
-    dev_in = AUDIO_DEVICE_IN_DEFAULT;
     pa_droid_hw_module_lock(u->hw_module);
     ret = u->hw_module->device->open_input_stream(u->hw_module->device,
                                                   u->hw_module->stream_in_id++,
