@@ -814,6 +814,9 @@ static void add_i_ports(pa_droid_mapping *am) {
 
         if (devices & cur_device) {
 
+#ifdef HAL_V2
+            cur_device |= AUDIO_DEVICE_BIT_IN;
+#endif
             pa_assert_se(pa_droid_input_port_name(cur_device, &name));
 
             if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
@@ -836,6 +839,10 @@ static void add_i_ports(pa_droid_mapping *am) {
                 pa_log_debug("  Input port %s from cache", name);
 
             pa_idxset_put(am->ports, p, NULL);
+
+#ifdef HAL_V2
+            cur_device &= ~AUDIO_DEVICE_BIT_IN;
+#endif
 
             devices &= ~cur_device;
         }
