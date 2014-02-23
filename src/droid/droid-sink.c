@@ -144,7 +144,7 @@ static pa_bool_t do_routing(struct userdata *u) {
 
     routing = u->primary_devices | u->extra_devices;
 
-    pa_snprintf(tmp, sizeof(tmp), "routing=%u;", routing);
+    pa_snprintf(tmp, sizeof(tmp), "%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, routing);
     pa_log_debug("set_parameters(): %s", tmp);
     pa_droid_hw_module_lock(u->hw_module);
     u->stream_out->common.set_parameters(&u->stream_out->common, tmp);

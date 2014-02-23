@@ -198,6 +198,8 @@ AC_ARG_WITH([droid-device],
         )
 if test "x$droiddevice" = xmako ; then
     AC_DEFINE([DROID_DEVICE_MAKO],      [1], [Using droid device mako.])
+elif test "x$droiddevice" = xi9305 ; then
+    AC_DEFINE([DROID_DEVICE_I9305],      [1], [Using droid device i9305.])
 else
     AC_DEFINE([DROID_DEVICE_GENERIC],   [1], [Using droid device generic.])
 fi
