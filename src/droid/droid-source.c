@@ -102,7 +102,11 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
 
     devlist = pa_list_string_input_device(devices);
     pa_assert(devlist);
+#ifdef DROID_DEVICE_I9305
+    pa_snprintf(tmp, sizeof(tmp), "%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices & ~AUDIO_DEVICE_BIT_IN);
+#else
     pa_snprintf(tmp, sizeof(tmp), "%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
+#endif
     pa_log_debug("set_parameters(): %s (%s)", tmp, devlist);
     pa_xfree(devlist);
 #ifdef DROID_DEVICE_MAKO
