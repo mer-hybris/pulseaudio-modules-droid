@@ -107,7 +107,7 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
 #else
     pa_snprintf(tmp, sizeof(tmp), "%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
 #endif
-    pa_log_debug("set_parameters(): %s (%s)", tmp, devlist);
+    pa_log_debug("set_parameters(): %s (%s : %#010x)", tmp, devlist, devices);
     pa_xfree(devlist);
 #ifdef DROID_DEVICE_MAKO
 #warning Using mako set_parameters hack.
