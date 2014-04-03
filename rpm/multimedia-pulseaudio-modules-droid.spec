@@ -1,7 +1,6 @@
-%define device boston
 %define pulseversion 4.0
 
-Name:       pulseaudio-modules-droid-%{device}
+Name:       pulseaudio-modules-droid
 
 Summary:    PulseAudio Droid HAL modules
 Version:    %{pulseversion}.1
@@ -20,7 +19,6 @@ BuildRequires:  pkgconfig(pulsecore) >= %{pulseversion}
 BuildRequires:  pkgconfig(android-headers)
 BuildRequires:  pkgconfig(libhardware)
 BuildRequires:  pkgconfig(dbus-1)
-Provides: pulseaudio-modules-droid
 
 %description
 PulseAudio Droid HAL modules.
@@ -30,7 +28,9 @@ PulseAudio Droid HAL modules.
 %setup -q -n %{name}-%{version}
 
 %build
-%reconfigure --disable-static --with-droid-device=%{device}
+# Obtain the DEVICE from the hw-release info
+. /etc/os-release.d/hw-release
+%reconfigure --disable-static --with-droid-device=$MER_HA_DEVICE
 make %{?jobs:-j%jobs}
 
 %install
