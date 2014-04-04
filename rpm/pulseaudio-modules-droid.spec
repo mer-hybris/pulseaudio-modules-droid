@@ -1,17 +1,14 @@
-%define device boston
 %define pulseversion 4.0
 
-Name:       pulseaudio-modules-droid-%{device}
+Name:       pulseaudio-modules-droid
 
 Summary:    PulseAudio Droid HAL modules
 Version:    %{pulseversion}.1
 Release:    1
 Group:      Multimedia/PulseAudio
 License:    LGPLv2.1+
-URL:        https://github.com/mer-hybris/multimedia-pulseaudio-modules-droid
+URL:        https://github.com/mer-hybris/pulseaudio-modules-droid
 Source0:    %{name}-%{version}.tar.bz2
-Source1:    pulseaudio-modules-droid.spec.in
-Source2:    precheckin.sh
 Requires:   pulseaudio >= %{pulseversion}
 BuildRequires:  automake
 BuildRequires:  libtool
@@ -20,7 +17,6 @@ BuildRequires:  pkgconfig(pulsecore) >= %{pulseversion}
 BuildRequires:  pkgconfig(android-headers)
 BuildRequires:  pkgconfig(libhardware)
 BuildRequires:  pkgconfig(dbus-1)
-Provides: pulseaudio-modules-droid
 
 %description
 PulseAudio Droid HAL modules.
@@ -30,7 +26,9 @@ PulseAudio Droid HAL modules.
 %setup -q -n %{name}-%{version}
 
 %build
-%reconfigure --disable-static --with-droid-device=%{device}
+# Obtain the DEVICE from the same source as used in /etc/os-release
+. /usr/lib/droid-devel/hw-release.vars
+%reconfigure --disable-static --with-droid-device=$MER_HA_DEVICE
 make %{?jobs:-j%jobs}
 
 %install
