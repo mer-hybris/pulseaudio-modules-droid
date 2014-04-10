@@ -94,6 +94,8 @@ CONVERT_FUNC(input_channel);
 
 #define DEFAULT_PRIORITY (100)
 
+static void droid_port_free(pa_droid_port *p);
+
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
     pa_assert(to_str);
@@ -635,10 +637,14 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
 
     ps = pa_xnew0(pa_droid_profile_set, 1);
     ps->config = module->config;
-    ps->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-    ps->output_mappings = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-    ps->input_mappings = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-    ps->all_ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    ps->profiles        = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_profile_free);
+    ps->output_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
+    ps->input_mappings  = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
+    ps->all_ports       = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) droid_port_free);
 
     /* Each distinct hw module output matches one profile. If there are multiple inputs
      * combinations are made so that all possible outputs and inputs can be selected.
@@ -687,16 +693,16 @@ void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
     pa_assert(ps);
 
     if (ps->output_mappings)
-        pa_hashmap_free(ps->output_mappings, (pa_free_cb_t) pa_droid_mapping_free);
+        pa_hashmap_free(ps->output_mappings);
 
     if (ps->input_mappings)
-        pa_hashmap_free(ps->input_mappings, (pa_free_cb_t) pa_droid_mapping_free);
+        pa_hashmap_free(ps->input_mappings);
 
     if (ps->all_ports)
-        pa_hashmap_free(ps->all_ports, (pa_free_cb_t) droid_port_free);
+        pa_hashmap_free(ps->all_ports);
 
     if (ps->profiles)
-        pa_hashmap_free(ps->profiles, (pa_free_cb_t) pa_droid_profile_free);
+        pa_hashmap_free(ps->profiles);
 
     pa_xfree(ps);
 }

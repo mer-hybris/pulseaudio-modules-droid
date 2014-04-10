@@ -111,6 +111,7 @@ typedef struct droid_parameter_mapping {
 /* sink-input properties */
 #define PROP_DROID_ROUTE "droid.device.additional-route"
 
+static void parameter_free(droid_parameter_mapping *m);
 static void userdata_free(struct userdata *u);
 
 static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
@@ -794,7 +795,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->deferred_volume = deferred_volume;
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
-    u->parameters = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    u->parameters = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                        NULL, (pa_free_cb_t) parameter_free);
 
     if (card_data) {
         u->card_data = card_data;
@@ -1061,7 +1063,7 @@ static void userdata_free(struct userdata *u) {
         pa_sink_unref(u->sink);
 
     if (u->parameters)
-        pa_hashmap_free(u->parameters, (pa_free_cb_t) parameter_free);
+        pa_hashmap_free(u->parameters);
 
     if (u->hw_module && u->stream_out) {
         pa_droid_hw_module_lock(u->hw_module);
