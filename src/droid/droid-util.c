@@ -922,6 +922,7 @@ bool pa_droid_input_port_name(audio_devices_t value, const char **to_str) {
 
 static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_hashmap *extra) {
     pa_droid_port *p;
+    pa_device_port_new_data dp_data;
     pa_device_port *dp;
     pa_droid_port_data *data;
     uint32_t idx;
@@ -932,8 +933,15 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
     PA_IDXSET_FOREACH(p, am->ports, idx) {
         if (!(dp = pa_hashmap_get(ports, p->name))) {
             pa_log_debug("  New port %s", p->name);
-            dp = pa_device_port_new(core, p->name, p->description, sizeof(pa_droid_port_data));
-            dp->priority = p->priority;
+            pa_device_port_new_data_init(&dp_data);
+            pa_device_port_new_data_set_name(&dp_data, p->name);
+            pa_device_port_new_data_set_description(&dp_data, p->description);
+            pa_device_port_new_data_set_direction(&dp_data, p->mapping->direction);
+            pa_device_port_new_data_set_available(&dp_data, PA_AVAILABLE_YES);
+
+            dp = pa_device_port_new(core, &dp_data, sizeof(pa_droid_port_data));
+
+            pa_device_port_new_data_done(&dp_data);
 
             pa_hashmap_put(ports, dp->name, dp);
             dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
@@ -942,9 +950,6 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
             data->device = p->device;
         } else
             pa_log_debug("  Port %s from cache", p->name);
-
-        dp->is_output = p->mapping->direction == PA_DIRECTION_OUTPUT;
-        dp->is_input = p->mapping->direction == PA_DIRECTION_INPUT;
 
         if (cp)
             pa_hashmap_put(dp->profiles, cp->name, cp);
