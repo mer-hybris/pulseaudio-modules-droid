@@ -67,7 +67,7 @@ struct userdata {
     pa_memchunk memchunk;
     audio_devices_t primary_devices;
     audio_devices_t enabled_devices;
-    pa_bool_t routing_changes_enabled;
+    bool routing_changes_enabled;
 
     size_t buffer_size;
     pa_usec_t timestamp;
@@ -81,7 +81,7 @@ struct userdata {
 
 static void userdata_free(struct userdata *u);
 
-static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
+static bool do_routing(struct userdata *u, audio_devices_t devices) {
     char tmp[32];
     char *devlist;
 
@@ -90,7 +90,7 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
 
     if (!u->routing_changes_enabled) {
         pa_log_debug("Skipping routing change.");
-        return FALSE;
+        return false;
     }
 
     if (u->primary_devices == devices)
@@ -116,10 +116,10 @@ static pa_bool_t do_routing(struct userdata *u, audio_devices_t devices) {
     u->stream->common.set_parameters(&u->stream->common, tmp);
 #endif
 
-    return TRUE;
+    return true;
 }
 
-static pa_bool_t parse_device_list(const char *str, audio_devices_t *dst) {
+static bool parse_device_list(const char *str, audio_devices_t *dst) {
     pa_assert(str);
     pa_assert(dst);
 
@@ -134,7 +134,7 @@ static pa_bool_t parse_device_list(const char *str, audio_devices_t *dst) {
         if (!pa_string_convert_input_device_str_to_num(dev, &d)) {
             pa_log_warn("Unknown device %s", dev);
             pa_xfree(dev);
-            return FALSE;
+            return false;
         }
 
         *dst |= d;
@@ -142,7 +142,7 @@ static pa_bool_t parse_device_list(const char *str, audio_devices_t *dst) {
         pa_xfree(dev);
     }
 
-    return TRUE;
+    return true;
 }
 
 static int thread_read(struct userdata *u) {
@@ -200,7 +200,7 @@ static void thread_func(void *userdata) {
             pa_rtpoll_set_timer_disabled(u->rtpoll);
 
         /* Sleep */
-        if ((ret = pa_rtpoll_run(u->rtpoll, TRUE)) < 0)
+        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
             goto fail;
 
         if (ret == 0)
@@ -305,7 +305,7 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
 
     if ((tmp = pa_modargs_get_value(ma, "source_name", NULL))) {
         pa_source_new_data_set_name(data, tmp);
-        data->namereg_fail = TRUE;
+        data->namereg_fail = true;
         pa_proplist_sets(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid source");
     } else {
         char *tt;
@@ -313,14 +313,14 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
         tt = pa_sprintf_malloc("source.%s", module_id);
         pa_source_new_data_set_name(data, tt);
         pa_xfree(tt);
-        data->namereg_fail = FALSE;
+        data->namereg_fail = false;
         pa_proplist_setf(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid source %s", module_id);
     }
 }
 
 static void source_get_mute_cb(pa_source *s) {
     struct userdata *u = s->userdata;
-    pa_bool_t b;
+    bool b;
 
     pa_assert(u);
     pa_assert(u->hw_module && u->hw_module->device);
@@ -363,7 +363,7 @@ static void source_set_mute_control(struct userdata *u) {
     }
 }
 
-void pa_droid_source_set_routing(pa_source *s, pa_bool_t enabled) {
+void pa_droid_source_set_routing(pa_source *s, bool enabled) {
     struct userdata *u = s->userdata;
 
     pa_assert(s);
@@ -391,7 +391,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     audio_devices_t dev_in;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
-    pa_bool_t namereg_fail = FALSE;
+    bool namereg_fail = false;
     pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
     int ret;
@@ -436,7 +436,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
     /* Enabled routing changes by default. */
-    u->routing_changes_enabled = TRUE;
+    u->routing_changes_enabled = true;
 
     if (card_data) {
         pa_assert(card);

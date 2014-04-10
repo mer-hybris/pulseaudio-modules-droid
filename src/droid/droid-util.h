@@ -192,7 +192,7 @@ pa_droid_hw_module *pa_droid_hw_module_ref(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unref(pa_droid_hw_module *hw);
 
 void pa_droid_hw_module_lock(pa_droid_hw_module *hw);
-pa_bool_t pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
+bool pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
 
 /* Conversion helpers */
@@ -201,24 +201,24 @@ typedef enum {
     CONV_FROM_HAL
 } pa_conversion_field_t;
 
-pa_bool_t pa_convert_output_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
-pa_bool_t pa_convert_input_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
-pa_bool_t pa_convert_format(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
+bool pa_convert_output_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
+bool pa_convert_input_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
+bool pa_convert_format(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
 
-pa_bool_t pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str);
-pa_bool_t pa_string_convert_output_device_str_to_num(const char *str, audio_devices_t *to_value);
-pa_bool_t pa_string_convert_input_device_num_to_str(audio_devices_t value, const char **to_str);
-pa_bool_t pa_string_convert_input_device_str_to_num(const char *str, audio_devices_t *to_value);
+bool pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str);
+bool pa_string_convert_output_device_str_to_num(const char *str, audio_devices_t *to_value);
+bool pa_string_convert_input_device_num_to_str(audio_devices_t value, const char **to_str);
+bool pa_string_convert_input_device_str_to_num(const char *str, audio_devices_t *to_value);
 
-pa_bool_t pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str);
-pa_bool_t pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value);
+bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str);
+bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value);
 
 char *pa_list_string_output_device(audio_devices_t devices);
 char *pa_list_string_input_device(audio_devices_t devices);
 char *pa_list_string_flags(audio_output_flags_t flags);
 
 /* Config parser */
-pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config);
+bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config);
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma);
 
 const pa_droid_config_output *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name);
@@ -242,7 +242,7 @@ void pa_droid_add_ports(pa_hashmap *ports, pa_droid_mapping *am, pa_card *card);
 void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_core *core);
 
 /* Pretty port names */
-pa_bool_t pa_droid_output_port_name(audio_devices_t value, const char **to_str);
-pa_bool_t pa_droid_input_port_name(audio_devices_t value, const char **to_str);
+bool pa_droid_output_port_name(audio_devices_t value, const char **to_str);
+bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 
 #endif

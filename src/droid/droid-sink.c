@@ -70,7 +70,7 @@ struct userdata {
     int32_t mute_routing_before;
     int32_t mute_routing_after;
 
-    pa_bool_t deferred_volume; /* TODO */
+    bool deferred_volume; /* TODO */
 
     pa_memblockq *memblockq;
     pa_memchunk silence;
@@ -82,8 +82,8 @@ struct userdata {
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
 
-    pa_bool_t use_hw_volume;
-    pa_bool_t use_voice_volume;
+    bool use_hw_volume;
+    bool use_voice_volume;
 
     pa_hook_slot *sink_input_put_hook_slot;
     pa_hook_slot *sink_input_unlink_hook_slot;
@@ -135,7 +135,7 @@ static void remove_extra_devices(struct userdata *u, audio_devices_t devices) {
 }
 
 /* Called from main context during voice calls, and from IO context during media operation. */
-static pa_bool_t do_routing(struct userdata *u) {
+static bool do_routing(struct userdata *u) {
     audio_devices_t routing;
     char tmp[32];
 
@@ -150,10 +150,10 @@ static pa_bool_t do_routing(struct userdata *u) {
     u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
     pa_droid_hw_module_unlock(u->hw_module);
 
-    return TRUE;
+    return true;
 }
 
-static pa_bool_t parse_device_list(const char *str, audio_devices_t *dst) {
+static bool parse_device_list(const char *str, audio_devices_t *dst) {
     pa_assert(str);
     pa_assert(dst);
 
@@ -168,7 +168,7 @@ static pa_bool_t parse_device_list(const char *str, audio_devices_t *dst) {
         if (!pa_string_convert_output_device_str_to_num(dev, &d)) {
             pa_log_warn("Unknown device %s", dev);
             pa_xfree(dev);
-            return FALSE;
+            return false;
         }
 
         *dst |= d;
@@ -176,7 +176,7 @@ static pa_bool_t parse_device_list(const char *str, audio_devices_t *dst) {
         pa_xfree(dev);
     }
 
-    return TRUE;
+    return true;
 }
 
 static int thread_write_silence(struct userdata *u) {
@@ -341,7 +341,7 @@ static void thread_func(void *userdata) {
             pa_rtpoll_set_timer_disabled(u->rtpoll);
 
         /* Sleep */
-        if ((ret = pa_rtpoll_run(u->rtpoll, TRUE)) < 0)
+        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
             goto fail;
 
         if (ret == 0)
@@ -549,7 +549,7 @@ static void update_volumes(struct userdata *u) {
     u->use_hw_volume = (ret == 0);
 
     /* Apply callbacks */
-    pa_droid_sink_set_voice_control(u->sink, FALSE);
+    pa_droid_sink_set_voice_control(u->sink, false);
 }
 
 static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *module_id) {
@@ -560,7 +560,7 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
 
     if ((tmp = pa_modargs_get_value(ma, "sink_name", NULL))) {
         pa_sink_new_data_set_name(data, tmp);
-        data->namereg_fail = TRUE;
+        data->namereg_fail = true;
         pa_proplist_sets(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink");
     } else {
         char *tt;
@@ -568,12 +568,12 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
         tt = pa_sprintf_malloc("sink.%s", module_id);
         pa_sink_new_data_set_name(data, tt);
         pa_xfree(tt);
-        data->namereg_fail = FALSE;
+        data->namereg_fail = false;
         pa_proplist_setf(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink %s", module_id);
     }
 }
 
-void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable) {
+void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
     struct userdata *u = sink->userdata;
 
     pa_assert(u);
@@ -661,7 +661,7 @@ static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sin
 /* Watch for properties starting with droid.parameter. and translate them directly to
  * HAL set_parameters() calls. */
 static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
-    pa_bool_t changed = FALSE;
+    bool changed = false;
     const char *pkey;
     const char *key;
     const char *value;
@@ -688,13 +688,13 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
             parameter->key = pa_xstrdup(pkey);
             parameter->value = pa_xstrdup(pa_proplist_gets(sink->proplist, key));
             pa_hashmap_put(u->parameters, parameter->key, parameter);
-            changed = TRUE;
+            changed = true;
         } else {
             value = pa_proplist_gets(sink->proplist, key);
             if (!pa_streq(parameter->value, value)) {
                 pa_xfree(parameter->value);
                 parameter->value = pa_xstrdup(value);
-                changed = TRUE;
+                changed = true;
             }
         }
     }
@@ -721,7 +721,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_card *card) {
 
     struct userdata *u = NULL;
-    pa_bool_t deferred_volume = FALSE;
+    bool deferred_volume = false;
     char *thread_name = NULL;
     pa_sink_new_data data;
     const char *module_id = NULL;
@@ -732,7 +732,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     audio_devices_t dev_out;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
-    pa_bool_t namereg_fail = FALSE;
+    bool namereg_fail = false;
     uint32_t total_latency;
     pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
     int32_t mute_routing_before = 0;
