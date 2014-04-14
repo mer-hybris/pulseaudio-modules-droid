@@ -63,7 +63,7 @@ struct userdata {
     pa_module *module;
 
     pa_droid_keepalive *keepalive;
-    pa_bool_t active;
+    bool active;
     pa_hook_slot *sink_state_changed_slot;
     pa_hook_slot *source_state_changed_slot;
 };
@@ -72,7 +72,7 @@ static void start(struct userdata *u) {
     if (u->active)
         return;
 
-    u->active = TRUE;
+    u->active = true;
 
     pa_droid_keepalive_start(u->keepalive);
 }
@@ -100,7 +100,7 @@ static void stop(struct userdata *u) {
 
     /* We get here if all sinks and sources are in suspended state. */
     pa_droid_keepalive_stop(u->keepalive);
-    u->active = FALSE;
+    u->active = false;
 }
 
 static pa_hook_result_t device_state_changed_hook_cb(pa_core *c, pa_object *o, struct userdata *u) {
@@ -140,7 +140,7 @@ int pa__init(pa_module *m) {
 
     struct userdata *u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
-    u->active = FALSE;
+    u->active = false;
     u->module = m;
     m->userdata = u;
 

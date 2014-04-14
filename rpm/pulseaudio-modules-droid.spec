@@ -1,4 +1,4 @@
-%define pulseversion 4.0
+%define pulseversion 5.0
 
 Name:       pulseaudio-modules-droid
 

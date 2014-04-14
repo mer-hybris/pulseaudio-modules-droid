@@ -75,39 +75,41 @@
 #endif
 
 #define CONVERT_FUNC(TABL) \
-pa_bool_t pa_convert_ ## TABL (uint32_t value, pa_conversion_field_t field, uint32_t *to_value) {               \
+bool pa_convert_ ## TABL (uint32_t value, pa_conversion_field_t field, uint32_t *to_value) {                    \
     for (unsigned int i = 0; i < sizeof( conversion_table_ ## TABL )/(sizeof(uint32_t)*2); i++) {               \
         if ( conversion_table_ ## TABL [i][field] == value) {                                                   \
             *to_value = conversion_table_ ## TABL [i][!field];                                                  \
-            return TRUE;                                                                                        \
+            return true;                                                                                        \
         }                                                                                                       \
     }                                                                                                           \
-    return FALSE;                                                                                               \
+    return false;                                                                                               \
 } struct __funny_extra_to_allow_semicolon
 
 /* Creates convert_format convert_channel etc.
- * pa_bool_t pa_convert_func(uint32_t value, pa_conversion_field_t field, uint32_t *to_value);
- * return TRUE if conversion succesful */
+ * bool pa_convert_func(uint32_t value, pa_conversion_field_t field, uint32_t *to_value);
+ * return true if conversion succesful */
 CONVERT_FUNC(format);
 CONVERT_FUNC(output_channel);
 CONVERT_FUNC(input_channel);
 
 #define DEFAULT_PRIORITY (100)
 
-static pa_bool_t string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
+static void droid_port_free(pa_droid_port *p);
+
+static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
     pa_assert(to_str);
 
     for (unsigned int i = 0; list[i].str; i++) {
         if (list[i].value == value) {
             *to_str = list[i].str;
-            return TRUE;
+            return true;
         }
     }
-    return FALSE;
+    return false;
 }
 
-static pa_bool_t string_convert_str_to_num(const struct string_conversion *list, const char *str, uint32_t *to_value) {
+static bool string_convert_str_to_num(const struct string_conversion *list, const char *str, uint32_t *to_value) {
     pa_assert(list);
     pa_assert(str);
     pa_assert(to_value);
@@ -115,10 +117,10 @@ static pa_bool_t string_convert_str_to_num(const struct string_conversion *list,
     for (unsigned int i = 0; list[i].str; i++) {
         if (pa_streq(list[i].str, str)) {
             *to_value = list[i].value;
-            return TRUE;
+            return true;
         }
     }
-    return FALSE;
+    return false;
 }
 
 static char *list_string(struct string_conversion *list, uint32_t flags) {
@@ -156,11 +158,11 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
 
 
 /* Output device */
-pa_bool_t pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str) {
+bool pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_output_device, (uint32_t) value, to_str);
 }
 
-pa_bool_t pa_string_convert_output_device_str_to_num(const char *str, audio_devices_t *to_value) {
+bool pa_string_convert_output_device_str_to_num(const char *str, audio_devices_t *to_value) {
     return string_convert_str_to_num(string_conversion_table_output_device, str, (uint32_t*) to_value);
 }
 
@@ -169,11 +171,11 @@ char *pa_list_string_output_device(audio_devices_t devices) {
 }
 
 /* Input device */
-pa_bool_t pa_string_convert_input_device_num_to_str(audio_devices_t value, const char **to_str) {
+bool pa_string_convert_input_device_num_to_str(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_input_device, (uint32_t) value, to_str);
 }
 
-pa_bool_t pa_string_convert_input_device_str_to_num(const char *str, audio_devices_t *to_value) {
+bool pa_string_convert_input_device_str_to_num(const char *str, audio_devices_t *to_value) {
     return string_convert_str_to_num(string_conversion_table_input_device, str, (uint32_t*) to_value);
 }
 
@@ -182,11 +184,11 @@ char *pa_list_string_input_device(audio_devices_t devices) {
 }
 
 /* Flags */
-pa_bool_t pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str) {
+bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_flag, (uint32_t) value, to_str);
 }
 
-pa_bool_t pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value) {
+bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value) {
     return string_convert_str_to_num(string_conversion_table_flag, str, (uint32_t*) to_value);
 }
 
@@ -227,7 +229,7 @@ static int parse_list(const struct string_conversion *table, const char *str, ui
     return count;
 }
 
-static pa_bool_t parse_sampling_rates(const char *str, uint32_t sampling_rates[32]) {
+static bool parse_sampling_rates(const char *str, uint32_t sampling_rates[32]) {
     pa_assert(str);
 
     char *entry;
@@ -240,13 +242,13 @@ static pa_bool_t parse_sampling_rates(const char *str, uint32_t sampling_rates[3
         if (pos == AUDIO_MAX_SAMPLING_RATES) {
             pa_log("Too many sample rate entries (> %d)", AUDIO_MAX_SAMPLING_RATES);
             pa_xfree(entry);
-            return FALSE;
+            return false;
         }
 
         if (pa_atoi(entry, &val) < 0) {
             pa_log("Bad sample rate value %s", entry);
             pa_xfree(entry);
-            return FALSE;
+            return false;
         }
 
         sampling_rates[pos++] = val;
@@ -257,24 +259,24 @@ static pa_bool_t parse_sampling_rates(const char *str, uint32_t sampling_rates[3
 
     sampling_rates[pos] = 0;
 
-    return TRUE;
+    return true;
 }
 
-static pa_bool_t parse_formats(const char *str, audio_format_t *formats) {
+static bool parse_formats(const char *str, audio_format_t *formats) {
     pa_assert(str);
     pa_assert(formats);
 
     return parse_list(string_conversion_table_format, str, formats) > 0;
 }
 
-static int parse_channels(const char *str, pa_bool_t in_output, audio_channel_mask_t *channels) {
+static int parse_channels(const char *str, bool in_output, audio_channel_mask_t *channels) {
     pa_assert(str);
     pa_assert(channels);
 
     /* Needs to be probed later */
     if (pa_streq(str, "dynamic")) {
         *channels = 0;
-        return TRUE;
+        return true;
     }
 
     if (in_output)
@@ -283,7 +285,7 @@ static int parse_channels(const char *str, pa_bool_t in_output, audio_channel_ma
         return parse_list(string_conversion_table_input_channels, str, channels);
 }
 
-static pa_bool_t parse_devices(const char *str, pa_bool_t in_output, audio_devices_t *devices) {
+static bool parse_devices(const char *str, bool in_output, audio_devices_t *devices) {
     pa_assert(str);
     pa_assert(devices);
 
@@ -293,17 +295,17 @@ static pa_bool_t parse_devices(const char *str, pa_bool_t in_output, audio_devic
         return parse_list(string_conversion_table_input_device, str, devices) > 0;
 }
 
-static pa_bool_t parse_flags(const char *str, audio_output_flags_t *flags) {
+static bool parse_flags(const char *str, audio_output_flags_t *flags) {
     pa_assert(str);
     pa_assert(flags);
 
     return parse_list(string_conversion_table_flag, str, flags) > 0;
 }
 
-pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
+bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
     FILE *f;
     int n = 0;
-    pa_bool_t ret = TRUE;
+    bool ret = true;
 
     enum config_loc {
         IN_ROOT = 0,
@@ -315,8 +317,8 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
     } loc = IN_ROOT;
 
 
-    pa_bool_t in_global = FALSE;
-    pa_bool_t in_output = TRUE;
+    bool in_global = false;
+    bool in_output = true;
 
     pa_droid_config_hw_module *module = NULL;
     pa_droid_config_output *output = NULL;
@@ -331,7 +333,7 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
 
     if (!f) {
         pa_log_info("Failed to open config file (%s): %s", filename, pa_cstrerror(errno));
-        ret = FALSE;
+        ret = false;
         goto finish;
     }
 
@@ -366,14 +368,14 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
             switch (loc) {
                 case IN_ROOT:
                     if (pa_streq(v, GLOBAL_CONFIG_TAG)) {
-                        in_global = TRUE;
+                        in_global = true;
                         loc = IN_GLOBAL;
                     }
                     else if (pa_streq(v, AUDIO_HW_MODULE_TAG))
                         loc = IN_HW_MODULES;
                     else {
                         pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
-                        ret = FALSE;
+                        ret = false;
                         goto finish;
                     }
                     break;
@@ -390,13 +392,13 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
                 case IN_MODULE:
                     if (pa_streq(v, OUTPUTS_TAG)) {
                         loc = IN_OUTPUT_INPUT;
-                        in_output = TRUE;
+                        in_output = true;
                     } else if (pa_streq(v, INPUTS_TAG)) {
                         loc = IN_OUTPUT_INPUT;
-                        in_output = FALSE;
+                        in_output = false;
                     } else {
                         pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
-                        ret = FALSE;
+                        ret = false;
                         goto finish;
                     }
                     break;
@@ -423,7 +425,7 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
 
                 case IN_CONFIG:
                     pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field in config (%s)", filename, n, v);
-                    ret = FALSE;
+                    ret = false;
                     goto finish;
             }
 
@@ -434,7 +436,7 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
         if (ln[strlen(ln)-1] == '}') {
             if (loc == IN_ROOT) {
                 pa_log(__FILE__ ": [%s:%u] failed to parse line - extra closing bracket", filename, n);
-                ret = FALSE;
+                ret = false;
                 goto finish;
             }
 
@@ -448,14 +450,14 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
             if (loc == IN_ROOT)
                 module = NULL;
 
-            in_global = FALSE;
+            in_global = false;
 
             continue;
         }
 
         /* Parse global configuration */
         if (in_global) {
-            pa_bool_t success = FALSE;
+            bool success = false;
 
             d = ln+strspn(ln, WHITESPACE);
             v = d;
@@ -467,25 +469,25 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
             d[0] = '\0';
 
             if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
-                success = parse_devices(val, TRUE, &config->global_config.attached_output_devices);
+                success = parse_devices(val, true, &config->global_config.attached_output_devices);
             else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
-                success = parse_devices(val, TRUE, &config->global_config.default_output_device);
+                success = parse_devices(val, true, &config->global_config.default_output_device);
             else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
-                success = parse_devices(val, FALSE, &config->global_config.attached_input_devices);
+                success = parse_devices(val, false, &config->global_config.attached_input_devices);
             else {
                 pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-                success = FALSE;
+                success = false;
             }
 
             if (!success) {
-                ret = FALSE;
+                ret = false;
                 goto finish;
             }
         }
 
         /* Parse per-output or per-input configuration */
         if (loc == IN_CONFIG) {
-            pa_bool_t success = FALSE;
+            bool success = false;
 
             pa_assert(module);
 
@@ -501,7 +503,7 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
 
             if ((in_output && !output) || (!in_output && !input)) {
                 pa_log(__FILE__ ": [%s:%u] failed to parse line", filename, n);
-                ret = FALSE;
+                ret = false;
                 goto finish;
             }
 
@@ -511,28 +513,28 @@ pa_bool_t pa_parse_droid_audio_config(const char *filename, pa_droid_config_audi
                 success = parse_formats(val, in_output ? &output->formats : &input->formats);
             else if (pa_streq(v, CHANNELS_TAG)) {
                 if (in_output)
-                    success = (parse_channels(val, TRUE, &output->channel_masks) > 0);
+                    success = (parse_channels(val, true, &output->channel_masks) > 0);
                 else
-                    success = (parse_channels(val, FALSE, &input->channel_masks) > 0);
+                    success = (parse_channels(val, false, &input->channel_masks) > 0);
             } else if (pa_streq(v, DEVICES_TAG)) {
                 if (in_output)
-                    success = parse_devices(val, TRUE, &output->devices);
+                    success = parse_devices(val, true, &output->devices);
                 else
-                    success = parse_devices(val, FALSE, &input->devices);
+                    success = parse_devices(val, false, &input->devices);
             } else if (pa_streq(v, FLAGS_TAG)) {
                 if (in_output)
                     success = parse_flags(val, &output->flags);
                 else {
                     pa_log(__FILE__ ": [%s:%u] failed to parse line - output flags inside input definition", filename, n);
-                    success = FALSE;
+                    success = false;
                 }
             } else {
                 pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-                success = FALSE;
+                success = false;
             }
 
             if (!success) {
-                ret = FALSE;
+                ret = false;
                 goto finish;
             }
         }
@@ -635,10 +637,14 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
 
     ps = pa_xnew0(pa_droid_profile_set, 1);
     ps->config = module->config;
-    ps->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-    ps->output_mappings = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-    ps->input_mappings = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-    ps->all_ports = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    ps->profiles        = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_profile_free);
+    ps->output_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
+    ps->input_mappings  = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
+    ps->all_ports       = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) droid_port_free);
 
     /* Each distinct hw module output matches one profile. If there are multiple inputs
      * combinations are made so that all possible outputs and inputs can be selected.
@@ -687,16 +693,16 @@ void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
     pa_assert(ps);
 
     if (ps->output_mappings)
-        pa_hashmap_free(ps->output_mappings, (pa_free_cb_t) pa_droid_mapping_free);
+        pa_hashmap_free(ps->output_mappings);
 
     if (ps->input_mappings)
-        pa_hashmap_free(ps->input_mappings, (pa_free_cb_t) pa_droid_mapping_free);
+        pa_hashmap_free(ps->input_mappings);
 
     if (ps->all_ports)
-        pa_hashmap_free(ps->all_ports, (pa_free_cb_t) droid_port_free);
+        pa_hashmap_free(ps->all_ports);
 
     if (ps->profiles)
-        pa_hashmap_free(ps->profiles, (pa_free_cb_t) pa_droid_profile_free);
+        pa_hashmap_free(ps->profiles);
 
     pa_xfree(ps);
 }
@@ -906,16 +912,17 @@ pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t 
     return am;
 }
 
-pa_bool_t pa_droid_output_port_name(audio_devices_t value, const char **to_str) {
+bool pa_droid_output_port_name(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_output_device_fancy, (uint32_t) value, to_str);
 }
 
-pa_bool_t pa_droid_input_port_name(audio_devices_t value, const char **to_str) {
+bool pa_droid_input_port_name(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_input_device_fancy, (uint32_t) value, to_str);
 }
 
 static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_hashmap *extra) {
     pa_droid_port *p;
+    pa_device_port_new_data dp_data;
     pa_device_port *dp;
     pa_droid_port_data *data;
     uint32_t idx;
@@ -926,8 +933,15 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
     PA_IDXSET_FOREACH(p, am->ports, idx) {
         if (!(dp = pa_hashmap_get(ports, p->name))) {
             pa_log_debug("  New port %s", p->name);
-            dp = pa_device_port_new(core, p->name, p->description, sizeof(pa_droid_port_data));
-            dp->priority = p->priority;
+            pa_device_port_new_data_init(&dp_data);
+            pa_device_port_new_data_set_name(&dp_data, p->name);
+            pa_device_port_new_data_set_description(&dp_data, p->description);
+            pa_device_port_new_data_set_direction(&dp_data, p->mapping->direction);
+            pa_device_port_new_data_set_available(&dp_data, PA_AVAILABLE_YES);
+
+            dp = pa_device_port_new(core, &dp_data, sizeof(pa_droid_port_data));
+
+            pa_device_port_new_data_done(&dp_data);
 
             pa_hashmap_put(ports, dp->name, dp);
             dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
@@ -936,9 +950,6 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
             data->device = p->device;
         } else
             pa_log_debug("  Port %s from cache", p->name);
-
-        dp->is_output = p->mapping->direction == PA_DIRECTION_OUTPUT;
-        dp->is_input = p->mapping->direction == PA_DIRECTION_INPUT;
 
         if (cp)
             pa_hashmap_put(dp->profiles, cp->name, cp);
@@ -1018,7 +1029,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     PA_REFCNT_INIT(hw);
     hw->core = core;
     hw->hwmod = hwmod;
-    hw->hw_mutex = pa_mutex_new(TRUE, FALSE);
+    hw->hw_mutex = pa_mutex_new(true, false);
     hw->device = device;
     hw->config = config; /* We take ownership of config struct. */
     hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
@@ -1137,7 +1148,7 @@ void pa_droid_hw_module_lock(pa_droid_hw_module *hw) {
     pa_mutex_lock(hw->hw_mutex);
 }
 
-pa_bool_t pa_droid_hw_module_try_lock(pa_droid_hw_module *hw) {
+bool pa_droid_hw_module_try_lock(pa_droid_hw_module *hw) {
     pa_assert(hw);
 
     return pa_mutex_try_lock(hw->hw_mutex);

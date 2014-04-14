@@ -52,6 +52,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_card *card);
 void pa_droid_sink_free(pa_sink *s);
 
-void pa_droid_sink_set_voice_control(pa_sink* sink, pa_bool_t enable);
+void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable);
 
 #endif

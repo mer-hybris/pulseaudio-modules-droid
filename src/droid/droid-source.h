@@ -51,6 +51,6 @@ pa_source *pa_droid_source_new(pa_module *m,
                                  pa_card *card);
 void pa_droid_source_free(pa_source *s);
 
-void pa_droid_source_set_routing(pa_source *s, pa_bool_t enabled);
+void pa_droid_source_set_routing(pa_source *s, bool enabled);
 
 #endif
