@@ -47,6 +47,7 @@ struct pa_droid_hw_module {
     PA_REFCNT_DECLARE;
 
     pa_core *core;
+    char *shared_name;
 
     pa_droid_config_audio *config;
     const pa_droid_config_hw_module *enabled_module;

@@ -1034,9 +1034,9 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     hw->config = config; /* We take ownership of config struct. */
     hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
     hw->module_id = hw->enabled_module->name;
+    hw->shared_name = shared_name_get(hw->module_id);
 
-    shared_name = shared_name_get(hw->module_id);
-    pa_assert_se(pa_shared_set(core, shared_name, hw) >= 0);
+    pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
 
     return hw;
 
@@ -1089,11 +1089,13 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     if (hw->hw_mutex)
         pa_mutex_free(hw->hw_mutex);
 
+    if (hw->shared_name)
+        pa_xfree(hw->shared_name);
+
     pa_xfree(hw);
 }
 
 void pa_droid_hw_module_unref(pa_droid_hw_module *hw) {
-    char *shared_name;
 
     pa_assert(hw);
     pa_assert(PA_REFCNT_VALUE(hw) >= 1);
@@ -1101,9 +1103,7 @@ void pa_droid_hw_module_unref(pa_droid_hw_module *hw) {
     if (PA_REFCNT_DEC(hw) > 0)
         return;
 
-    shared_name = shared_name_get(hw->module_id);
-    pa_assert_se(pa_shared_remove(hw->core, shared_name) >= 0);
-    pa_xfree(shared_name);
+    pa_assert_se(pa_shared_remove(hw->core, hw->shared_name) >= 0);
     droid_hw_module_close(hw);
 }
 
