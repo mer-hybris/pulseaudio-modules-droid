@@ -684,6 +684,8 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
         if (pkey[0] == '\0')
             continue;
 
+        changed = false;
+
         if (!(parameter = pa_hashmap_get(u->parameters, pkey))) {
             parameter = pa_xnew0(droid_parameter_mapping, 1);
             parameter->key = pa_xstrdup(pkey);
@@ -698,16 +700,16 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
                 changed = true;
             }
         }
-    }
 
-    if (changed) {
-        pa_assert(parameter);
-        tmp = pa_sprintf_malloc("%s=%s;", parameter->key, parameter->value);
-        pa_log_debug("set_parameters(): %s", tmp);
-        pa_droid_hw_module_lock(u->hw_module);
-        u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
-        pa_droid_hw_module_unlock(u->hw_module);
-        pa_xfree(tmp);
+        if (changed) {
+            pa_assert(parameter);
+            tmp = pa_sprintf_malloc("%s=%s;", parameter->key, parameter->value);
+            pa_log_debug("set_parameters(): %s", tmp);
+            pa_droid_hw_module_lock(u->hw_module);
+            u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
+            pa_droid_hw_module_unlock(u->hw_module);
+            pa_xfree(tmp);
+        }
     }
 
     return PA_HOOK_OK;
