@@ -80,7 +80,9 @@ PA_MODULE_USAGE(
         "module_id=<which droid hw module to load, default primary> "
         "voice_source_routing=<route source ports during voice call, default false> "
         "deferred_volume=<synchronize software and hardware volume changes to avoid momentary jumps?> "
-        "config=<location for droid audio configuration>"
+        "config=<location for droid audio configuration> "
+        "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
+        "voice_property_value=<proplist value for the key for voice control sink-input>"
 );
 
 static const char* const valid_modargs[] = {
@@ -99,6 +101,8 @@ static const char* const valid_modargs[] = {
     "mute_routing_before",
     "mute_routing_after",
     "config",
+    "voice_property_key",
+    "voice_property_value",
     NULL,
 };
 
