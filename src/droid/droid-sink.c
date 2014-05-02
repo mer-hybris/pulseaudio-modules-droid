@@ -53,6 +53,7 @@
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/hashmap.h>
+#include <pulsecore/core-subscribe.h>
 
 #include "droid-sink.h"
 #include "droid-util.h"
@@ -84,6 +85,10 @@ struct userdata {
 
     bool use_hw_volume;
     bool use_voice_volume;
+    char *voice_property_key;
+    char *voice_property_value;
+    pa_sink_input *voice_control_sink_input;
+    pa_subscription *sink_input_subscription;
 
     pa_hook_slot *sink_input_put_hook_slot;
     pa_hook_slot *sink_input_unlink_hook_slot;
@@ -111,8 +116,16 @@ typedef struct droid_parameter_mapping {
 /* sink-input properties */
 #define PROP_DROID_ROUTE "droid.device.additional-route"
 
+/* Voice call volume control.
+ * With defaults defined below, whenever sink-input with proplist key "media.role" with
+ * value "phone" connects to the sink AND voice volume control is enabled, that connected
+ * sink-input's absolute volume is used for HAL voice volume. */
+#define DEFAULT_VOICE_CONTROL_PROPERTY_KEY      "media.role"
+#define DEFAULT_VOICE_CONTROL_PROPERTY_VALUE    "phone"
+
 static void parameter_free(droid_parameter_mapping *m);
 static void userdata_free(struct userdata *u);
+static void set_voice_volume(struct userdata *u, pa_sink_input *i);
 
 static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
     pa_assert(u);
@@ -519,15 +532,18 @@ static void sink_set_volume_cb(pa_sink *s) {
     }
 }
 
-static void sink_set_voice_volume_cb(pa_sink *s) {
-    struct userdata *u = s->userdata;
-    pa_cvolume r;
+/* Called from main thread */
+static void set_voice_volume(struct userdata *u, pa_sink_input *i) {
+    pa_cvolume vol;
     float val;
 
-    /* Shift up by the base volume */
-    pa_sw_cvolume_divide_scalar(&r, &s->real_volume, s->base_volume);
+    pa_assert_ctl_context();
+    pa_assert(u);
+    pa_assert(i);
 
-    val = pa_sw_volume_to_linear(pa_cvolume_avg(&r));
+    pa_sink_input_get_volume(i, &vol, true);
+
+    val = pa_sw_volume_to_linear(pa_cvolume_avg(&vol));
     pa_log_debug("Set voice volume %f", val);
 
     pa_droid_hw_module_lock(u->hw_module);
@@ -574,18 +590,100 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
     }
 }
 
-void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
-    struct userdata *u = sink->userdata;
+/* Called from main thread */
+static pa_sink_input *find_volume_control_sink_input(struct userdata *u) {
+    const char *val;
+    uint32_t idx;
+    pa_sink_input *i;
 
+    pa_assert_ctl_context();
     pa_assert(u);
+    pa_assert(u->sink);
+
+    PA_IDXSET_FOREACH(i, u->sink->inputs, idx) {
+        if ((val = pa_proplist_gets(i->proplist, u->voice_property_key))) {
+            if (pa_streq(val, u->voice_property_value)) {
+                return i;
+            }
+        }
+    }
+
+    return NULL;
+}
+
+/* Called from main thread */
+static void sink_input_subscription_cb(pa_core *c, pa_subscription_event_type_t t, uint32_t idx, struct userdata *u) {
+    pa_sink_input *i;
+
+    pa_assert_ctl_context();
+
+    if (t != (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_NEW) &&
+        t != (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_CHANGE) &&
+        t != (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_REMOVE))
+        return;
+
+    if (!(i = pa_idxset_get_by_index(c->sink_inputs, idx)))
+        return;
+
+    if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_NEW)) {
+        if (!u->voice_control_sink_input && (i = find_volume_control_sink_input(u))) {
+            u->voice_control_sink_input = i;
+            set_voice_volume(u, i);
+        }
+    }
+    else if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_CHANGE)) {
+        if (u->voice_control_sink_input == i)
+            set_voice_volume(u, i);
+    }
+    else if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_REMOVE)) {
+        if (u->voice_control_sink_input == i)
+            u->voice_control_sink_input = NULL;
+    }
+}
+
+/* Called from main thread */
+void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
+    pa_sink_input *i;
+    struct userdata *u;
+
+    pa_assert_ctl_context();
     pa_assert(sink);
+
+    u = sink->userdata;
+    pa_assert(u);
+    pa_assert(u->sink == sink);
+
+    if (u->use_voice_volume == enable)
+        return;
 
     u->use_voice_volume = enable;
 
     if (u->use_voice_volume) {
         pa_log_debug("Using voice volume control for %s", u->sink->name);
-        pa_sink_set_set_volume_callback(u->sink, sink_set_voice_volume_cb);
+        pa_sink_set_set_volume_callback(u->sink, NULL);
+
+        /* Susbcription tracking voice call volume control sink-input is set up when
+         * voice volume control is enabled. In case volume control sink-input has already
+         * connected to the sink, check for the sink-input here as well. */
+
+        if (!u->sink_input_subscription)
+            u->sink_input_subscription = pa_subscription_new(u->core,
+                                                             PA_SUBSCRIPTION_MASK_SINK_INPUT,
+                                                             (pa_subscription_cb_t) sink_input_subscription_cb,
+                                                             u);
+
+        if ((i = find_volume_control_sink_input(u))) {
+            u->voice_control_sink_input = i;
+            set_voice_volume(u, i);
+        }
+
     } else {
+        if (u->sink_input_subscription) {
+            pa_subscription_free(u->sink_input_subscription);
+            u->sink_input_subscription = NULL;
+            u->voice_control_sink_input = NULL;
+        }
+
         if (u->use_hw_volume) {
             pa_log_debug("Using hardware volume control for %s", u->sink->name);
             pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
@@ -799,6 +897,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
     u->parameters = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
                                         NULL, (pa_free_cb_t) parameter_free);
+    u->voice_property_key   = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_key", DEFAULT_VOICE_CONTROL_PROPERTY_KEY));
+    u->voice_property_value = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_value", DEFAULT_VOICE_CONTROL_PROPERTY_VALUE));
 
     if (card_data) {
         u->card_data = card_data;
@@ -1052,6 +1152,9 @@ static void userdata_free(struct userdata *u) {
 
     pa_thread_mq_done(&u->thread_mq);
 
+    if (u->sink_input_subscription)
+        pa_subscription_free(u->sink_input_subscription);
+
     if (u->sink_input_put_hook_slot)
         pa_hook_slot_free(u->sink_input_put_hook_slot);
 
@@ -1081,6 +1184,11 @@ static void userdata_free(struct userdata *u) {
 
     if (u->hw_module)
         pa_droid_hw_module_unref(u->hw_module);
+
+    if (u->voice_property_key)
+        pa_xfree(u->voice_property_key);
+    if (u->voice_property_value)
+        pa_xfree(u->voice_property_value);
 
     pa_xfree(u);
 }
