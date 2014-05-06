@@ -252,6 +252,7 @@ static struct string_conversion string_conversion_table_input_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_IN_MONO),
     STRING_ENTRY(AUDIO_CHANNEL_IN_STEREO),
     STRING_ENTRY(AUDIO_CHANNEL_IN_ALL),
+    STRING_ENTRY(AUDIO_CHANNEL_IN_FRONT_BACK),
     { 0, NULL }
 };
 
