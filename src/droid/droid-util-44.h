@@ -106,6 +106,7 @@ static struct string_conversion string_conversion_table_output_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_A2DP),
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_SCO),
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_USB),
+    STRING_ENTRY(AUDIO_DEVICE_OUT_PROXY),
     { 0, NULL }
 };
 
