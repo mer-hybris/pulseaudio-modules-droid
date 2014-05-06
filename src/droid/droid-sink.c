@@ -979,8 +979,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     };
 
     /* Default routing */
-    dev_out = AUDIO_DEVICE_OUT_DEFAULT;
-
+    /* dev_out = AUDIO_DEVICE_OUT_DEFAULT; */
+    /* FIXME use something else than OUT_DEFAULT for i9305 to get initial audio working. */
+    dev_out = AUDIO_DEVICE_OUT_SPEAKER;
+  
     if ((tmp = pa_modargs_get_value(ma, "output_devices", NULL))) {
         audio_devices_t tmp_dev;
 
