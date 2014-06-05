@@ -82,6 +82,7 @@ struct userdata {
 
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
+    pa_hashmap *extra_devices_map;
 
     bool use_hw_volume;
     bool use_voice_volume;
@@ -134,18 +135,56 @@ static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
     u->primary_devices = devices;
 }
 
-static void add_extra_devices(struct userdata *u, audio_devices_t devices) {
+static bool add_extra_devices(struct userdata *u, audio_devices_t devices) {
+    void *value;
+    uint32_t count;
+    bool need_update = false;
+
     pa_assert(u);
+    pa_assert(u->extra_devices_map);
     pa_assert(devices);
 
-    u->extra_devices |= devices;
+    if ((value = pa_hashmap_get(u->extra_devices_map, PA_UINT_TO_PTR(devices)))) {
+        count = PA_PTR_TO_UINT(value);
+        count++;
+        pa_hashmap_remove(u->extra_devices_map, PA_UINT_TO_PTR(devices));
+        pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(count));
+
+        /* added extra device already exists in hashmap, so no need to update route. */
+        need_update = false;
+    } else {
+        pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(1));
+        u->extra_devices |= devices;
+        need_update = true;
+    }
+
+    return need_update;
 }
 
-static void remove_extra_devices(struct userdata *u, audio_devices_t devices) {
+static bool remove_extra_devices(struct userdata *u, audio_devices_t devices) {
+    void *value;
+    uint32_t count;
+    bool need_update = false;
+
     pa_assert(u);
+    pa_assert(u->extra_devices_map);
     pa_assert(devices);
 
-    u->extra_devices &= ~devices;
+    if ((value = pa_hashmap_get(u->extra_devices_map, PA_UINT_TO_PTR(devices)))) {
+        pa_hashmap_remove(u->extra_devices_map, PA_UINT_TO_PTR(devices));
+        count = PA_PTR_TO_UINT(value);
+        count--;
+        if (count == 0) {
+            u->extra_devices &= ~devices;
+            need_update = true;
+        } else {
+            /* added extra devices still exists in hashmap, so no need to update route. */
+            pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(count));
+            need_update = false;
+        }
+    }
+
+    return need_update;
 }
 
 /* Called from main context during voice calls, and from IO context during media operation. */
@@ -717,9 +756,9 @@ static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_i
 
             pa_log_debug("Add extra route %s (%u).", dev_str, devices);
 
-            add_extra_devices(u, devices);
-            /* post routing change */
-            pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
+            /* if this device was not routed to previously post routing change */
+            if (add_extra_devices(u, devices))
+                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
         }
     }
 
@@ -748,9 +787,9 @@ static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sin
 
             pa_log_debug("Remove extra route %s (%u).", dev_str, devices);
 
-            remove_extra_devices(u, devices);
-            /* post routing change */
-            pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
+            /* if this device no longer exists in extra devices map post routing change */
+            if (remove_extra_devices(u, devices))
+                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
         }
     }
 
@@ -899,6 +938,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                                         NULL, (pa_free_cb_t) parameter_free);
     u->voice_property_key   = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_key", DEFAULT_VOICE_CONTROL_PROPERTY_KEY));
     u->voice_property_value = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_value", DEFAULT_VOICE_CONTROL_PROPERTY_VALUE));
+    u->extra_devices_map = pa_hashmap_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
 
     if (card_data) {
         u->card_data = card_data;
@@ -1189,6 +1229,9 @@ static void userdata_free(struct userdata *u) {
         pa_xfree(u->voice_property_key);
     if (u->voice_property_value)
         pa_xfree(u->voice_property_value);
+
+    if (u->extra_devices_map)
+        pa_hashmap_free(u->extra_devices_map);
 
     pa_xfree(u);
 }
