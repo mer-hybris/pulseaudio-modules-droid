@@ -193,6 +193,25 @@ AC_ARG_WITH([module-dir],
 
 AC_SUBST(modlibexecdir)
 
+#### UDEV support (optional) ####
+
+AC_ARG_ENABLE([udev],
+    AS_HELP_STRING([--disable-udev],[Disable optional UDEV support]))
+
+AS_IF([test "x$enable_udev" != "xno"],
+    [PKG_CHECK_MODULES(UDEV, [ libudev >= 143 ], HAVE_UDEV=1, HAVE_UDEV=0)],
+    HAVE_UDEV=0)
+
+AS_IF([test "x$enable_udev" = "xyes" && test "x$HAVE_UDEV" = "x0"],
+    [AC_MSG_ERROR([*** UDEV support not found])])
+
+AC_SUBST(UDEV_CFLAGS)
+AC_SUBST(UDEV_LIBS)
+AC_SUBST(HAVE_UDEV)
+AM_CONDITIONAL([HAVE_UDEV], [test "x$HAVE_UDEV" = x1])
+AS_IF([test "x$HAVE_UDEV" = "x1"], AC_DEFINE([HAVE_UDEV], 1, [Have UDEV.]))
+
+
 ############################################
 # Droid device type
 droiddevice="generic"
