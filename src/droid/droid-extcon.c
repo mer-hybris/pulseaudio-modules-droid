@@ -122,13 +122,13 @@ static void notify_ports(pa_droid_extcon *u, struct droid_switch *as) {
     pa_log_debug("Value of switch %s is now %d.", as->name, as->current_value);
 
     PA_HASHMAP_FOREACH(p, u->card->ports, state) {
-        if (p->is_output) {
+        if (p->direction == PA_DIRECTION_OUTPUT) {
             if (!strcmp(p->name, "output-wired_headset"))
                 pa_device_port_set_available(p, hsmic_avail(as->current_value));
             if (!strcmp(p->name, "output-wired_headphone"))
                 pa_device_port_set_available(p, hponly_avail(as->current_value));
         }
-        if (p->is_input) {
+        if (p->direction == PA_DIRECTION_INPUT) {
             if (!strcmp(p->name, "input-wired_headset"))
                 pa_device_port_set_available(p, hsmic_avail(as->current_value));
         }
