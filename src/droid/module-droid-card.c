@@ -161,7 +161,7 @@ static void add_disabled_profile(pa_hashmap *profiles) {
 /* Special profile for calls */
 static void add_virtual_profile(struct userdata *u, const char *name, const char *description,
                                 audio_mode_t audio_mode, virtual_profile_event_cb event_cb,
-                                pa_hashmap *profiles) {
+                                pa_available_t available, pa_hashmap *profiles) {
     pa_droid_profile *ap;
     pa_card_profile *cp;
     struct profile_data *d;
@@ -180,6 +180,7 @@ static void add_virtual_profile(struct userdata *u, const char *name, const char
     pa_hashmap_put(u->profile_set->profiles, ap->name, ap);
 
     cp = pa_card_profile_new(ap->name, ap->description, sizeof(struct profile_data));
+    cp->available = available;
     d = PA_CARD_PROFILE_DATA(cp);
     d->profile = ap;
     d->virtual = true;
@@ -359,6 +360,11 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_assert(c);
     pa_assert(new_profile);
     pa_assert_se(u = c->userdata);
+
+    if (new_profile->available != PA_AVAILABLE_YES) {
+        pa_log("Profile %s is not available.", new_profile->name);
+        return -1;
+    }
 
     nd = PA_CARD_PROFILE_DATA(new_profile);
     od = PA_CARD_PROFILE_DATA(c->active_profile);
@@ -542,13 +548,13 @@ int pa__init(pa_module *m) {
 
     add_virtual_profile(u, VOICE_CALL_PROFILE_NAME, VOICE_CALL_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_profile_event_cb,
-                        data.profiles);
+                        PA_AVAILABLE_YES, data.profiles);
     add_virtual_profile(u, COMMUNICATION_PROFILE_NAME, COMMUNICATION_PROFILE_DESC,
                         AUDIO_MODE_IN_COMMUNICATION, NULL,
-                        data.profiles);
+                        PA_AVAILABLE_YES, data.profiles);
     add_virtual_profile(u, RINGTONE_PROFILE_NAME, RINGTONE_PROFILE_DESC,
                         AUDIO_MODE_RINGTONE, NULL,
-                        data.profiles);
+                        PA_AVAILABLE_YES, data.profiles);
 
     add_disabled_profile(data.profiles);
 
