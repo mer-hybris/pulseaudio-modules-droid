@@ -129,6 +129,7 @@ static struct string_conversion string_conversion_table_output_device_fancy[] = 
     { AUDIO_DEVICE_OUT_USB_ACCESSORY,               "output-usb_accessory" },
     { AUDIO_DEVICE_OUT_USB_DEVICE,                  "output-usb_device" },
     { AUDIO_DEVICE_OUT_REMOTE_SUBMIX,               "output-remote_submix" },
+    { AUDIO_DEVICE_OUT_PROXY,                       "output-proxy" },
     { 0, NULL }
 };
 
