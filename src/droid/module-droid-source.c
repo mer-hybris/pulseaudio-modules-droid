@@ -78,7 +78,7 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
-    if (!(m->userdata = pa_droid_source_new(m, ma, __FILE__, NULL, NULL, NULL)))
+    if (!(m->userdata = pa_droid_source_new(m, ma, __FILE__, (audio_devices_t) 0, NULL, NULL, NULL)))
         goto fail;
 
     pa_modargs_free(ma);
