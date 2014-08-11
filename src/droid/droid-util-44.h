@@ -24,6 +24,10 @@
 
 #define HAL_V2
 
+#ifdef DROID_DEVICE_HAMMERHEAD
+#define QCOM_HARDWARE
+#endif
+
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
 
