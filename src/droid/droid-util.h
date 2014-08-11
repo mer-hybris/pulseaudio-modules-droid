@@ -32,7 +32,7 @@
 #include <android-version.h>
 
 #ifndef ANDROID_VERSION_MAJOR
-#error "ANDROID_VERSION_* not defined."
+#error "ANDROID_VERSION_* not defined. Did you get your headers via extract-headers.sh?"
 #endif
 
 #if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
