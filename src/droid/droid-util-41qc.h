@@ -27,7 +27,7 @@
 
 // PulseAudio value    -    Android value
 
-static uint32_t conversion_table_output_channel[][2] = {
+uint32_t conversion_table_output_channel[][2] = {
     { PA_CHANNEL_POSITION_MONO,                     AUDIO_CHANNEL_OUT_MONO },
     { PA_CHANNEL_POSITION_FRONT_LEFT,               AUDIO_CHANNEL_OUT_FRONT_LEFT },
     { PA_CHANNEL_POSITION_FRONT_RIGHT,              AUDIO_CHANNEL_OUT_FRONT_RIGHT},
@@ -49,7 +49,7 @@ static uint32_t conversion_table_output_channel[][2] = {
     { PA_CHANNEL_POSITION_TOP_REAR_RIGHT,           AUDIO_CHANNEL_OUT_TOP_BACK_RIGHT }
 };
 
-static uint32_t conversion_table_input_channel[][2] = {
+uint32_t conversion_table_input_channel[][2] = {
     { PA_CHANNEL_POSITION_MONO,                     AUDIO_CHANNEL_IN_MONO },
     { PA_CHANNEL_POSITION_FRONT_LEFT,               AUDIO_CHANNEL_IN_LEFT },
     { PA_CHANNEL_POSITION_FRONT_RIGHT,              AUDIO_CHANNEL_IN_RIGHT},
@@ -68,7 +68,7 @@ static uint32_t conversion_table_input_channel[][2] = {
     { AUDIO_CHANNEL_IN_VOICE_DNLINK,                AUDIO_CHANNEL_IN_VOICE_DNLINK }
 };
 
-static uint32_t conversion_table_format[][2] = {
+uint32_t conversion_table_format[][2] = {
     { PA_SAMPLE_U8,             AUDIO_FORMAT_PCM_8_BIT },
     { PA_SAMPLE_S16LE,          AUDIO_FORMAT_PCM_16_BIT },
     { PA_SAMPLE_S32LE,          AUDIO_FORMAT_PCM_32_BIT },
@@ -85,7 +85,7 @@ struct string_conversion {
 #endif
 #define STRING_ENTRY(str) { str, #str }
 /* Output devices */
-static struct string_conversion string_conversion_table_output_device[] = {
+struct string_conversion string_conversion_table_output_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_OUT_EARPIECE),
     STRING_ENTRY(AUDIO_DEVICE_OUT_SPEAKER),
     STRING_ENTRY(AUDIO_DEVICE_OUT_WIRED_HEADSET),
@@ -113,7 +113,7 @@ static struct string_conversion string_conversion_table_output_device[] = {
     { 0, NULL }
 };
 
-static struct string_conversion string_conversion_table_output_device_fancy[] = {
+struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_EARPIECE,                    "output-earpiece" },
     { AUDIO_DEVICE_OUT_SPEAKER,                     "output-speaker" },
     { AUDIO_DEVICE_OUT_SPEAKER
@@ -140,7 +140,7 @@ static struct string_conversion string_conversion_table_output_device_fancy[] = 
 };
 
 /* Input devices */
-static struct string_conversion string_conversion_table_input_device[] = {
+struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_COMMUNICATION),
     STRING_ENTRY(AUDIO_DEVICE_IN_AMBIENT),
     STRING_ENTRY(AUDIO_DEVICE_IN_BUILTIN_MIC),
@@ -156,7 +156,7 @@ static struct string_conversion string_conversion_table_input_device[] = {
     { 0, NULL }
 };
 
-static struct string_conversion string_conversion_table_input_device_fancy[] = {
+struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_COMMUNICATION,            "input-in_communication" },
     { AUDIO_DEVICE_IN_AMBIENT,                  "input-ambient" },
     { AUDIO_DEVICE_IN_BUILTIN_MIC,              "input-builtin_mic" },
@@ -173,7 +173,7 @@ static struct string_conversion string_conversion_table_input_device_fancy[] = {
 };
 
 /* Flags */
-static struct string_conversion string_conversion_table_flag[] = {
+struct string_conversion string_conversion_table_flag[] = {
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_NONE),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_DIRECT),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_PRIMARY),
@@ -187,7 +187,7 @@ static struct string_conversion string_conversion_table_flag[] = {
 };
 
 /* Channels */
-static struct string_conversion string_conversion_table_output_channels[] = {
+struct string_conversion string_conversion_table_output_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_LEFT),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_RIGHT),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_CENTER),
@@ -215,7 +215,7 @@ static struct string_conversion string_conversion_table_output_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_OUT_ALL),
     { 0, NULL }
 };
-static struct string_conversion string_conversion_table_input_channels[] = {
+struct string_conversion string_conversion_table_input_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_IN_LEFT),
     STRING_ENTRY(AUDIO_CHANNEL_IN_RIGHT),
     STRING_ENTRY(AUDIO_CHANNEL_IN_FRONT),
@@ -241,7 +241,7 @@ static struct string_conversion string_conversion_table_input_channels[] = {
 };
 
 /* Formats */
-static struct string_conversion string_conversion_table_format[] = {
+struct string_conversion string_conversion_table_format[] = {
     STRING_ENTRY(AUDIO_FORMAT_DEFAULT),
     STRING_ENTRY(AUDIO_FORMAT_PCM),
     STRING_ENTRY(AUDIO_FORMAT_MP3),
