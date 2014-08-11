@@ -480,7 +480,11 @@ pa_source *pa_droid_source_new(pa_module *m,
         pa_channel_map_init_mono(&channel_map);
         sample_spec.channels = 1;
         /* Only allow recording both downlink and uplink. */
+#ifdef QCOM_HARDWARE
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
+#else
+        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
+#endif
     }
 
     struct audio_config config_in = {
