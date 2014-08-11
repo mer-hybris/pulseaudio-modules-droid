@@ -196,12 +196,9 @@ AC_ARG_WITH([droid-device],
         AS_HELP_STRING([--with-droid-device], [Droid device type for possible specific quirks (defaults to generic).]),
         [droiddevice=$withval], [droiddevice="generic"]
         )
-if test "x$droiddevice" = xmako ; then
-    AC_DEFINE([DROID_DEVICE_MAKO],      [1], [Using droid device mako.])
-elif test "x$droiddevice" = xi9305 ; then
-    AC_DEFINE([DROID_DEVICE_I9305],      [1], [Using droid device i9305.])
-else
-    AC_DEFINE([DROID_DEVICE_GENERIC],   [1], [Using droid device generic.])
+if test "x$droiddevice" != x ; then
+    DROID_DEVICE_CFLAGS="-DDROID_DEVICE_`echo $droiddevice | tr '[a-z]' '[A-Z]'`=1"
+    AC_SUBST([DROID_DEVICE_CFLAGS])
 fi
 
 AC_MSG_CHECKING([If we are using hardfp tool chain])
