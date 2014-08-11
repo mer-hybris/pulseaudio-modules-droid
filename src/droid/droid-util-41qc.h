@@ -22,6 +22,9 @@
 #ifndef _ANDROID_UTIL_V412_H_
 #define _ANDROID_UTIL_V412_H_
 
+#include <hardware/audio.h>
+#include <hardware_legacy/audio_policy_conf.h>
+
 // PulseAudio value    -    Android value
 
 static uint32_t conversion_table_output_channel[][2] = {
