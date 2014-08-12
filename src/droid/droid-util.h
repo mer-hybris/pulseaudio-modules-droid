@@ -29,8 +29,21 @@
 #include <pulsecore/macro.h>
 #include <pulsecore/mutex.h>
 
-#include <hardware/audio.h>
-#include <hardware_legacy/audio_policy_conf.h>
+#include <android-version.h>
+
+#ifndef ANDROID_VERSION_MAJOR
+#error "ANDROID_VERSION_* not defined. Did you get your headers via extract-headers.sh?"
+#endif
+
+#if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
+#include "droid-util-41qc.h"
+#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 2
+#include "droid-util-42.h"
+#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 4
+#include "droid-util-44.h"
+#else
+#error "No valid ANDROID_VERSION found."
+#endif
 
 #define PROP_DROID_DEVICES    "droid.devices"
 #define PROP_DROID_FLAGS      "droid.flags"

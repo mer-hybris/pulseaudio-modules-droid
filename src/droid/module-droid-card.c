@@ -110,14 +110,21 @@ static const char* const valid_modargs[] = {
 #define DEFAULT_AUDIO_POLICY_CONF "/system/etc/audio_policy.conf"
 #define VOICE_CALL_PROFILE_NAME     "voicecall"
 #define VOICE_CALL_PROFILE_DESC     "Call mode"
+#define VOICE_RECORD_PROFILE_NAME   "voicecall-record"
+#define VOICE_RECORD_PROFILE_DESC   "Call mode record"
 #define RINGTONE_PROFILE_NAME       "ringtone"
 #define RINGTONE_PROFILE_DESC       "Ringtone mode"
 #define COMMUNICATION_PROFILE_NAME  "communication"
 #define COMMUNICATION_PROFILE_DESC  "Communication mode"
 
+struct userdata;
+
+typedef bool (*virtual_profile_event_cb)(struct userdata *u, pa_droid_profile *p, bool enabling);
+
 struct virtual_profile {
-    pa_droid_profile *profile;
-    audio_mode_t mode;
+    pa_card_profile *parent;
+    pa_card_profile *extension;
+    virtual_profile_event_cb event_cb;
 };
 
 struct userdata {
@@ -133,10 +140,8 @@ struct userdata {
     pa_droid_hw_module *hw_module;
     pa_droid_card_data card_data;
 
-    struct virtual_profile call_profile;
-    struct virtual_profile comm_profile;
-    struct virtual_profile ring_profile;
     pa_droid_profile *old_profile;
+    pa_source *voicecall_source;
 
     bool voice_source_routing;
 
@@ -146,6 +151,10 @@ struct userdata {
 
 struct profile_data {
     pa_droid_profile *profile;
+    audio_mode_t mode;
+    bool virtual_profile;
+    /* Variables for virtual profiles: */
+    struct virtual_profile virtual;
 };
 
 static void add_disabled_profile(pa_hashmap *profiles) {
@@ -161,10 +170,13 @@ static void add_disabled_profile(pa_hashmap *profiles) {
 }
 
 /* Special profile for calls */
-static pa_droid_profile* add_virtual_profile(struct userdata *u, const char *name, const char *description, pa_hashmap *profiles) {
+static pa_card_profile* add_virtual_profile(struct userdata *u, const char *name, const char *description,
+                                            audio_mode_t audio_mode, virtual_profile_event_cb event_cb,
+                                            pa_available_t available, pa_card_profile *extension_to,
+                                            pa_hashmap *profiles) {
     pa_droid_profile *ap;
     pa_card_profile *cp;
-    struct profile_data *d;
+    struct profile_data *d, *ext;
 
     pa_assert(u);
     pa_assert(u->profile_set);
@@ -180,12 +192,23 @@ static pa_droid_profile* add_virtual_profile(struct userdata *u, const char *nam
     pa_hashmap_put(u->profile_set->profiles, ap->name, ap);
 
     cp = pa_card_profile_new(ap->name, ap->description, sizeof(struct profile_data));
+    cp->available = available;
     d = PA_CARD_PROFILE_DATA(cp);
     d->profile = ap;
+    d->virtual_profile = true;
+    d->mode = audio_mode;
+    d->virtual.event_cb = event_cb;
+    d->virtual.extension = NULL;
+    if (extension_to) {
+        ext = PA_CARD_PROFILE_DATA(extension_to);
+        ext->virtual.extension = cp;
+        d->virtual.parent = extension_to;
+    } else
+        d->virtual.parent = NULL;
 
     pa_hashmap_put(profiles, cp->name, cp);
 
-    return ap;
+    return cp;
 }
 
 static void set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
@@ -235,6 +258,7 @@ static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa
     pa_log_debug("Card profile %s", ap->name);
 
     cp = pa_card_profile_new(ap->name, ap->description, sizeof(struct profile_data));
+    cp->available = PA_AVAILABLE_YES;
     cp->priority = ap->priority;
 
     cp->n_sinks = 1;
@@ -248,6 +272,8 @@ static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa
 
     d = PA_CARD_PROFILE_DATA(cp);
     d->profile = ap;
+    d->virtual_profile = false;
+    d->mode = AUDIO_MODE_NORMAL;
 
     pa_hashmap_put(h, cp->name, cp);
 }
@@ -282,7 +308,7 @@ static void init_profile(struct userdata *u) {
 
     if (d->profile && d->profile->input) {
         am = d->profile->input;
-        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
+        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
     }
 }
 
@@ -328,11 +354,141 @@ static void park_profile(pa_droid_profile *dp) {
         pa_source_set_port(dp->input->source, PA_DROID_INPUT_PARKING, false);
 }
 
+static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
+    pa_card_profile *cp;
+
+    pa_assert(u);
+    pa_assert(p);
+    pa_assert(u->old_profile);
+
+    /* call mode specialities */
+    if (enabling) {
+        pa_droid_sink_set_voice_control(u->old_profile->output->sink, true);
+        if (!u->voice_source_routing)
+            pa_droid_source_set_routing(u->old_profile->input->source, false);
+        if (u->old_profile->input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
+            (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
+            if (cp->available == PA_AVAILABLE_NO) {
+                pa_log_debug("Enable %s profile.", VOICE_RECORD_PROFILE_NAME);
+                pa_card_profile_set_available(cp, PA_AVAILABLE_YES);
+            }
+        }
+    } else {
+        pa_droid_sink_set_voice_control(u->old_profile->output->sink, false);
+        if (!u->voice_source_routing)
+            pa_droid_source_set_routing(u->old_profile->input->source, true);
+        if (u->old_profile->input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
+            (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
+            if (cp->available == PA_AVAILABLE_YES) {
+                pa_log_debug("Disable %s profile.", VOICE_RECORD_PROFILE_NAME);
+                pa_card_profile_set_available(cp, PA_AVAILABLE_NO);
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
+    pa_queue *source_outputs = NULL;
+    pa_droid_mapping *am;
+
+    pa_assert(u);
+    pa_assert(p);
+    pa_assert(u->old_profile);
+
+    am = u->old_profile->input;
+
+    if (enabling) {
+        /* don't do anything if voicecall source has already been created. */
+        if (u->voicecall_source)
+            return true;
+
+        pa_log_info("Enabling voice call record.");
+
+        if (u->old_profile->input) {
+            am = u->old_profile->input;
+
+            if (am->source) {
+                source_outputs = pa_source_move_all_start(am->source, source_outputs);
+                pa_droid_source_free(am->source);
+                am->source = NULL;
+            }
+        }
+
+        u->voicecall_source = pa_droid_source_new(u->module, u->modargs, __FILE__, AUDIO_DEVICE_IN_VOICE_CALL, &u->card_data, am, u->card);
+        if (!u->voicecall_source)
+            pa_log("Failed to enable voice call recording.");
+
+        if (u->voicecall_source && source_outputs) {
+            pa_source_move_all_finish(u->voicecall_source, source_outputs, false);
+            source_outputs = NULL;
+        }
+
+    } else {
+        /* don't do anything if voicecall source has already been destroyed. */
+        if (!u->voicecall_source)
+            return true;
+
+        pa_log_info("Disabling voice call record.");
+
+        source_outputs = pa_source_move_all_start(u->voicecall_source, source_outputs);
+        pa_droid_source_free(u->voicecall_source);
+        u->voicecall_source = NULL;
+
+        if (u->old_profile->input) {
+            am = u->old_profile->input;
+
+            if (!am->source)
+                am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+
+            if (source_outputs && am->source) {
+                pa_source_move_all_finish(am->source, source_outputs, false);
+                source_outputs = NULL;
+            }
+        }
+    }
+
+    if (source_outputs)
+        pa_source_move_all_fail(source_outputs);
+
+    return true;
+}
+
+static void leave_virtual_profile(struct userdata *u, pa_card *c, pa_card_profile *cp, pa_card_profile *new_profile) {
+    struct profile_data *pd, *parent;
+
+    pa_assert(u);
+    pa_assert(c);
+    pa_assert(cp);
+    pa_assert_se((pd = PA_CARD_PROFILE_DATA(cp)));
+
+    if (pd->virtual.parent)
+        pa_log_debug("Leaving extension %s.", cp->name);
+
+    /* First run event for old virtual profile, unless new profile is extension
+     * to the old profile. */
+    if (pd->virtual.extension) {
+        if (pd->virtual.extension != new_profile && pd->virtual.event_cb)
+            pd->virtual.event_cb(u, pd->profile, false);
+    } else {
+        if (pd->virtual.event_cb)
+            pd->virtual.event_cb(u, pd->profile, false);
+    }
+
+    /* If old virtual profile was extension, and new profile is not extensions parent, run event
+     * for extension's parent as well. */
+    if (pd->virtual.parent != new_profile && pd->virtual.parent) {
+        parent = PA_CARD_PROFILE_DATA(pd->virtual.parent);
+
+        if (parent->virtual.event_cb)
+            parent->virtual.event_cb(u, parent->profile, false);
+    }
+}
+
 static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     struct userdata *u;
     pa_droid_mapping *am;
-    struct virtual_profile *new_vp = NULL;
-    struct virtual_profile *old_vp = NULL;
     struct profile_data *nd, *od;
     pa_queue *sink_inputs = NULL, *source_outputs = NULL;
 
@@ -340,56 +496,48 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_assert(new_profile);
     pa_assert_se(u = c->userdata);
 
+    if (new_profile->available != PA_AVAILABLE_YES) {
+        pa_log("Profile %s is not available.", new_profile->name);
+        return -1;
+    }
+
     nd = PA_CARD_PROFILE_DATA(new_profile);
     od = PA_CARD_PROFILE_DATA(c->active_profile);
 
-    if (nd->profile == u->call_profile.profile)
-        new_vp = &u->call_profile;
-    if (nd->profile == u->ring_profile.profile)
-        new_vp = &u->ring_profile;
-    if (nd->profile == u->comm_profile.profile)
-        new_vp = &u->comm_profile;
-
-    if (new_vp) {
-        if (u->old_profile == NULL)
+    if (nd->virtual_profile) {
+        /* old_profile should always be real profile. */
+        if (u->old_profile == NULL) {
+            pa_assert(!od->virtual_profile);
             u->old_profile = od->profile;
+        }
+
+        if (od->virtual_profile)
+            leave_virtual_profile(u, c, c->active_profile, new_profile);
 
         park_profile(od->profile);
 
-        set_mode(u, new_vp->mode);
+        if (nd->mode != od->mode)
+            set_mode(u, nd->mode);
 
-        /* call mode specialities */
-        if (new_vp->profile == u->call_profile.profile) {
-            pa_droid_sink_set_voice_control(u->old_profile->output->sink, true);
-            if (!u->voice_source_routing)
-                pa_droid_source_set_routing(u->old_profile->input->source, false);
-        }
+        if (od->virtual.parent != new_profile && nd->virtual.event_cb)
+            nd->virtual.event_cb(u, nd->profile, true);
+
         return 0;
     }
 
-    if (od->profile == u->call_profile.profile)
-        old_vp = &u->call_profile;
-    if (od->profile == u->ring_profile.profile)
-        old_vp = &u->ring_profile;
-    if (od->profile == u->comm_profile.profile)
-        old_vp = &u->comm_profile;
-
-    if (old_vp) {
+    if (od->virtual_profile) {
         pa_assert(u->old_profile);
+
+        if (od->virtual_profile)
+            leave_virtual_profile(u, c, c->active_profile, NULL);
 
         park_profile(nd->profile);
 
-        set_mode(u, AUDIO_MODE_NORMAL);
-
-        /* call mode specialities */
-        if (old_vp->profile == u->call_profile.profile) {
-            pa_droid_sink_set_voice_control(u->old_profile->output->sink, false);
-            if (!u->voice_source_routing)
-                pa_droid_source_set_routing(u->old_profile->input->source, true);
-        }
+        if (nd->mode != od->mode)
+            set_mode(u, nd->mode);
 
         /* If new profile is the same as from which we switched to
-         * call profile, transfer ownership back to that profile.
+         * virtual profile, transfer ownership back to that profile.
          * Otherwise destroy sinks & sources and switch to new profile. */
         if (nd->profile == u->old_profile) {
             u->old_profile = NULL;
@@ -398,7 +546,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
             od->profile = u->old_profile;
             u->old_profile = NULL;
 
-            /* Continue to sink-input transfer below */
+            /* Continue to sink-input/source-output transfer below. */
         }
     }
 
@@ -453,7 +601,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         am = nd->profile->input;
 
         if (!am->source)
-            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
+            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
 
         if (source_outputs && am->source) {
             pa_source_move_all_finish(am->source, source_outputs, false);
@@ -478,6 +626,7 @@ int pa__init(pa_module *m) {
     const char *module_id;
     bool namereg_fail = false;
     bool voice_source_routing = false;
+    pa_card_profile *virtual;
 
     pa_assert(m);
 
@@ -536,15 +685,19 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
-    u->call_profile.profile = add_virtual_profile(u, VOICE_CALL_PROFILE_NAME,
-                                                  VOICE_CALL_PROFILE_DESC, data.profiles);
-    u->call_profile.mode = AUDIO_MODE_IN_CALL;
-    u->comm_profile.profile = add_virtual_profile(u, COMMUNICATION_PROFILE_NAME,
-                                                  COMMUNICATION_PROFILE_DESC, data.profiles);
-    u->comm_profile.mode = AUDIO_MODE_IN_COMMUNICATION;
-    u->ring_profile.profile = add_virtual_profile(u, RINGTONE_PROFILE_NAME,
-                                                  RINGTONE_PROFILE_DESC, data.profiles);
-    u->ring_profile.mode = AUDIO_MODE_RINGTONE;
+    virtual =
+    add_virtual_profile(u, VOICE_CALL_PROFILE_NAME, VOICE_CALL_PROFILE_DESC,
+                        AUDIO_MODE_IN_CALL, voicecall_profile_event_cb,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
+    add_virtual_profile(u, VOICE_RECORD_PROFILE_NAME, VOICE_RECORD_PROFILE_DESC,
+                        AUDIO_MODE_IN_CALL, voicecall_record_profile_event_cb,
+                        PA_AVAILABLE_NO, virtual, data.profiles);
+    add_virtual_profile(u, COMMUNICATION_PROFILE_NAME, COMMUNICATION_PROFILE_DESC,
+                        AUDIO_MODE_IN_COMMUNICATION, NULL,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
+    add_virtual_profile(u, RINGTONE_PROFILE_NAME, RINGTONE_PROFILE_DESC,
+                        AUDIO_MODE_RINGTONE, NULL,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
 
     add_disabled_profile(data.profiles);
 

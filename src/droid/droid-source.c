@@ -377,6 +377,7 @@ void pa_droid_source_set_routing(pa_source *s, bool enabled) {
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
+                                 audio_devices_t device,
                                  pa_droid_card_data *card_data,
                                  pa_droid_mapping *am,
                                  pa_card *card) {
@@ -394,6 +395,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     bool namereg_fail = false;
     pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
+    bool voicecall_source = false;
     int ret;
 
     audio_format_t hal_audio_format = 0;
@@ -404,13 +406,18 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_assert(driver);
 
     /* When running under card use hw module name for source by default. */
-    if (card && ma)
+    if (am)
         module_id = am->input->module->name;
     else
         module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
     sample_spec = m->core->default_sample_spec;
     channel_map = m->core->default_channel_map;
+
+    if (device & AUDIO_DEVICE_IN_VOICE_CALL) {
+        pa_log_info("Enabling voice call record source. Most module arguments are overridden.");
+        voicecall_source = true;
+    }
 
     if (pa_modargs_get_sample_spec_and_channel_map(ma, &sample_spec, &channel_map, PA_CHANNEL_MAP_AIFF) < 0) {
         pa_log("Failed to parse sample specification and channel map.");
@@ -445,12 +452,14 @@ pa_source *pa_droid_source_new(pa_module *m,
     } else {
         /* Stand-alone source */
 
-        if (!(config = pa_droid_config_load(ma)))
-            goto fail;
+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
+            if (!(config = pa_droid_config_load(ma)))
+                goto fail;
 
-        /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
-        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-            goto fail;
+            /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
+            if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
+                goto fail;
+        }
     }
 
     if (!pa_convert_format(sample_spec.format, CONV_FROM_PA, &hal_audio_format)) {
@@ -467,6 +476,17 @@ pa_source *pa_droid_source_new(pa_module *m,
         hal_channel_mask |= c;
     }
 
+    if (voicecall_source) {
+        pa_channel_map_init_mono(&channel_map);
+        sample_spec.channels = 1;
+        /* Only allow recording both downlink and uplink. */
+#ifdef QCOM_HARDWARE
+        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
+#else
+        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
+#endif
+    }
+
     struct audio_config config_in = {
         .sample_rate = sample_spec.rate,
         .channel_mask = hal_channel_mask,
@@ -474,24 +494,25 @@ pa_source *pa_droid_source_new(pa_module *m,
     };
 
     /* Default routing */
-    /* FIXME So while setting routing through stream with HALv2 API fails, creation of stream
-     * requires HALv2 style device to work properly. So until that oddity is resolved we always
-     * set AUDIO_DEVICE_IN_BUILTIN_MIC as initial device here. */
-#if 0
-    pa_assert_se(pa_string_convert_input_device_str_to_num("AUDIO_DEVICE_IN_BUILTIN_MIC", &dev_in));
+    if (device)
+        dev_in = device;
+    else {
+        /* FIXME So while setting routing through stream with HALv2 API fails, creation of stream
+         * requires HALv2 style device to work properly. So until that oddity is resolved we always
+         * set AUDIO_DEVICE_IN_BUILTIN_MIC as initial device here. */
+        pa_log_info("FIXME: Setting AUDIO_DEVICE_IN_BUILTIN_MIC as initial device.");
+        pa_assert_se(pa_string_convert_input_device_str_to_num("AUDIO_DEVICE_IN_BUILTIN_MIC", &dev_in));
 
-    if ((tmp = pa_modargs_get_value(ma, "input_devices", NULL))) {
-        audio_devices_t tmp_dev;
+        if ((tmp = pa_modargs_get_value(ma, "input_devices", NULL))) {
+            audio_devices_t tmp_dev;
 
-        if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
-            dev_in = tmp_dev;
+            if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
+                dev_in = tmp_dev;
 
-        pa_log_debug("Set initial devices %s", tmp);
+            pa_log_debug("Set initial devices %s", tmp);
+        }
     }
-#else
-    pa_log_info("FIXME: Setting AUDIO_DEVICE_IN_BUILTIN_MIC as initial device.");
-    dev_in = AUDIO_DEVICE_IN_BUILTIN_MIC;
-#endif
+
     pa_droid_hw_module_lock(u->hw_module);
     ret = u->hw_module->device->open_input_stream(u->hw_module->device,
                                                   u->hw_module->stream_in_id++,
@@ -500,7 +521,7 @@ pa_source *pa_droid_source_new(pa_module *m,
                                                   &u->stream);
     pa_droid_hw_module_unlock(u->hw_module);
 
-    if (ret < 0) {
+    if (ret < 0 || !u->stream) {
         pa_log("Failed to open input stream.");
         goto fail;
     }
@@ -555,7 +576,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_source_new_data_set_channel_map(&data, &channel_map);
     pa_source_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
-    if (am)
+    if (am && card)
         pa_droid_add_ports(data.ports, am, card);
 
     u->source = pa_source_new(m->core, &data, PA_SOURCE_HARDWARE);

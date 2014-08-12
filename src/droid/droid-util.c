@@ -55,26 +55,7 @@
 #include <pulsecore/shared.h>
 #include <pulsecore/mutex.h>
 
-#include <hardware/audio.h>
-#include <hardware_legacy/audio_policy_conf.h>
-
 #include "droid-util.h"
-
-#include <android-version.h>
-
-#ifndef ANDROID_VERSION_MAJOR
-#error "ANDROID_VERSION_* not defined."
-#endif
-
-#if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
-#include "droid-util-41qc.h"
-#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 2
-#include "droid-util-42.h"
-#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 4
-#include "droid-util-44.h"
-#else
-#error "No valid ANDROID_VERSION found."
-#endif
 
 #define CONVERT_FUNC(TABL) \
 bool pa_convert_ ## TABL (uint32_t value, pa_conversion_field_t field, uint32_t *to_value) {                    \
@@ -749,7 +730,6 @@ static pa_droid_port *create_o_port(pa_droid_mapping *am, uint32_t device, const
 static void add_o_ports(pa_droid_mapping *am) {
     pa_droid_port *p;
     const char *name;
-    char *desc;
     uint32_t devices;
     uint32_t combo_devices;
     uint32_t i = 0;
@@ -999,7 +979,6 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
     audio_hw_device_t *device = NULL;
-    char *shared_name;
     int ret;
 
     pa_assert(core);
