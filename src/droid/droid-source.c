@@ -494,28 +494,25 @@ pa_source *pa_droid_source_new(pa_module *m,
     };
 
     /* Default routing */
-    /* FIXME So while setting routing through stream with HALv2 API fails, creation of stream
-     * requires HALv2 style device to work properly. So until that oddity is resolved we always
-     * set AUDIO_DEVICE_IN_BUILTIN_MIC as initial device here. */
-#if 0
-    pa_assert_se(pa_string_convert_input_device_str_to_num("AUDIO_DEVICE_IN_BUILTIN_MIC", &dev_in));
-
-    if ((tmp = pa_modargs_get_value(ma, "input_devices", NULL))) {
-        audio_devices_t tmp_dev;
-
-        if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
-            dev_in = tmp_dev;
-
-        pa_log_debug("Set initial devices %s", tmp);
-    }
-#else
     if (device)
         dev_in = device;
     else {
+        /* FIXME So while setting routing through stream with HALv2 API fails, creation of stream
+         * requires HALv2 style device to work properly. So until that oddity is resolved we always
+         * set AUDIO_DEVICE_IN_BUILTIN_MIC as initial device here. */
         pa_log_info("FIXME: Setting AUDIO_DEVICE_IN_BUILTIN_MIC as initial device.");
-        dev_in = AUDIO_DEVICE_IN_BUILTIN_MIC;
+        pa_assert_se(pa_string_convert_input_device_str_to_num("AUDIO_DEVICE_IN_BUILTIN_MIC", &dev_in));
+
+        if ((tmp = pa_modargs_get_value(ma, "input_devices", NULL))) {
+            audio_devices_t tmp_dev;
+
+            if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
+                dev_in = tmp_dev;
+
+            pa_log_debug("Set initial devices %s", tmp);
+        }
     }
-#endif
+
     pa_droid_hw_module_lock(u->hw_module);
     ret = u->hw_module->device->open_input_stream(u->hw_module->device,
                                                   u->hw_module->stream_in_id++,
