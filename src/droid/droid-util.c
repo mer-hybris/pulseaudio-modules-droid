@@ -730,7 +730,6 @@ static pa_droid_port *create_o_port(pa_droid_mapping *am, uint32_t device, const
 static void add_o_ports(pa_droid_mapping *am) {
     pa_droid_port *p;
     const char *name;
-    char *desc;
     uint32_t devices;
     uint32_t combo_devices;
     uint32_t i = 0;
@@ -980,7 +979,6 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
     audio_hw_device_t *device = NULL;
-    char *shared_name;
     int ret;
 
     pa_assert(core);
