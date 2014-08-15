@@ -24,6 +24,9 @@
 
 #define HAL_V2
 
+// Android v4.4 has SPEAKER_DRC_ENABLED_TAG, so might the future versions
+#define DROID_HAVE_DRC
+
 #ifdef DROID_DEVICE_HAMMERHEAD
 #define QCOM_HARDWARE
 #endif

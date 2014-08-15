@@ -457,8 +457,8 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                 success = parse_devices(val, true, &config->global_config.default_output_device);
             else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
                 success = parse_devices(val, false, &config->global_config.attached_input_devices);
-#ifdef HAL_V2
-            // SPEAKER_DRC_ENABLED_TAG is only from HAL v2
+#ifdef DROID_HAVE_DRC
+            // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
             else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
                 /* TODO - Add support for dynamic range control */
                 success = true; /* Do not fail while parsing speaker_drc_enabled entry */
