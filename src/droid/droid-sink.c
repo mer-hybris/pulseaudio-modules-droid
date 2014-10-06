@@ -1042,9 +1042,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->mute_routing_before = mute_routing_before / u->buffer_size;
     u->mute_routing_after = mute_routing_after / u->buffer_size;
     if (u->mute_routing_before == 0 && mute_routing_before)
-        u->mute_routing_before = u->buffer_size;
+        u->mute_routing_before = 1;
     if (u->mute_routing_after == 0 && mute_routing_after)
-        u->mute_routing_after = u->buffer_size;
+        u->mute_routing_after = 1;
     if (u->mute_routing_before || u->mute_routing_after)
         pa_log_debug("Mute playback when routing is changing, %u before and %u after.",
                      u->mute_routing_before * u->buffer_size,
