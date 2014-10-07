@@ -1,3 +1,200 @@
 PulseAudio Droid modules
 ========================
 
+Supported Android versions:
+
+ * 4.1.x with Qualcomm extensions (tested with 4.1.2)
+ * 4.2.x
+ * 4.4.x
+
+Headers for defining devices and strings for different droid versions are in
+src/droid/droid-util-XXX.h
+
+These headers are then included in src/droid/droid-util.h based on detected
+droid version.
+
+The purpose of droid-modules is to "replace AudioFlinger". Many hardware
+adaptations use ALSA as the kernel interface, but there is no saying that
+someday vendor would create and use something proprietary or otherwise
+different from ALSA. Also the ALSA implementation in droid devices may contain
+funny ways to achieve things (notable example is voicecall) which might be
+difficult to do if interfacing directly with ALSA to replace AudioFlinger.
+Also using ALSA directly would mean that the whole HAL adaptation would need to
+be ported for each new device adaptation. With droid-modules this is much more
+simpler, with somewhat stable HAL (HALv2 as of now, also different vendors add
+their own incompatible extensions) API. In best scenarios using droid-modules
+with new device is just compiling against target.
+
+Android version and device specific variations should be optimally handled in
+droid-util-XXX.h files, without modifying other parts of the implementation.
+
+Components
+==========
+
+module-droid-card
+-----------------
+
+Ideally only module-droid-card is loaded and then droid-card loads
+configuration, creates profiles and loads sinks and sources based on the
+selected profile.
+
+Droid-card reads configuration from /vendor/etc/audio_policy.conf or
+/system/etc/audio_policy.conf, depending on which is found first. If vendor
+config is found, configuration is read from there, otherwise from system
+configuration.
+
+From audio_policy.conf file input and output definitions are translated to
+PulseAudio card profiles. For example configuration with
+
+    audio_hw_modules {
+        primary {
+            outputs {
+                primary {}
+                lpa {}
+            }
+            inputs {
+                primary {}
+            }
+        }
+        other {
+            ...
+        }
+    }
+
+Would map to card profiles (input-output) primary-primary and lpa-primary.
+When module-droid-card is run without module_id argument, as default "primary"
+is used.
+
+virtual profiles
+----------------
+
+In addition to aforementioned card profiles, droid-card creates some additional
+virtual profiles. These virtual profiles are used when enabling voicecall
+routings etc. When virtual profile is enabled, possible sinks and sources
+previously active profile had are not removed.
+
+As an illustration, following command line sequence enables voicecall mode and
+routes audio to internal handsfree (ihf - "handsfree speaker"):
+
+(Before starting, droid_card.primary is using profile primary-primary and
+sink.primary port output-speaker)
+
+pactl set-card-profile droid_card.primary voicecall
+pactl set-sink-port sink.primary output-parking
+pactl set-sink-port sink.primary output-speaker
+
+After this, when there is an active voicecall (created by ofono for example),
+voice audio starts to flow between modem and audio chip.
+
+To disable voicecall and return to media audio:
+
+pactl set-card-profile droid_card.primary primary-primary
+pactl set-sink-port sink.primary output-parking
+pactl set-sink-port sink.primary output-speaker
+
+With this example sequence sinks and sources are the ones from primary-primary
+card profile, and they are maintained for the whole duration of the voicecall
+and after.
+
+This sequence follows the droid HAL idea that when changing audio mode the mode
+change is done when next routing change happens. output-parking and
+input-parking ports are just convenience for PulseAudio, where setting already
+active port is a no-op (output/input-parking doesn't do any real routing
+changes).
+
+Current virtual profiles are:
+ * voicecall
+ * voicecall-record
+ * communication
+ * ringtone
+
+Communication profile is used for VoIP-like applications, to enable some
+voicecall related algorithms without being in voicecall. Ringtone profile
+should be used when ringtone is playing, to again enable possible loudness
+related optimizations etc. Voicecall-record profile can be enabled when
+voicecall profile is active.
+
+module-droid-sink and module-droid-source
+-----------------------------------------
+
+Normally user should not need to load droid-sink or droid-source modules by
+hand, but droid-card loads appropriate modules based on the active card
+profile.
+
+Output and input ports for droid-sink and droid-source are generated from the
+audio_policy.conf, where each device generates (usually) one port, for example:
+
+    audio_hw_modules {
+        primary {
+            outputs {
+                primary {
+                    devices = AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_EARPIECE|AUDIO_DEVICE_OUT_WIRED_HEADPHONE
+                    }
+                lpa {}
+            }
+            inputs {
+                primary {
+                    devices = AUDIO_DEVICE_IN_BUILTIN_MIC
+                    }
+            }
+        }
+    }
+
+Would create following ports for sink.primary:
+ * output-speaker
+ * output-earpiece
+ * output-wired_headphone
+ * output-speaker+wired_headphone
+
+And for source.primary:
+ * input-builtin_mic
+
+Only exception to one device one port rule is if output device list has both
+OUT_SPEAKER and OUT_WIRED_HEADPHONE, then one additional combination port is
+generated. How the devices are called in sink and source ports are defined in
+droid-util-XXX.h
+
+Changing output routing is then as simple as
+
+pactl set-sink-port sink.primary output-wired_headphone
+
+Sink or source do not track possible headphone/other wired accessory plugging,
+but this needs to be handled elsewhere and then that other entity needs to
+control sinks and sources. (For example in SailfishOS this entity is OHM with
+accessory-plugin and pulseaudio-policy-enforcement module for actually making
+the port switching)
+
+Volume control during voicecall
+-------------------------------
+
+When voicecall virtual profile is enabled, active droid-sink is internally
+switched to voicecall volume control mode. What this means is changing the sink
+volume or volume of normal streams connected to the sink do not change active
+voicecall volume. Special stream is needed to control the voicecall volume
+level. By default this stream is identified by stream property media.role,
+with value "phone". This can be changed by providing module arguments
+voice_property_key and voice_property_value to module-droid-card.
+
+Usually droid HAL has 6 volume levels for voicecall.
+
+Temporary sink audio routing
+----------------------------
+
+It is possible to add temporary extra route(s) to sink audio routing with
+specific stream property. When stream with property key
+droid.device.additional-route connects to droid-sink, this extra route is added
+(if possible) to the enabled routes for the duration of the stream.
+
+For example, if droid-sink has active port output-wired_headphone:
+
+paplay --property=droid.device.additional-route=AUDIO_DEVICE_OUT_SPEAKER a.wav
+
+As long as the new stream is connected to droid-sink, output routing is
+SPEAKER+WIRED_HEADPHONE.
+
+module-droid-keepalive
+----------------------
+
+Keepalive module is MCE (https://github.com/nemomobile/mce) specific module
+tracking sink/source activity and keeping a WAKELOCK when there are active
+streams.
