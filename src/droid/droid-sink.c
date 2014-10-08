@@ -535,8 +535,8 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
     set_primary_devices(u, data->device);
     /* If we are in voice call, sink is usually in suspended state and routing change can be applied immediately.
-     * When in media use cases, do the routing change in IO thread. */
-    if (u->use_voice_volume)
+     * When in media use cases, do the routing change in IO thread if we are currently in RUNNING or IDLE state. */
+    if (u->use_voice_volume || !PA_SINK_IS_OPENED(pa_sink_get_state(u->sink)))
         do_routing(u);
     else {
         pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
@@ -1042,9 +1042,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->mute_routing_before = mute_routing_before / u->buffer_size;
     u->mute_routing_after = mute_routing_after / u->buffer_size;
     if (u->mute_routing_before == 0 && mute_routing_before)
-        u->mute_routing_before = u->buffer_size;
+        u->mute_routing_before = 1;
     if (u->mute_routing_after == 0 && mute_routing_after)
-        u->mute_routing_after = u->buffer_size;
+        u->mute_routing_after = 1;
     if (u->mute_routing_before || u->mute_routing_after)
         pa_log_debug("Mute playback when routing is changing, %u before and %u after.",
                      u->mute_routing_before * u->buffer_size,
