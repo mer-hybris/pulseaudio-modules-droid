@@ -296,6 +296,23 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
     return 0;
 }
 
+static void source_set_voicecall_source_port(struct userdata *u) {
+    pa_device_port *port;
+    pa_droid_port_data *data;
+    void *state;
+
+    pa_assert(u);
+    pa_assert(u->source);
+
+    PA_HASHMAP_FOREACH(port, u->source->ports, state) {
+        data = PA_DEVICE_PORT_DATA(port);
+
+        if (data->device & AUDIO_DEVICE_IN_VOICE_CALL) {
+            pa_source_set_port(u->source, port->name, false);
+            break;
+        }
+    }
+}
 
 static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char *module_id) {
     const char *tmp;
@@ -442,8 +459,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
-    /* Enabled routing changes by default. */
-    u->routing_changes_enabled = true;
+    /* Enabled routing changes by default, except for voicecall source. */
+    u->routing_changes_enabled = voicecall_source ? false : true;
 
     if (card_data) {
         pa_assert(card);
@@ -612,8 +629,11 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &sample_spec));
     pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &sample_spec));
 
-    if (u->source->active_port)
+    if (!voicecall_source && u->source->active_port)
         source_set_port_cb(u->source, u->source->active_port);
+
+    if (voicecall_source)
+        source_set_voicecall_source_port(u);
 
     pa_source_put(u->source);
 
