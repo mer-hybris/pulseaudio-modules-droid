@@ -27,7 +27,12 @@
 // Android v4.4 has SPEAKER_DRC_ENABLED_TAG, so might the future versions
 #define DROID_HAVE_DRC
 
-#ifdef DROID_DEVICE_HAMMERHEAD
+// Until we implement MER_HA_CHIPSET in hw-release, every non-Qualcomm ARM
+// device will need to have an exception below (just like i9305).
+// This decision is based on the trend of Q3/Q4 2014 that most devices ported
+// to 4.4 via hybris are Qualcomm ones.
+// TODO: things elegantly
+#if defined(ARM) && !defined(DROID_DEVICE_I9305)
 #define QCOM_HARDWARE
 #endif
 
