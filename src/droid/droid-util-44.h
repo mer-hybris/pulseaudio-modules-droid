@@ -27,7 +27,12 @@
 // Android v4.4 has SPEAKER_DRC_ENABLED_TAG, so might the future versions
 #define DROID_HAVE_DRC
 
-#ifdef DROID_DEVICE_HAMMERHEAD
+// Until we implement MER_HA_CHIPSET in hw-release, every non-Qualcomm ARM
+// device will need to have an exception below (just like i9305).
+// This decision is based on the trend of Q3/Q4 2014 that most devices ported
+// to 4.4 via hybris are Qualcomm ones.
+// TODO: things elegantly
+#if defined(ARM) && !defined(DROID_DEVICE_I9305)
 #define QCOM_HARDWARE
 #endif
 
@@ -116,7 +121,9 @@ struct string_conversion string_conversion_table_output_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_A2DP),
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_SCO),
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_USB),
+#ifdef QCOM_HARDWARE
     STRING_ENTRY(AUDIO_DEVICE_OUT_PROXY),
+#endif
     { 0, NULL }
 };
 
@@ -139,7 +146,9 @@ struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_USB_ACCESSORY,               "output-usb_accessory" },
     { AUDIO_DEVICE_OUT_USB_DEVICE,                  "output-usb_device" },
     { AUDIO_DEVICE_OUT_REMOTE_SUBMIX,               "output-remote_submix" },
+#ifdef QCOM_HARDWARE
     { AUDIO_DEVICE_OUT_PROXY,                       "output-proxy" },
+#endif
     { 0, NULL }
 };
 
