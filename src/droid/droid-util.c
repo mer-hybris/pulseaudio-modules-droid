@@ -77,6 +77,9 @@ CONVERT_FUNC(input_channel);
 
 #define DEFAULT_PRIORITY (100)
 
+/* Section defining custom global configuration variables. */
+#define GLOBAL_CONFIG_EXT_TAG "custom_properties"
+
 static void droid_port_free(pa_droid_port *p);
 
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
@@ -285,22 +288,24 @@ static bool parse_flags(const char *str, audio_output_flags_t *flags) {
     return parse_list(string_conversion_table_flag, str, flags) > 0;
 }
 
+#define MAX_LINE_LENGTH (1024)
+
 bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
     FILE *f;
     int n = 0;
     bool ret = true;
+    char *full_line = NULL;
 
     enum config_loc {
-        IN_ROOT = 0,
-        IN_GLOBAL = 1,
-        IN_HW_MODULES = 1,
-        IN_MODULE = 2,
-        IN_OUTPUT_INPUT = 3,
-        IN_CONFIG = 4
+        IN_ROOT             = 0,
+        IN_GLOBAL           = 1,
+        IN_GLOBAL_EXT       = 2,
+        IN_HW_MODULES       = 3,
+        IN_MODULE           = 4,
+        IN_OUTPUT_INPUT     = 5,
+        IN_CONFIG           = 6
     } loc = IN_ROOT;
 
-
-    bool in_global = false;
     bool in_output = true;
 
     pa_droid_config_hw_module *module = NULL;
@@ -322,26 +327,36 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
 
     pa_lock_fd(fileno(f), 1);
 
-    while (!feof(f)) {
-        char ln[512];
-        char *d, *v, *val;
+    full_line = pa_xmalloc0(sizeof(char) * MAX_LINE_LENGTH);
 
-        if (!fgets(ln, sizeof(ln), f))
+    while (!feof(f)) {
+        char *ln, *d, *v, *value;
+
+        if (!fgets(full_line, MAX_LINE_LENGTH, f))
             break;
 
         n++;
 
-        pa_strip_nl(ln);
+        pa_strip_nl(full_line);
 
-        if (ln[0] == '#' || !*ln )
+        if (!*full_line)
             continue;
 
+        ln = full_line + strspn(full_line, WHITESPACE);
+
+        if (ln[0] == '#')
+            continue;
+
+        v = ln;
+        d = v + strcspn(v, WHITESPACE);
+
+        value = d + strspn(d, WHITESPACE);
+        d[0] = '\0';
+        d = value + strcspn(value, WHITESPACE);
+        d[0] = '\0';
+
         /* Enter section */
-        if (ln[strlen(ln)-1] == '{') {
-            d = ln+strspn(ln, WHITESPACE);
-            v = d;
-            d = v+strcspn(v, WHITESPACE);
-            d[0] = '\0';
+        if (pa_streq(value, "{")) {
 
             if (!*v) {
                 pa_log(__FILE__ ": [%s:%u] failed to parse line - too few words", filename, n);
@@ -351,13 +366,22 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
             switch (loc) {
                 case IN_ROOT:
                     if (pa_streq(v, GLOBAL_CONFIG_TAG)) {
-                        in_global = true;
                         loc = IN_GLOBAL;
                     }
                     else if (pa_streq(v, AUDIO_HW_MODULE_TAG))
                         loc = IN_HW_MODULES;
                     else {
                         pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
+                        ret = false;
+                        goto finish;
+                    }
+                    break;
+
+                case IN_GLOBAL:
+                    if (pa_streq(v, GLOBAL_CONFIG_EXT_TAG))
+                        loc = IN_GLOBAL_EXT;
+                    else {
+                        pa_log(__FILE__": [%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
                         ret = false;
                         goto finish;
                     }
@@ -410,117 +434,124 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field in config (%s)", filename, n, v);
                     ret = false;
                     goto finish;
+
+                default:
+                    pa_log(__FILE__": [%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
+                    ret = false;
+                    goto finish;
             }
 
             continue;
         }
 
         /* Exit section */
-        if (ln[strlen(ln)-1] == '}') {
-            if (loc == IN_ROOT) {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line - extra closing bracket", filename, n);
-                ret = false;
-                goto finish;
-            }
+        if (pa_streq(v, "}")) {
+            switch (loc) {
+                case IN_ROOT:
+                    pa_log(__FILE__ ": [%s:%u] failed to parse line - extra closing bracket", filename, n);
+                    ret = false;
+                    goto finish;
 
-            loc--;
-            if (loc == IN_MODULE) {
-                if (in_output)
-                    output = NULL;
-                else
-                    input = NULL;
-            }
-            if (loc == IN_ROOT)
-                module = NULL;
+                case IN_HW_MODULES:
+                    module = NULL;
+                    /* fall through */
+                case IN_GLOBAL:
+                    loc = IN_ROOT;
+                    break;
 
-            in_global = false;
+                case IN_OUTPUT_INPUT:
+                    if (in_output)
+                        output = NULL;
+                    else
+                        input = NULL;
+                    /* fall through */
+                case IN_MODULE:
+                    /* fall through */
+                case IN_CONFIG:
+                    /* fall through */
+                case IN_GLOBAL_EXT:
+                    loc--;
+                    break;
+            }
 
             continue;
         }
 
-        /* Parse global configuration */
-        if (in_global) {
+        if (loc == IN_GLOBAL ||
+            loc == IN_GLOBAL_EXT ||
+            loc == IN_CONFIG) {
+
             bool success = false;
 
-            d = ln+strspn(ln, WHITESPACE);
-            v = d;
-            d = v+strcspn(v, WHITESPACE);
+            if (loc == IN_GLOBAL) {
 
-            val = d+strspn(d, WHITESPACE);
-            d[0] = '\0';
-            d = val+strcspn(val, WHITESPACE);
-            d[0] = '\0';
+                /* Parse global configuration */
 
-            if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
-                success = parse_devices(val, true, &config->global_config.attached_output_devices);
-            else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
-                success = parse_devices(val, true, &config->global_config.default_output_device);
-            else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
-                success = parse_devices(val, false, &config->global_config.attached_input_devices);
+                if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
+                    success = parse_devices(value, true, &config->global_config.attached_output_devices);
+                else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
+                    success = parse_devices(value, true, &config->global_config.default_output_device);
+                else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
+                    success = parse_devices(value, false, &config->global_config.attached_input_devices);
 #ifdef DROID_HAVE_DRC
-            // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
-            else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
-                /* TODO - Add support for dynamic range control */
-                success = true; /* Do not fail while parsing speaker_drc_enabled entry */
+                // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
+                else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
+                    /* TODO - Add support for dynamic range control */
+                    success = true; /* Do not fail while parsing speaker_drc_enabled entry */
 #endif
-            else {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-                success = false;
-            }
-
-            if (!success) {
-                ret = false;
-                goto finish;
-            }
-        }
-
-        /* Parse per-output or per-input configuration */
-        if (loc == IN_CONFIG) {
-            bool success = false;
-
-            pa_assert(module);
-
-            d = ln+strspn(ln, WHITESPACE);
-            v = d;
-            d = v+strcspn(v, WHITESPACE);
-
-            val = d+strspn(d, WHITESPACE);
-            d[0] = '\0';
-            d = val+strcspn(val, WHITESPACE);
-            d[0] = '\0';
-
-
-            if ((in_output && !output) || (!in_output && !input)) {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line", filename, n);
-                ret = false;
-                goto finish;
-            }
-
-            if (pa_streq(v, SAMPLING_RATES_TAG))
-                success = parse_sampling_rates(val, in_output ? output->sampling_rates : input->sampling_rates);
-            else if (pa_streq(v, FORMATS_TAG))
-                success = parse_formats(val, in_output ? &output->formats : &input->formats);
-            else if (pa_streq(v, CHANNELS_TAG)) {
-                if (in_output)
-                    success = (parse_channels(val, true, &output->channel_masks) > 0);
-                else
-                    success = (parse_channels(val, false, &input->channel_masks) > 0);
-            } else if (pa_streq(v, DEVICES_TAG)) {
-                if (in_output)
-                    success = parse_devices(val, true, &output->devices);
-                else
-                    success = parse_devices(val, false, &input->devices);
-            } else if (pa_streq(v, FLAGS_TAG)) {
-                if (in_output)
-                    success = parse_flags(val, &output->flags);
                 else {
-                    pa_log(__FILE__ ": [%s:%u] failed to parse line - output flags inside input definition", filename, n);
+                    pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
                     success = false;
                 }
-            } else {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-                success = false;
-            }
+
+            } else if (loc == IN_GLOBAL_EXT) {
+
+                /* Parse custom global configuration
+                 * For now just log all custom variables, don't do
+                 * anything with the values.
+                 * TODO: Store custom values somehow */
+
+                pa_log_debug("[%s:%u] TODO custom variable: %s = %s", filename, n, v, value);
+                success = true;
+
+            } else if (loc == IN_CONFIG) {
+
+                /* Parse per-output or per-input configuration */
+
+                if ((in_output && !output) || (!in_output && !input)) {
+                    pa_log(__FILE__ ": [%s:%u] failed to parse line", filename, n);
+                    ret = false;
+                    goto finish;
+                }
+
+                if (pa_streq(v, SAMPLING_RATES_TAG))
+                    success = parse_sampling_rates(value, in_output ? output->sampling_rates : input->sampling_rates);
+                else if (pa_streq(v, FORMATS_TAG))
+                    success = parse_formats(value, in_output ? &output->formats : &input->formats);
+                else if (pa_streq(v, CHANNELS_TAG)) {
+                    if (in_output)
+                        success = (parse_channels(value, true, &output->channel_masks) > 0);
+                    else
+                        success = (parse_channels(value, false, &input->channel_masks) > 0);
+                } else if (pa_streq(v, DEVICES_TAG)) {
+                    if (in_output)
+                        success = parse_devices(value, true, &output->devices);
+                    else
+                        success = parse_devices(value, false, &input->devices);
+                } else if (pa_streq(v, FLAGS_TAG)) {
+                    if (in_output)
+                        success = parse_flags(value, &output->flags);
+                    else {
+                        pa_log(__FILE__ ": [%s:%u] failed to parse line - output flags inside input definition", filename, n);
+                        success = false;
+                    }
+                } else {
+                    pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
+                    success = false;
+                }
+
+            } else
+                pa_assert_not_reached();
 
             if (!success) {
                 ret = false;
@@ -536,6 +567,8 @@ finish:
         pa_lock_fd(fileno(f), 0);
         fclose(f);
     }
+
+    pa_xfree(full_line);
 
     return ret;
 }
