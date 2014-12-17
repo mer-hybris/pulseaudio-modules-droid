@@ -32,7 +32,7 @@
 // This decision is based on the trend of Q3/Q4 2014 that most devices ported
 // to 4.4 via hybris are Qualcomm ones.
 // TODO: things elegantly
-#if defined(ARM) && !defined(DROID_DEVICE_I9305)
+#if defined(__arm__) && !defined(DROID_DEVICE_I9305)
 #define QCOM_HARDWARE
 #endif
 
