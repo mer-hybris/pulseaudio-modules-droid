@@ -55,9 +55,6 @@
 #include <pulsecore/device-port.h>
 #include <pulsecore/idxset.h>
 
-#include <hardware/audio.h>
-#include <system/audio.h>
-
 //#include <droid/hardware/audio_policy.h>
 //#include <droid/system/audio_policy.h>
 
