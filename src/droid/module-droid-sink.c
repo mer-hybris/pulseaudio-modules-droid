@@ -51,7 +51,7 @@ PA_MODULE_VERSION(PACKAGE_VERSION);
 static const char* const valid_modargs[] = {
     "rate",
     "flags",
-    "devices",
+    "output_devices",
     "sink_name",
     "module_id",
     "mute_routing_before",
