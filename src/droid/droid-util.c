@@ -182,6 +182,18 @@ char *pa_list_string_flags(audio_output_flags_t flags) {
     return list_string(string_conversion_table_flag, flags);
 }
 
+bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
+{
+    /* Note converting HAL values to different HAL values! */
+    for (unsigned int i = 0; i < sizeof(conversion_table_default_audio_source) / (sizeof(uint32_t) * 2); i++) {
+        if (conversion_table_default_audio_source[i][0] & input_device) {
+            *default_source = conversion_table_default_audio_source[i][1];
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Config parser */
 
 #define WHITESPACE "\n\r \t"

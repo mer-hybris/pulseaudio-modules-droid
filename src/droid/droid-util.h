@@ -231,6 +231,10 @@ char *pa_list_string_output_device(audio_devices_t devices);
 char *pa_list_string_input_device(audio_devices_t devices);
 char *pa_list_string_flags(audio_output_flags_t flags);
 
+/* Get default audio source associated with input device.
+ * Return true if default source was found, false if not. */
+bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source);
+
 /* Config parser */
 bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config);
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma);
