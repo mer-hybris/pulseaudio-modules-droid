@@ -77,6 +77,10 @@ uint32_t conversion_table_format[][2] = {
     { PA_SAMPLE_S24LE,          AUDIO_FORMAT_PCM_8_24_BIT }
 };
 
+uint32_t conversion_table_default_audio_source[][2] = {
+    { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
+};
+
 struct string_conversion {
     uint32_t value;
     const char *str;

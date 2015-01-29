@@ -82,8 +82,9 @@ struct userdata {
 static void userdata_free(struct userdata *u);
 
 static bool do_routing(struct userdata *u, audio_devices_t devices) {
-    char tmp[32];
+    char *setparam;
     char *devlist;
+    audio_source_t source;
 
     pa_assert(u);
     pa_assert(u->stream);
@@ -102,19 +103,28 @@ static bool do_routing(struct userdata *u, audio_devices_t devices) {
 
     devlist = pa_list_string_input_device(devices);
     pa_assert(devlist);
+
 #ifdef DROID_DEVICE_I9305
-    pa_snprintf(tmp, sizeof(tmp), "%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices & ~AUDIO_DEVICE_BIT_IN);
-#else
-    pa_snprintf(tmp, sizeof(tmp), "%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
+    devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
-    pa_log_debug("set_parameters(): %s (%s : %#010x)", tmp, devlist, devices);
-    pa_xfree(devlist);
+
+    if (pa_input_device_default_audio_source(devices, &source))
+        setparam = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices,
+                                                    AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+    else
+        setparam = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
+
+    pa_log_debug("set_parameters(): %s (%s : %#010x)", setparam, devlist, devices);
+
 #ifdef DROID_DEVICE_MAKO
 #warning Using mako set_parameters hack.
-    u->card_data->set_parameters(u->card_data, tmp);
+    u->card_data->set_parameters(u->card_data, setparam);
 #else
-    u->stream->common.set_parameters(&u->stream->common, tmp);
+    u->stream->common.set_parameters(&u->stream->common, setparam);
 #endif
+
+    pa_xfree(devlist);
+    pa_xfree(setparam);
 
     return true;
 }
