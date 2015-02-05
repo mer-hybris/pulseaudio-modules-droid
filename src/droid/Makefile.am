@@ -6,6 +6,7 @@ AM_CFLAGS = \
 	$(PULSEAUDIO_CFLAGS) \
 	$(DROIDHEADERS_CFLAGS) \
 	$(HYBRIS_CFLAGS) \
+	-DPULSEAUDIO_VERSION=@PA_MAJOR@ \
 	-I$(top_srcdir)/src/droid
 
 

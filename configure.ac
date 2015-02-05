@@ -1,14 +1,14 @@
 AC_PREREQ(2.60)
 
-m4_define(PA_MAJOR, [5])
-m4_define(PA_MINOR, [0])
-m4_define(NEMO_MICRO, [33])
-
-AC_INIT([pulseaudio-modules-droid], [PA_MAJOR.PA_MINOR.NEMO_MICRO], [mer-general@lists.merproject.org])
+AC_INIT([pulseaudio-modules-droid], [m4_esyscmd(./git-version-gen .tarball-version)], [mer-general@lists.merproject.org])
 AC_CONFIG_HEADER([config.h])
 AM_INIT_AUTOMAKE([foreign -Wall silent-rules])
 AC_CONFIG_MACRO_DIR(m4)
 AM_SILENT_RULES([yes])
+
+AS_IF([! test -n "$VERSION"], [
+   AC_MSG_ERROR([git-version-gen failed])
+])
 
 if type -p stow > /dev/null && test -d /usr/local/stow ; then
    AC_MSG_NOTICE([*** Found /usr/local/stow: default install prefix set to /usr/local/stow/${PACKAGE_NAME}-${PACKAGE_VERSION} ***])
@@ -20,7 +20,11 @@ AC_PROG_CC_C99
 AM_PROG_CC_C_O
 AC_PROG_GCC_TRADITIONAL
 
-AC_SUBST(PA_MAJORMINOR, PA_MAJOR.PA_MINOR)
+m4_define(pa_major, `echo $VERSION | cut -d. -f1 | cut -d- -f1`)
+m4_define(pa_minor, `echo $VERSION | cut -d. -f2 | cut -d- -f1`)
+
+AC_SUBST(PA_MAJOR, pa_major)
+AC_SUBST(PA_MAJORMINOR, pa_major.pa_minor)
 
 DESIRED_FLAGS="-Wall -W -Wextra -pedantic -pipe -Wno-long-long -Winline -Wvla -Wno-overlength-strings -Wunsafe-loop-optimizations -Wundef -Wformat=2 -Wlogical-op -Wsign-compare -Wpacked -Wformat-security -Wmissing-include-dirs -Wformat-nonliteral -Wold-style-definition -Wpointer-arith -Winit-self -Wfloat-equal -Wmissing-prototypes -Wstrict-prototypes -Wredundant-decls -Wmissing-declarations -Wmissing-noreturn -Wshadow -Wendif-labels -Wstrict-aliasing=2 -Wwrite-strings -Wno-unused-parameter -ffast-math -Wp,-D_FORTIFY_SOURCE=2 -fno-common -fdiagnostics-show-option" # PulseAudio 0.9.15 usess same + -Wcast-align -Wdeclaration-after-statement
 
@@ -164,7 +168,7 @@ AS_IF([test "$pulseaudio_cv__Bool" = "yes"], [
 #LT_INIT([dlopen win32-dll disable-static])
 AC_PROG_LIBTOOL
 
-PKG_CHECK_MODULES([PULSEAUDIO], [libpulse >= 2.1 pulsecore >= 2.1 ])
+PKG_CHECK_MODULES([PULSEAUDIO], [libpulse >= 5.0 pulsecore >= 5.0])
 AC_SUBST(PULSEAUDIO_CFLAGS)
 AC_SUBST(PULSEAUDIO_LIBS)
 
