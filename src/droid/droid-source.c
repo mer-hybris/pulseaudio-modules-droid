@@ -269,8 +269,13 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
                     break;
                 }
 
+                case PA_SOURCE_UNLINKED: {
+                    /* Suspending since some implementations do not want to free running stream. */
+                    suspend(u);
+                    break;
+                }
+
                 /* not needed */
-                case PA_SOURCE_UNLINKED:
                 case PA_SOURCE_INIT:
                 case PA_SOURCE_INVALID_STATE:
                     ;
