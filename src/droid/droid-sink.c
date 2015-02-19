@@ -501,8 +501,13 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
                     break;
                 }
 
+                case PA_SINK_UNLINKED: {
+                    /* Suspending since some implementations do not want to free running stream. */
+                    suspend(u);
+                    break;
+                }
+
                 /* not needed */
-                case PA_SINK_UNLINKED:
                 case PA_SINK_INIT:
                 case PA_SINK_INVALID_STATE:
                     ;
