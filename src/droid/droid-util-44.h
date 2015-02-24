@@ -205,6 +205,23 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { 0, NULL }
 };
 
+struct string_conversion string_conversion_table_audio_source_fancy[] = {
+    { AUDIO_SOURCE_DEFAULT,                         "default" },
+    { AUDIO_SOURCE_MIC,                             "mic" },
+    { AUDIO_SOURCE_VOICE_UPLINK,                    "voice uplink" },
+    { AUDIO_SOURCE_VOICE_DOWNLINK,                  "voice downling" },
+    { AUDIO_SOURCE_VOICE_CALL,                      "voice call" },
+    { AUDIO_SOURCE_CAMCORDER,                       "camcorder" },
+    { AUDIO_SOURCE_VOICE_RECOGNITION,               "voice recognition" },
+    { AUDIO_SOURCE_VOICE_COMMUNICATION,             "voice communication" },
+    { AUDIO_SOURCE_REMOTE_SUBMIX,                   "remote submix" },
+#ifdef QCOM_HARDWARE
+    { AUDIO_SOURCE_FM_RX,                           "fm rx" },
+    { AUDIO_SOURCE_FM_RX_A2DP,                      "fm rx a2dp" },
+#endif
+    { (uint32_t)-1, NULL }
+};
+
 /* Flags */
 struct string_conversion string_conversion_table_flag[] = {
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_NONE),
