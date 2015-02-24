@@ -165,7 +165,7 @@ struct string_conversion string_conversion_table_input_device[] = {
 };
 
 struct string_conversion string_conversion_table_input_device_fancy[] = {
-    { AUDIO_DEVICE_IN_COMMUNICATION,            "input-in_communication" },
+    { AUDIO_DEVICE_IN_COMMUNICATION,            "input-communication" },
     { AUDIO_DEVICE_IN_AMBIENT,                  "input-ambient" },
     { AUDIO_DEVICE_IN_BUILTIN_MIC,              "input-builtin_mic" },
     { AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,    "input-bluetooth_sco_headset" },
