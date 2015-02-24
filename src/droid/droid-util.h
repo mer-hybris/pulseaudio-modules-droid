@@ -263,4 +263,7 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
 bool pa_droid_output_port_name(audio_devices_t value, const char **to_str);
 bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 
+/* Pretty audio source names */
+bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
+
 #endif
