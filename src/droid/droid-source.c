@@ -66,7 +66,6 @@ struct userdata {
 
     pa_memchunk memchunk;
     audio_devices_t primary_devices;
-    audio_devices_t enabled_devices;
     bool routing_changes_enabled;
 
     size_t buffer_size;
@@ -79,27 +78,33 @@ struct userdata {
 
 #define DEFAULT_MODULE_ID "primary"
 
+#define DROID_AUDIO_SOURCE "droid.audio_source"
+#define DROID_AUDIO_SOURCE_UNDEFINED "undefined"
+
 static void userdata_free(struct userdata *u);
 
-static bool do_routing(struct userdata *u, audio_devices_t devices) {
+static int do_routing(struct userdata *u, audio_devices_t devices) {
+    int ret;
     char *setparam;
     char *devlist;
-    audio_source_t source;
+    pa_proplist *p;
+    const char *source_str;
+    audio_devices_t old_device;
+    audio_source_t source = (uint32_t) -1;
 
     pa_assert(u);
     pa_assert(u->stream);
 
     if (!u->routing_changes_enabled) {
         pa_log_debug("Skipping routing change.");
-        return false;
+        return 0;
     }
 
     if (u->primary_devices == devices)
         pa_log_debug("Refresh active device routing.");
 
-    u->enabled_devices &= ~u->primary_devices;
+    old_device = u->primary_devices;
     u->primary_devices = devices;
-    u->enabled_devices |= u->primary_devices;
 
     devlist = pa_list_string_input_device(devices);
     pa_assert(devlist);
@@ -114,19 +119,37 @@ static bool do_routing(struct userdata *u, audio_devices_t devices) {
     else
         setparam = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
 
-    pa_log_debug("set_parameters(): %s (%s : %#010x)", setparam, devlist, devices);
+    pa_log_debug("set_parameters(%s) %s : %#010x", setparam, devlist, devices);
 
 #ifdef DROID_DEVICE_MAKO
 #warning Using mako set_parameters hack.
-    u->card_data->set_parameters(u->card_data, setparam);
+    ret = u->card_data->set_parameters(u->card_data, setparam);
 #else
-    u->stream->common.set_parameters(&u->stream->common, setparam);
+    ret = u->stream->common.set_parameters(&u->stream->common, setparam);
 #endif
+
+    if (ret < 0) {
+        if (ret == -ENOSYS)
+            pa_log_warn("set_parameters(%s) not allowed while stream is active", setparam);
+        else
+            pa_log_warn("set_parameters(%s) failed", setparam);
+        u->primary_devices = old_device;
+    } else {
+        if (source != (uint32_t) -1)
+            pa_assert_se(pa_droid_audio_source_name(source, &source_str));
+        else
+            source_str = DROID_AUDIO_SOURCE_UNDEFINED;
+
+        p = pa_proplist_new();
+        pa_proplist_sets(p, DROID_AUDIO_SOURCE, source_str);
+        pa_source_update_proplist(u->source, PA_UPDATE_REPLACE, p);
+        pa_proplist_free(p);
+    }
 
     pa_xfree(devlist);
     pa_xfree(setparam);
 
-    return true;
+    return ret;
 }
 
 static bool parse_device_list(const char *str, audio_devices_t *dst) {
@@ -306,9 +329,7 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     pa_log_debug("Source set port %u", data->device);
 
-    do_routing(u, data->device);
-
-    return 0;
+    return do_routing(u, data->device);
 }
 
 static void source_set_voicecall_source_port(struct userdata *u) {

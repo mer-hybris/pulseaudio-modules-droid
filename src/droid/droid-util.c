@@ -1023,6 +1023,10 @@ bool pa_droid_input_port_name(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_input_device_fancy, (uint32_t) value, to_str);
 }
 
+bool pa_droid_audio_source_name(audio_source_t value, const char **to_str) {
+    return string_convert_num_to_str(string_conversion_table_audio_source_fancy, (uint32_t) value, to_str);
+}
+
 static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_hashmap *extra) {
     pa_droid_port *p;
     pa_device_port_new_data dp_data;

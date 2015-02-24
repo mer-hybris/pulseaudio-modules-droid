@@ -188,7 +188,8 @@ static bool remove_extra_devices(struct userdata *u, audio_devices_t devices) {
 }
 
 /* Called from main context during voice calls, and from IO context during media operation. */
-static bool do_routing(struct userdata *u) {
+static void do_routing(struct userdata *u) {
+    int ret;
     audio_devices_t routing;
     char tmp[32];
 
@@ -198,12 +199,17 @@ static bool do_routing(struct userdata *u) {
     routing = u->primary_devices | u->extra_devices;
 
     pa_snprintf(tmp, sizeof(tmp), "%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, routing);
-    pa_log_debug("set_parameters(): %s (%#010x)", tmp, routing);
+    pa_log_debug("set_parameters(%s) %#010x", tmp, routing);
     pa_droid_hw_module_lock(u->hw_module);
-    u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
+    ret = u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
     pa_droid_hw_module_unlock(u->hw_module);
 
-    return true;
+    if (ret < 0) {
+        if (ret == -ENOSYS)
+            pa_log_warn("set_parameters(%s) not allowed while stream is active", tmp);
+        else
+            pa_log_warn("set_parameters(%s) failed", tmp);
+    }
 }
 
 static bool parse_device_list(const char *str, audio_devices_t *dst) {

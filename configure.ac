@@ -2,7 +2,7 @@ AC_PREREQ(2.60)
 
 m4_define(PA_MAJOR, [5])
 m4_define(PA_MINOR, [0])
-m4_define(NEMO_MICRO, [16])
+m4_define(NEMO_MICRO, [32])
 
 AC_INIT([pulseaudio-modules-droid], [PA_MAJOR.PA_MINOR.NEMO_MICRO], [mer-general@lists.merproject.org])
 AC_CONFIG_HEADER([config.h])

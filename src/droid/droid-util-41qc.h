@@ -165,7 +165,7 @@ struct string_conversion string_conversion_table_input_device[] = {
 };
 
 struct string_conversion string_conversion_table_input_device_fancy[] = {
-    { AUDIO_DEVICE_IN_COMMUNICATION,            "input-in_communication" },
+    { AUDIO_DEVICE_IN_COMMUNICATION,            "input-communication" },
     { AUDIO_DEVICE_IN_AMBIENT,                  "input-ambient" },
     { AUDIO_DEVICE_IN_BUILTIN_MIC,              "input-builtin_mic" },
     { AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,    "input-bluetooth_sco_headset" },
@@ -178,6 +178,20 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },
     { AUDIO_DEVICE_IN_PROXY,                    "input-in_proxy" },
     { 0, NULL }
+};
+
+struct string_conversion string_conversion_table_audio_source_fancy[] = {
+    { AUDIO_SOURCE_DEFAULT,                         "default" },
+    { AUDIO_SOURCE_MIC,                             "mic" },
+    { AUDIO_SOURCE_VOICE_UPLINK,                    "voice uplink" },
+    { AUDIO_SOURCE_VOICE_DOWNLINK,                  "voice downling" },
+    { AUDIO_SOURCE_VOICE_CALL,                      "voice call" },
+    { AUDIO_SOURCE_CAMCORDER,                       "camcorder" },
+    { AUDIO_SOURCE_VOICE_RECOGNITION,               "voice recognition" },
+    { AUDIO_SOURCE_VOICE_COMMUNICATION,             "voice communication" },
+    { AUDIO_SOURCE_FM_RX,                           "fm rx" },
+    { AUDIO_SOURCE_FM_RX_A2DP,                      "fm rx a2dp" },
+    { (uint32_t)-1, NULL }
 };
 
 /* Flags */

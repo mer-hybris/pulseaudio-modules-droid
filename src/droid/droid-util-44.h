@@ -90,7 +90,22 @@ uint32_t conversion_table_format[][2] = {
 };
 
 uint32_t conversion_table_default_audio_source[][2] = {
+#ifdef DROID_DEVICE_HAMMERHEAD
+    { AUDIO_DEVICE_IN_COMMUNICATION,                AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_AMBIENT,                      AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_BUILTIN_MIC,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,        AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_WIRED_HEADSET,                AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_AUX_DIGITAL,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_VOICE_CALL,                   AUDIO_SOURCE_VOICE_CALL },
+    { AUDIO_DEVICE_IN_BACK_MIC,                     AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                AUDIO_SOURCE_REMOTE_SUBMIX },
+    { AUDIO_DEVICE_IN_ANC_HEADSET,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_FM_RX,                        AUDIO_SOURCE_FM_RX },
+    { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP }
+#else
     { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
+#endif
 };
 
 struct string_conversion {
@@ -203,6 +218,23 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },
 #endif
     { 0, NULL }
+};
+
+struct string_conversion string_conversion_table_audio_source_fancy[] = {
+    { AUDIO_SOURCE_DEFAULT,                         "default" },
+    { AUDIO_SOURCE_MIC,                             "mic" },
+    { AUDIO_SOURCE_VOICE_UPLINK,                    "voice uplink" },
+    { AUDIO_SOURCE_VOICE_DOWNLINK,                  "voice downling" },
+    { AUDIO_SOURCE_VOICE_CALL,                      "voice call" },
+    { AUDIO_SOURCE_CAMCORDER,                       "camcorder" },
+    { AUDIO_SOURCE_VOICE_RECOGNITION,               "voice recognition" },
+    { AUDIO_SOURCE_VOICE_COMMUNICATION,             "voice communication" },
+    { AUDIO_SOURCE_REMOTE_SUBMIX,                   "remote submix" },
+#ifdef QCOM_HARDWARE
+    { AUDIO_SOURCE_FM_RX,                           "fm rx" },
+    { AUDIO_SOURCE_FM_RX_A2DP,                      "fm rx a2dp" },
+#endif
+    { (uint32_t)-1, NULL }
 };
 
 /* Flags */
