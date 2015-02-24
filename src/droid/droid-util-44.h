@@ -90,7 +90,22 @@ uint32_t conversion_table_format[][2] = {
 };
 
 uint32_t conversion_table_default_audio_source[][2] = {
+#ifdef DROID_DEVICE_HAMMERHEAD
+    { AUDIO_DEVICE_IN_COMMUNICATION,                AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_AMBIENT,                      AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_BUILTIN_MIC,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,        AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_WIRED_HEADSET,                AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_AUX_DIGITAL,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_VOICE_CALL,                   AUDIO_SOURCE_VOICE_CALL },
+    { AUDIO_DEVICE_IN_BACK_MIC,                     AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                AUDIO_SOURCE_REMOTE_SUBMIX },
+    { AUDIO_DEVICE_IN_ANC_HEADSET,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_FM_RX,                        AUDIO_SOURCE_FM_RX },
+    { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP }
+#else
     { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
+#endif
 };
 
 struct string_conversion {
