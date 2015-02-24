@@ -78,14 +78,19 @@ struct userdata {
 
 #define DEFAULT_MODULE_ID "primary"
 
+#define DROID_AUDIO_SOURCE "droid.audio_source"
+#define DROID_AUDIO_SOURCE_UNDEFINED "undefined"
+
 static void userdata_free(struct userdata *u);
 
 static int do_routing(struct userdata *u, audio_devices_t devices) {
     int ret;
     char *setparam;
     char *devlist;
+    pa_proplist *p;
+    const char *source_str;
     audio_devices_t old_device;
-    audio_source_t source;
+    audio_source_t source = (uint32_t) -1;
 
     pa_assert(u);
     pa_assert(u->stream);
@@ -129,6 +134,16 @@ static int do_routing(struct userdata *u, audio_devices_t devices) {
         else
             pa_log_warn("set_parameters(%s) failed", setparam);
         u->primary_devices = old_device;
+    } else {
+        if (source != (uint32_t) -1)
+            pa_assert_se(pa_droid_audio_source_name(source, &source_str));
+        else
+            source_str = DROID_AUDIO_SOURCE_UNDEFINED;
+
+        p = pa_proplist_new();
+        pa_proplist_sets(p, DROID_AUDIO_SOURCE, source_str);
+        pa_source_update_proplist(u->source, PA_UPDATE_REPLACE, p);
+        pa_proplist_free(p);
     }
 
     pa_xfree(devlist);
