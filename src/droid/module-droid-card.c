@@ -208,19 +208,19 @@ static pa_card_profile* add_virtual_profile(struct userdata *u, const char *name
     return cp;
 }
 
-static void set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
+static int set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
     struct userdata *u;
+    int ret;
 
     pa_assert(card_data);
+    pa_assert_se((u = card_data->userdata));
     pa_assert(str);
 
-    u = card_data->userdata;
+    pa_droid_hw_module_lock(u->hw_module);
+    ret = u->hw_module->device->set_parameters(u->hw_module->device, str);
+    pa_droid_hw_module_unlock(u->hw_module);
 
-    if (u) {
-        pa_droid_hw_module_lock(u->hw_module);
-        u->hw_module->device->set_parameters(u->hw_module->device, str);
-        pa_droid_hw_module_unlock(u->hw_module);
-    }
+    return ret;
 }
 
 static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *module_id) {
