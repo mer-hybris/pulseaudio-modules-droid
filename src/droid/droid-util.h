@@ -51,7 +51,7 @@
 
 typedef struct pa_droid_hw_module pa_droid_hw_module;
 typedef struct pa_droid_card_data pa_droid_card_data;
-typedef void (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
+typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
 typedef struct pa_droid_config_audio pa_droid_config_audio;
 typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
