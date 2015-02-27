@@ -226,7 +226,7 @@ struct string_conversion string_conversion_table_audio_source_fancy[] = {
     { AUDIO_SOURCE_DEFAULT,                         "default" },
     { AUDIO_SOURCE_MIC,                             "mic" },
     { AUDIO_SOURCE_VOICE_UPLINK,                    "voice uplink" },
-    { AUDIO_SOURCE_VOICE_DOWNLINK,                  "voice downling" },
+    { AUDIO_SOURCE_VOICE_DOWNLINK,                  "voice downlink" },
     { AUDIO_SOURCE_VOICE_CALL,                      "voice call" },
     { AUDIO_SOURCE_CAMCORDER,                       "camcorder" },
     { AUDIO_SOURCE_VOICE_RECOGNITION,               "voice recognition" },
