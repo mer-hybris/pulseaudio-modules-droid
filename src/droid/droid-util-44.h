@@ -198,6 +198,7 @@ struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_ANC_HEADSET),
     STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX),
     STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX_A2DP),
+    STRING_ENTRY(AUDIO_DEVICE_IN_PROXY),
 #endif
     { 0, NULL }
 };
@@ -216,6 +217,7 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_ANC_HEADSET,              "input-anc_headset" },
     { AUDIO_DEVICE_IN_FM_RX,                    "input-fm_rx" },
     { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },
+    { AUDIO_DEVICE_IN_PROXY,                    "input-proxy" },
 #endif
     { 0, NULL }
 };
@@ -278,8 +280,11 @@ struct string_conversion string_conversion_table_output_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_OUT_STEREO),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_QUAD),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_SURROUND),
+    STRING_ENTRY(AUDIO_CHANNEL_OUT_2POINT1),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_5POINT1),
+    STRING_ENTRY(AUDIO_CHANNEL_OUT_6POINT1),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_7POINT1),
+    STRING_ENTRY(AUDIO_CHANNEL_OUT_PENTA),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_ALL),
     { 0, NULL }
 };
@@ -300,6 +305,7 @@ struct string_conversion string_conversion_table_input_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_IN_VOICE_DNLINK),
     STRING_ENTRY(AUDIO_CHANNEL_IN_MONO),
     STRING_ENTRY(AUDIO_CHANNEL_IN_STEREO),
+    STRING_ENTRY(AUDIO_CHANNEL_IN_5POINT1),
     STRING_ENTRY(AUDIO_CHANNEL_IN_ALL),
     STRING_ENTRY(AUDIO_CHANNEL_IN_FRONT_BACK),
 #ifdef QCOM_HARDWARE
