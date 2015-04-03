@@ -213,6 +213,10 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_VOICE_CALL,               "input-voice_call" },
     { AUDIO_DEVICE_IN_BACK_MIC,                 "input-back_mic" },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,            "input-remote_submix" },
+    { AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET,        "input-analog_dock_headset" },
+    { AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET,        "input-digital_dock_headset" },
+    { AUDIO_DEVICE_IN_USB_ACCESSORY,            "input-usb_accessory" },
+    { AUDIO_DEVICE_IN_USB_DEVICE,               "input-usb_device" },
 #ifdef QCOM_HARDWARE
     { AUDIO_DEVICE_IN_ANC_HEADSET,              "input-anc_headset" },
     { AUDIO_DEVICE_IN_FM_RX,                    "input-fm_rx" },
