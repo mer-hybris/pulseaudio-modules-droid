@@ -1,0 +1,26 @@
+#!/bin/sh
+
+if test $# -lt 1
+then
+    echo 1>&2 "Usage: $0 \$srcdir/.tarball-version"
+    exit 1
+fi
+
+VF=$1
+
+# First see if there is a version file,
+# then try git-describe, otherwise fail.
+if test -f $VF
+then
+    VN=$(cat $VF)
+elif test -d ${GIT_DIR:-.git} -o -f .git &&
+    V=$(git describe --match "[0-9]*" --abbrev=7 --tags 2>/dev/null)
+then
+    VN=$V
+else
+    echo 1>&2 "$0: Failed to determine revision"
+    exit 1
+fi
+
+# Omit the trailing newline, so that m4_esyscmd can use the result directly.
+echo "$VN" | tr -d '\012'

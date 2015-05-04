@@ -1,10 +1,12 @@
 %define device sbj
-%define pulseversion 5.0
+%define pulseversion %{expand:%(rpm -q --qf '[%%{version}]' pulseaudio)}
+%define pulsemajorminor %{expand:%(echo '%{pulseversion}' | cut -d+ -f1)}
+%define moduleversion %{pulsemajorminor}.%{expand:%(echo '%{version}' | cut -d. -f3)}
 
 Name:       pulseaudio-modules-droid-%{device}
 
 Summary:    PulseAudio Droid HAL modules
-Version:    %{pulseversion}.1
+Version:    %{pulsemajorminor}.1
 Release:    1
 Group:      Multimedia/PulseAudio
 License:    LGPLv2.1+
@@ -28,6 +30,7 @@ PulseAudio Droid HAL modules.
 %setup -q -n %{name}-%{version}
 
 %build
+echo "%{moduleversion}" > .tarball-version
 %reconfigure --disable-static --with-droid-device=%{device}
 make %{?jobs:-j%jobs}
 
@@ -44,4 +47,4 @@ rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root,-)
-%{_libdir}/pulse-%{pulseversion}/modules/*.so
+%{_libdir}/pulse-%{pulsemajorminor}/modules/*.so

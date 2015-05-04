@@ -233,7 +233,11 @@ static void thread_func(void *userdata) {
             pa_rtpoll_set_timer_disabled(u->rtpoll);
 
         /* Sleep */
+#if (PULSEAUDIO_VERSION == 5)
         if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
+#elif (PULSEAUDIO_VERSION == 6)
+        if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
+#endif
             goto fail;
 
         if (ret == 0)
@@ -371,8 +375,13 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
     }
 }
 
+#if (PULSEAUDIO_VERSION == 5)
 static void source_get_mute_cb(pa_source *s) {
+#elif (PULSEAUDIO_VERSION == 6)
+static int source_get_mute_cb(pa_source *s, bool *muted) {
+#endif
     struct userdata *u = s->userdata;
+    int ret = 0;
     bool b;
 
     pa_assert(u);
@@ -381,12 +390,19 @@ static void source_get_mute_cb(pa_source *s) {
     pa_droid_hw_module_lock(u->hw_module);
     if (u->hw_module->device->get_mic_mute(u->hw_module->device, &b) < 0) {
         pa_log("Failed to get mute state.");
-        pa_droid_hw_module_unlock(u->hw_module);
-        return;
+        ret = -1;
     }
     pa_droid_hw_module_unlock(u->hw_module);
 
-    s->muted = b;
+#if (PULSEAUDIO_VERSION == 5)
+    if (ret == 0)
+        s->muted = b;
+#elif (PULSEAUDIO_VERSION == 6)
+    if (ret == 0)
+        *muted = b;
+
+    return ret;
+#endif
 }
 
 static void source_set_mute_cb(pa_source *s) {
