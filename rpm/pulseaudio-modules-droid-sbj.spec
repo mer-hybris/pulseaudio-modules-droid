@@ -16,7 +16,7 @@ Requires:   pulseaudio >= %{pulseversion}
 BuildRequires:  automake
 BuildRequires:  libtool
 BuildRequires:  libtool-ltdl-devel
-BuildRequires:  pkgconfig(pulsecore) >= %{pulseversion}
+BuildRequires:  pkgconfig(pulsecore) >= %{pulsemajorminor}
 BuildRequires:  pkgconfig(android-headers)
 BuildRequires:  pkgconfig(libhardware)
 BuildRequires:  pkgconfig(dbus-1)
