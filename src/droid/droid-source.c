@@ -121,7 +121,7 @@ static int do_routing(struct userdata *u, audio_devices_t devices) {
 
     pa_log_debug("set_parameters(%s) %s : %#010x", setparam, devlist, devices);
 
-#ifdef DROID_DEVICE_MAKO
+#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_IYOKAN)
 #warning Using mako set_parameters hack.
     ret = u->card_data->set_parameters(u->card_data, setparam);
 #else
