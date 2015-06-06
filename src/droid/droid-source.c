@@ -212,6 +212,7 @@ static void thread_func(void *userdata) {
     struct userdata *u = userdata;
 
     pa_assert(u);
+    pa_assert(u->stream);
 
     pa_log_debug("Thread starting up.");
 
@@ -221,6 +222,8 @@ static void thread_func(void *userdata) {
     pa_thread_mq_install(&u->thread_mq);
 
     u->timestamp = pa_rtclock_now();
+
+    u->stream->common.standby(&u->stream->common);
 
     for (;;) {
         int ret;
