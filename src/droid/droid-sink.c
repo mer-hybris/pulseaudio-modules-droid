@@ -1014,7 +1014,13 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                                                    dev_out,
                                                    flags,
                                                    &config_out,
-                                                   &u->stream_out);
+                                                   &u->stream_out
+#if DROID_HAL >= 3
+                                                   /* Go with empty address, should work
+                                                    * with most devices for now. */
+                                                   , NULL
+#endif
+                                                   );
     pa_droid_hw_module_unlock(u->hw_module);
 
     if (!u->stream_out) {
