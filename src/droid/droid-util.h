@@ -41,6 +41,8 @@
 #include "droid-util-42.h"
 #elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 4
 #include "droid-util-44.h"
+#elif ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1
+#include "droid-util-51.h"
 #else
 #error "No valid ANDROID_VERSION found."
 #endif
