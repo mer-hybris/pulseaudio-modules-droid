@@ -113,13 +113,13 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
     char *str = NULL;
     char *tmp;
 
-#ifdef HAL_V2
+#if DROID_HAL >= 2
     if (flags & AUDIO_DEVICE_BIT_IN)
         flags &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
     for (unsigned int i = 0; list[i].str; i++) {
-#ifdef HAL_V2
+#if DROID_HAL >= 2
         if (list[i].value & AUDIO_DEVICE_BIT_IN) {
             if (popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN) != 1)
                 continue;
@@ -914,7 +914,7 @@ static void add_i_ports(pa_droid_mapping *am) {
     pa_assert(am);
 
     devices = am->input->devices;
-#ifdef HAL_V2
+#if DROID_HAL >= 2
     devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
@@ -923,7 +923,7 @@ static void add_i_ports(pa_droid_mapping *am) {
 
         if (devices & cur_device) {
 
-#ifdef HAL_V2
+#if DROID_HAL >= 2
 #ifndef DROID_DEVICE_MAKO
             cur_device |= AUDIO_DEVICE_BIT_IN;
 #endif
