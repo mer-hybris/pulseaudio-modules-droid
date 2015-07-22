@@ -216,7 +216,7 @@ struct string_conversion string_conversion_table_audio_source_fancy[] = {
 };
 
 /* Flags */
-struct string_conversion string_conversion_table_flag[] = {
+struct string_conversion string_conversion_table_output_flag[] = {
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_NONE),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_DIRECT),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_PRIMARY),
