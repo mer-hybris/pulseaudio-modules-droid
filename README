@@ -6,6 +6,7 @@ Supported Android versions:
  * 4.1.x with Qualcomm extensions (tested with 4.1.2)
  * 4.2.x
  * 4.4.x
+ * 5.1
 
 Headers for defining devices and strings for different droid versions are in
 src/droid/droid-util-XXX.h

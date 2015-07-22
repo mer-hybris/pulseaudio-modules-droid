@@ -590,7 +590,13 @@ pa_source *pa_droid_source_new(pa_module *m,
                                                   u->hw_module->stream_in_id++,
                                                   dev_in,
                                                   &config_in,
-                                                  &u->stream);
+                                                  &u->stream
+#if DROID_HAL >= 3
+                                                  , AUDIO_INPUT_FLAG_NONE   /* Default to no input flags */
+                                                  , NULL                    /* Don't define address */
+                                                  , AUDIO_SOURCE_DEFAULT    /* Default audio source */
+#endif
+                                                  );
     pa_droid_hw_module_unlock(u->hw_module);
 
     if (ret < 0 || !u->stream) {

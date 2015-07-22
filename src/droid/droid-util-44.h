@@ -22,7 +22,7 @@
 #ifndef _ANDROID_UTIL_V44_H_
 #define _ANDROID_UTIL_V44_H_
 
-#define HAL_V2
+#define DROID_HAL 2
 
 // Android v4.4 has SPEAKER_DRC_ENABLED_TAG, so might the future versions
 #define DROID_HAVE_DRC
@@ -242,7 +242,7 @@ struct string_conversion string_conversion_table_audio_source_fancy[] = {
 };
 
 /* Flags */
-struct string_conversion string_conversion_table_flag[] = {
+struct string_conversion string_conversion_table_output_flag[] = {
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_NONE),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_DIRECT),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_PRIMARY),

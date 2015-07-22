@@ -113,13 +113,13 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
     char *str = NULL;
     char *tmp;
 
-#ifdef HAL_V2
+#if DROID_HAL >= 2
     if (flags & AUDIO_DEVICE_BIT_IN)
         flags &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
     for (unsigned int i = 0; list[i].str; i++) {
-#ifdef HAL_V2
+#if DROID_HAL >= 2
         if (list[i].value & AUDIO_DEVICE_BIT_IN) {
             if (popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN) != 1)
                 continue;
@@ -171,15 +171,15 @@ char *pa_list_string_input_device(audio_devices_t devices) {
 
 /* Flags */
 bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str) {
-    return string_convert_num_to_str(string_conversion_table_flag, (uint32_t) value, to_str);
+    return string_convert_num_to_str(string_conversion_table_output_flag, (uint32_t) value, to_str);
 }
 
 bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value) {
-    return string_convert_str_to_num(string_conversion_table_flag, str, (uint32_t*) to_value);
+    return string_convert_str_to_num(string_conversion_table_output_flag, str, (uint32_t*) to_value);
 }
 
 char *pa_list_string_flags(audio_output_flags_t flags) {
-    return list_string(string_conversion_table_flag, flags);
+    return list_string(string_conversion_table_output_flag, flags);
 }
 
 bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
@@ -251,6 +251,14 @@ static bool parse_sampling_rates(const char *fn, const unsigned ln,
     while ((entry = pa_split(str, "|", &state))) {
         int32_t val;
 
+#if DROID_HAL >= 3
+        if (pos == 0 && pa_streq(entry, "dynamic")) {
+            sampling_rates[pos++] = (uint32_t) -1;
+            pa_xfree(entry);
+            break;
+        }
+#endif
+
         if (pos == AUDIO_MAX_SAMPLING_RATES) {
             pa_log("[%s:%u] Too many sample rate entries (> %d)", fn, ln, AUDIO_MAX_SAMPLING_RATES);
             pa_xfree(entry);
@@ -307,6 +315,14 @@ static bool parse_formats(const char *fn, const unsigned ln,
     pa_assert(str);
     pa_assert(formats);
 
+#if DROID_HAL >= 3
+    /* Needs to be probed later */
+    if (pa_streq(str, "dynamic")) {
+        *formats = 0;
+        return true;
+    }
+#endif
+
     count = parse_list(string_conversion_table_format, str, formats, &unknown);
 
     return check_and_log(fn, ln, "formats", count, str, unknown, false);
@@ -352,7 +368,7 @@ static bool parse_devices(const char *fn, const unsigned ln,
                          count, str, unknown, must_have_all);
 }
 
-static bool parse_flags(const char *fn, const unsigned ln,
+static bool parse_output_flags(const char *fn, const unsigned ln,
                         const char *str, audio_output_flags_t *flags) {
     int count;
     char *unknown = NULL;
@@ -361,10 +377,26 @@ static bool parse_flags(const char *fn, const unsigned ln,
     pa_assert(str);
     pa_assert(flags);
 
-    count = parse_list(string_conversion_table_flag, str, flags, &unknown);
+    count = parse_list(string_conversion_table_output_flag, str, flags, &unknown);
 
     return check_and_log(fn, ln, "flags", count, str, unknown, false);
 }
+
+#if DROID_HAL >= 3
+static bool parse_input_flags(const char *fn, const unsigned ln,
+                        const char *str, audio_input_flags_t *flags) {
+    int count;
+    char *unknown = NULL;
+
+    pa_assert(fn);
+    pa_assert(str);
+    pa_assert(flags);
+
+    count = parse_list(string_conversion_table_input_flag, str, flags, &unknown);
+
+    return check_and_log(fn, ln, "flags", count, str, unknown, false);
+}
+#endif
 
 #define MAX_LINE_LENGTH (1024)
 
@@ -622,10 +654,14 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                         success = parse_devices(filename, n, value, false, &input->devices, false);
                 } else if (pa_streq(v, FLAGS_TAG)) {
                     if (in_output)
-                        success = parse_flags(filename, n, value, &output->flags);
+                        success = parse_output_flags(filename, n, value, &output->flags);
                     else {
+#if DROID_HAL >= 3
+                        success = parse_input_flags(filename, n, value, &input->flags);
+#else
                         pa_log("[%s:%u] failed to parse line - output flags inside input definition", filename, n);
                         success = false;
+#endif
                     }
                 } else {
                     pa_log("[%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
@@ -914,7 +950,7 @@ static void add_i_ports(pa_droid_mapping *am) {
     pa_assert(am);
 
     devices = am->input->devices;
-#ifdef HAL_V2
+#if DROID_HAL >= 2
     devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
@@ -923,7 +959,7 @@ static void add_i_ports(pa_droid_mapping *am) {
 
         if (devices & cur_device) {
 
-#ifdef HAL_V2
+#if DROID_HAL >= 2
 #ifndef DROID_DEVICE_MAKO
             cur_device |= AUDIO_DEVICE_BIT_IN;
 #endif

@@ -22,6 +22,8 @@
 #ifndef _ANDROID_UTIL_V412_H_
 #define _ANDROID_UTIL_V412_H_
 
+#define DROID_HAL 1
+
 #ifdef DROID_DEVICE_SBJ
 #define QCOM_HARDWARE
 #endif
@@ -195,7 +197,7 @@ struct string_conversion string_conversion_table_audio_source_fancy[] = {
 };
 
 /* Flags */
-struct string_conversion string_conversion_table_flag[] = {
+struct string_conversion string_conversion_table_output_flag[] = {
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_NONE),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_DIRECT),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_PRIMARY),

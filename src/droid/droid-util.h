@@ -41,6 +41,8 @@
 #include "droid-util-42.h"
 #elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 4
 #include "droid-util-44.h"
+#elif ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1
+#include "droid-util-51.h"
 #else
 #error "No valid ANDROID_VERSION found."
 #endif
@@ -98,9 +100,9 @@ typedef struct pa_droid_config_output {
     const pa_droid_config_hw_module *module;
 
     char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
-    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES];
+    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats;
+    audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
     audio_output_flags_t flags;
 } pa_droid_config_output;
@@ -109,10 +111,13 @@ typedef struct pa_droid_config_input {
     const pa_droid_config_hw_module *module;
 
     char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
-    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES];
+    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats;
+    audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
+#if DROID_HAL >= 3
+    audio_input_flags_t flags;
+#endif
 } pa_droid_config_input;
 
 struct pa_droid_config_hw_module {
