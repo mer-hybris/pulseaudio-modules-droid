@@ -315,6 +315,14 @@ static bool parse_formats(const char *fn, const unsigned ln,
     pa_assert(str);
     pa_assert(formats);
 
+#if DROID_HAL >= 3
+    /* Needs to be probed later */
+    if (pa_streq(str, "dynamic")) {
+        *formats = 0;
+        return true;
+    }
+#endif
+
     count = parse_list(string_conversion_table_format, str, formats, &unknown);
 
     return check_and_log(fn, ln, "formats", count, str, unknown, false);

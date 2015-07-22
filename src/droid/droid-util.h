@@ -102,7 +102,7 @@ typedef struct pa_droid_config_output {
     char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
     uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats;
+    audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
     audio_output_flags_t flags;
 } pa_droid_config_output;
@@ -113,7 +113,7 @@ typedef struct pa_droid_config_input {
     char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
     uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats;
+    audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
 #if DROID_HAL >= 3
     audio_input_flags_t flags;
