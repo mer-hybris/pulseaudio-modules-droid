@@ -113,6 +113,9 @@ typedef struct pa_droid_config_input {
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
     audio_format_t formats;
     audio_devices_t devices;
+#if DROID_HAL >= 3
+    audio_input_flags_t flags;
+#endif
 } pa_droid_config_input;
 
 struct pa_droid_config_hw_module {

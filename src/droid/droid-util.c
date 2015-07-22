@@ -366,6 +366,22 @@ static bool parse_output_flags(const char *fn, const unsigned ln,
     return check_and_log(fn, ln, "flags", count, str, unknown, false);
 }
 
+#if DROID_HAL >= 3
+static bool parse_input_flags(const char *fn, const unsigned ln,
+                        const char *str, audio_input_flags_t *flags) {
+    int count;
+    char *unknown = NULL;
+
+    pa_assert(fn);
+    pa_assert(str);
+    pa_assert(flags);
+
+    count = parse_list(string_conversion_table_input_flag, str, flags, &unknown);
+
+    return check_and_log(fn, ln, "flags", count, str, unknown, false);
+}
+#endif
+
 #define MAX_LINE_LENGTH (1024)
 
 bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
@@ -624,8 +640,12 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     if (in_output)
                         success = parse_output_flags(filename, n, value, &output->flags);
                     else {
+#if DROID_HAL >= 3
+                        success = parse_input_flags(filename, n, value, &input->flags);
+#else
                         pa_log("[%s:%u] failed to parse line - output flags inside input definition", filename, n);
                         success = false;
+#endif
                     }
                 } else {
                     pa_log("[%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
