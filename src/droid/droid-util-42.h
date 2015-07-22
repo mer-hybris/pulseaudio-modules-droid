@@ -22,7 +22,7 @@
 #ifndef _ANDROID_UTIL_V42_H_
 #define _ANDROID_UTIL_V42_H_
 
-#define HAL_V2
+#define DROID_HAL 2
 
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
