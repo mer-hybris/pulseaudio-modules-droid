@@ -171,15 +171,15 @@ char *pa_list_string_input_device(audio_devices_t devices) {
 
 /* Flags */
 bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str) {
-    return string_convert_num_to_str(string_conversion_table_flag, (uint32_t) value, to_str);
+    return string_convert_num_to_str(string_conversion_table_output_flag, (uint32_t) value, to_str);
 }
 
 bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value) {
-    return string_convert_str_to_num(string_conversion_table_flag, str, (uint32_t*) to_value);
+    return string_convert_str_to_num(string_conversion_table_output_flag, str, (uint32_t*) to_value);
 }
 
 char *pa_list_string_flags(audio_output_flags_t flags) {
-    return list_string(string_conversion_table_flag, flags);
+    return list_string(string_conversion_table_output_flag, flags);
 }
 
 bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
@@ -352,7 +352,7 @@ static bool parse_devices(const char *fn, const unsigned ln,
                          count, str, unknown, must_have_all);
 }
 
-static bool parse_flags(const char *fn, const unsigned ln,
+static bool parse_output_flags(const char *fn, const unsigned ln,
                         const char *str, audio_output_flags_t *flags) {
     int count;
     char *unknown = NULL;
@@ -361,7 +361,7 @@ static bool parse_flags(const char *fn, const unsigned ln,
     pa_assert(str);
     pa_assert(flags);
 
-    count = parse_list(string_conversion_table_flag, str, flags, &unknown);
+    count = parse_list(string_conversion_table_output_flag, str, flags, &unknown);
 
     return check_and_log(fn, ln, "flags", count, str, unknown, false);
 }
@@ -622,7 +622,7 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                         success = parse_devices(filename, n, value, false, &input->devices, false);
                 } else if (pa_streq(v, FLAGS_TAG)) {
                     if (in_output)
-                        success = parse_flags(filename, n, value, &output->flags);
+                        success = parse_output_flags(filename, n, value, &output->flags);
                     else {
                         pa_log("[%s:%u] failed to parse line - output flags inside input definition", filename, n);
                         success = false;
