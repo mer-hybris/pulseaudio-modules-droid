@@ -251,6 +251,14 @@ static bool parse_sampling_rates(const char *fn, const unsigned ln,
     while ((entry = pa_split(str, "|", &state))) {
         int32_t val;
 
+#if DROID_HAL >= 3
+        if (pos == 0 && pa_streq(entry, "dynamic")) {
+            sampling_rates[pos++] = (uint32_t) -1;
+            pa_xfree(entry);
+            break;
+        }
+#endif
+
         if (pos == AUDIO_MAX_SAMPLING_RATES) {
             pa_log("[%s:%u] Too many sample rate entries (> %d)", fn, ln, AUDIO_MAX_SAMPLING_RATES);
             pa_xfree(entry);
