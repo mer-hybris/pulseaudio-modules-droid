@@ -75,7 +75,6 @@ struct userdata {
 
     pa_memblockq *memblockq;
     pa_memchunk silence;
-    size_t buffer_count;
     size_t buffer_size;
     pa_usec_t buffer_latency;
     pa_usec_t timestamp;
@@ -299,7 +298,7 @@ static void thread_render(struct userdata *u) {
     size_t missing;
 
     length = pa_memblockq_get_length(u->memblockq);
-    missing = u->buffer_size * u->buffer_count - length;
+    missing = u->buffer_size - length;
 
     if (missing > 0) {
         pa_memchunk c;
@@ -476,7 +475,7 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
 
             /* HAL reports milliseconds */
             if (u->stream_out)
-                r = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC * u->buffer_count;
+                r = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
 
             *((pa_usec_t*) data) = r;
 
@@ -1048,8 +1047,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
 
     u->buffer_latency = pa_bytes_to_usec(u->buffer_size, &sample_spec);
-    /* Disable internal rewinding for now. */
-    u->buffer_count = 1;
 
     pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u",
             dev_out,
@@ -1071,7 +1068,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                      u->mute_routing_before * u->buffer_size,
                      u->mute_routing_after * u->buffer_size);
     pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &sample_spec, u->buffer_size);
-    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size * u->buffer_count, u->buffer_size * u->buffer_count, &sample_spec, 1, 0, 0, &u->silence);
+    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &sample_spec, 1, 0, 0, &u->silence);
 
     pa_sink_new_data_init(&data);
     data.driver = driver;
@@ -1138,7 +1135,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_sink_set_rtpoll(u->sink, u->rtpoll);
 
     /* Rewind internal memblockq */
-    pa_sink_set_max_rewind(u->sink, u->buffer_size * (u->buffer_count - 1));
+    pa_sink_set_max_rewind(u->sink, 0);
 
     thread_name = pa_sprintf_malloc("droid-sink-%s", module_id);
     if (!(u->thread = pa_thread_new(thread_name, thread_func, u))) {
@@ -1149,10 +1146,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     thread_name = NULL;
 
     /* Latency consists of HAL latency + our memblockq latency */
-    total_latency = u->stream_out->get_latency(u->stream_out) + (uint32_t) pa_bytes_to_usec(u->buffer_size * u->buffer_count, &sample_spec);
+    total_latency = u->stream_out->get_latency(u->stream_out);
     pa_sink_set_fixed_latency(u->sink, total_latency);
     pa_log_debug("Set fixed latency %lu usec", (unsigned long) pa_bytes_to_usec(total_latency, &sample_spec));
-    pa_sink_set_max_request(u->sink, u->buffer_size * u->buffer_count);
+    pa_sink_set_max_request(u->sink, u->buffer_size);
 
     if (u->sink->active_port)
         sink_set_port_cb(u->sink, u->sink->active_port);
