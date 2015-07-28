@@ -76,8 +76,8 @@ struct userdata {
     pa_memblockq *memblockq;
     pa_memchunk silence;
     size_t buffer_size;
-    pa_usec_t buffer_latency;
-    pa_usec_t timestamp;
+    pa_usec_t buffer_time;
+    pa_usec_t write_time;
 
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
@@ -243,6 +243,7 @@ static int thread_write_silence(struct userdata *u) {
 
     /* Drop our rendered audio and write silence to HAL. */
     pa_memblockq_drop(u->memblockq, u->buffer_size);
+    u->write_time = pa_rtclock_now();
 
     /* We should be able to write everything in one go as long as memblock size
      * is multiples of buffer_size. Even if we don't write whole buffer size
@@ -251,6 +252,8 @@ static int thread_write_silence(struct userdata *u) {
     p = pa_memblock_acquire(u->silence.memblock);
     wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + u->silence.index, u->silence.length);
     pa_memblock_release(u->silence.memblock);
+
+    u->write_time = pa_rtclock_now() - u->write_time;
 
     if (wrote < 0)
         return -1;
@@ -268,6 +271,8 @@ static int thread_write(struct userdata *u) {
     /* We should be able to write everything in one go as long as memblock size
      * is multiples of buffer_size. */
 
+    u->write_time = pa_rtclock_now();
+
     for (;;) {
         p = pa_memblock_acquire(c.memblock);
         wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + c.index, c.length);
@@ -276,6 +281,8 @@ static int thread_write(struct userdata *u) {
         if (wrote < 0) {
             pa_memblockq_drop(u->memblockq, c.length);
             pa_memblock_unref(c.memblock);
+            u->write_time = 0;
+            pa_log("failed to write stream (%d)", wrote);
             return -1;
         }
 
@@ -290,6 +297,8 @@ static int thread_write(struct userdata *u) {
 
         break;
     }
+
+    u->write_time = pa_rtclock_now() - u->write_time;
 
     return 0;
 }
@@ -360,22 +369,18 @@ static void thread_func(void *userdata) {
 
     pa_thread_mq_install(&u->thread_mq);
 
-    u->timestamp = 0;
-
     for (;;) {
         int ret;
 
         if (PA_SINK_IS_OPENED(u->sink->thread_info.state)) {
 
-            u->timestamp = pa_rtclock_now();
-
             if (PA_UNLIKELY(u->sink->thread_info.rewind_requested))
                 process_rewind(u);
-            else
-                thread_render(u);
 
             if (pa_rtpoll_timer_elapsed(u->rtpoll)) {
-                pa_usec_t now, sleept;
+                pa_usec_t sleept = 0;
+
+                thread_render(u);
 
                 if (u->routing_counter == u->mute_routing_after) {
                     do_routing(u);
@@ -386,12 +391,8 @@ static void thread_func(void *userdata) {
                 } else
                     thread_write(u);
 
-                now = pa_rtclock_now();
-
-                if (now - u->timestamp > u->buffer_latency / 2)
-                    sleept = 0;
-                else
-                    sleept = u->buffer_latency / 2 - (now - u->timestamp) ;
+                if (u->write_time > (u->buffer_time - u->buffer_time / 6))
+                    sleept = u->buffer_time;
 
                 pa_rtpoll_set_timer_relative(u->rtpoll, sleept);
             }
@@ -499,7 +500,6 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
                     /* Fall through */
                 case PA_SINK_RUNNING: {
                     int r;
-                    u->timestamp = 0;
 
                     if (u->sink->thread_info.state == PA_SINK_SUSPENDED) {
                         if ((r = unsuspend(u)) < 0)
@@ -1046,15 +1046,16 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
     }
 
-    u->buffer_latency = pa_bytes_to_usec(u->buffer_size, &sample_spec);
+    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &sample_spec);
 
-    pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u",
+    pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u (%llu usec)",
             dev_out,
             flags,
             sample_rate,
             config_out.channel_mask,
             config_out.format,
-            u->buffer_size);
+            u->buffer_size,
+            u->buffer_time);
 
 
     u->mute_routing_before = mute_routing_before / u->buffer_size;
