@@ -599,13 +599,13 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
 
                 if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
                     success = parse_devices(filename, n, value, true,
-                                            &config->global_config.attached_output_devices, true);
+                                            &config->global_config.attached_output_devices, false);
                 else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
                     success = parse_devices(filename, n, value, true,
                                             &config->global_config.default_output_device, true);
                 else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
                     success = parse_devices(filename, n, value, false,
-                                            &config->global_config.attached_input_devices, true);
+                                            &config->global_config.attached_input_devices, false);
 #ifdef DROID_HAVE_DRC
                 // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
                 else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
