@@ -184,6 +184,10 @@ char *pa_list_string_flags(audio_output_flags_t flags) {
 
 bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
 {
+#if DROID_HAL >= 2
+    input_device &= ~AUDIO_DEVICE_BIT_IN;
+#endif
+
     /* Note converting HAL values to different HAL values! */
     for (unsigned int i = 0; i < sizeof(conversion_table_default_audio_source) / (sizeof(uint32_t) * 2); i++) {
         if (conversion_table_default_audio_source[i][0] & input_device) {
