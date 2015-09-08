@@ -26,6 +26,13 @@
 
 #define DROID_HAVE_DRC
 
+// Until we implement MER_HA_CHIPSET in hw-release, every non-Qualcomm ARM
+// device will need to have an exception below (just like i9305).
+// TODO: things elegantly
+#if defined(__arm__) && !defined(DROID_DEVICE_I9305)
+#define QCOM_HARDWARE
+#endif
+
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
 
@@ -80,7 +87,6 @@ uint32_t conversion_table_format[][2] = {
 };
 
 uint32_t conversion_table_default_audio_source[][2] = {
-#ifdef DROID_DEVICE_HAMMERHEAD
     { AUDIO_DEVICE_IN_COMMUNICATION,                AUDIO_SOURCE_MIC },
     { AUDIO_DEVICE_IN_AMBIENT,                      AUDIO_SOURCE_MIC },
     { AUDIO_DEVICE_IN_BUILTIN_MIC,                  AUDIO_SOURCE_MIC },
@@ -90,6 +96,9 @@ uint32_t conversion_table_default_audio_source[][2] = {
     { AUDIO_DEVICE_IN_VOICE_CALL,                   AUDIO_SOURCE_VOICE_CALL },
     { AUDIO_DEVICE_IN_BACK_MIC,                     AUDIO_SOURCE_MIC },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                AUDIO_SOURCE_REMOTE_SUBMIX },
+#ifdef QCOM_HARDWARE
+    { AUDIO_DEVICE_IN_FM_RX,                        AUDIO_SOURCE_FM_RX },
+    { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP },
 #endif
     { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
 };
@@ -131,6 +140,10 @@ struct string_conversion string_conversion_table_output_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_OUT_FM),
     STRING_ENTRY(AUDIO_DEVICE_OUT_AUX_LINE),
     STRING_ENTRY(AUDIO_DEVICE_OUT_SPEAKER_SAFE),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_DEVICE_OUT_FM_TX),
+    STRING_ENTRY(AUDIO_DEVICE_OUT_PROXY),
+#endif
     /* Combination entries consisting of multiple devices defined above.
      * These don't require counterpart in string_conversion_table_output_device_fancy. */
     STRING_ENTRY(AUDIO_DEVICE_OUT_DEFAULT),
@@ -168,6 +181,10 @@ struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_FM,                          "output-fm" },
     { AUDIO_DEVICE_OUT_AUX_LINE,                    "output-aux_line" },
     { AUDIO_DEVICE_OUT_SPEAKER_SAFE,                "output-speaker_safe" },
+#ifdef QCOM_HARDWARE
+    { AUDIO_DEVICE_OUT_FM_TX,                       "output-fm_tx" },
+    { AUDIO_DEVICE_OUT_PROXY,                       "output-proxy" },
+#endif
     { 0, NULL }
 };
 
@@ -196,6 +213,11 @@ struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_SPDIF),
     STRING_ENTRY(AUDIO_DEVICE_IN_BLUETOOTH_A2DP),
     STRING_ENTRY(AUDIO_DEVICE_IN_LOOPBACK),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_DEVICE_IN_PROXY),
+    STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX),
+    STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX_A2DP),
+#endif
     /* Combination entries consisting of multiple devices defined above.
      * These don't require counterpart in string_conversion_table_input_device_fancy. */
     STRING_ENTRY(AUDIO_DEVICE_IN_DEFAULT),
@@ -227,6 +249,11 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_SPDIF,                    "input-spdif" },
     { AUDIO_DEVICE_IN_BLUETOOTH_A2DP,           "input-bluetooth_a2dp" },
     { AUDIO_DEVICE_IN_LOOPBACK,                 "input-loopback" },
+#ifdef QCOM_HARDWARE
+    { AUDIO_DEVICE_IN_PROXY,                    "input-proxy" },
+    { AUDIO_DEVICE_IN_FM_RX,                    "input-fm_rx" },
+    { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },
+#endif
     { 0, NULL }
 };
 
@@ -241,6 +268,10 @@ struct string_conversion string_conversion_table_audio_source_fancy[] = {
     { AUDIO_SOURCE_VOICE_COMMUNICATION,             "voice communication" },
     { AUDIO_SOURCE_REMOTE_SUBMIX,                   "remote submix" },
     { AUDIO_SOURCE_FM_TUNER,                        "fm tuner" },
+#ifdef QCOM_HARDWARE
+    { AUDIO_SOURCE_FM_RX,                           "fm rx" },
+    { AUDIO_SOURCE_FM_RX_A2DP,                      "fm rx a2dp" },
+#endif
     { (uint32_t)-1, NULL }
 };
 
@@ -254,6 +285,11 @@ struct string_conversion string_conversion_table_output_flag[] = {
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_NON_BLOCKING),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_HW_AV_SYNC),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_VOIP_RX),
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_INCALL_MUSIC),
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH),
+#endif
     { 0, NULL }
 };
 
@@ -334,6 +370,23 @@ struct string_conversion string_conversion_table_format[] = {
     STRING_ENTRY(AUDIO_FORMAT_PCM_8_BIT),
     STRING_ENTRY(AUDIO_FORMAT_PCM_32_BIT),
     STRING_ENTRY(AUDIO_FORMAT_PCM_8_24_BIT),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_FORMAT_EVRC),
+    STRING_ENTRY(AUDIO_FORMAT_QCELP),
+    STRING_ENTRY(AUDIO_FORMAT_DTS),
+    STRING_ENTRY(AUDIO_FORMAT_WMA),
+    STRING_ENTRY(AUDIO_FORMAT_WMA_PRO),
+    STRING_ENTRY(AUDIO_FORMAT_AAC_ADIF),
+    STRING_ENTRY(AUDIO_FORMAT_EVRCB),
+    STRING_ENTRY(AUDIO_FORMAT_EVRCWB),
+    STRING_ENTRY(AUDIO_FORMAT_DTS_LBR),
+    STRING_ENTRY(AUDIO_FORMAT_AMR_WB_PLUS),
+    STRING_ENTRY(AUDIO_FORMAT_MP2),
+    STRING_ENTRY(AUDIO_FORMAT_EVRCNW),
+    STRING_ENTRY(AUDIO_FORMAT_PCM_OFFLOAD),
+    STRING_ENTRY(AUDIO_FORMAT_FLAC),
+    STRING_ENTRY(AUDIO_FORMAT_E_AC3_JOC),
+#endif
     { 0, NULL }
 };
 #undef STRING_ENTRY
