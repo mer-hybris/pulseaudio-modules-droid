@@ -888,7 +888,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     bool namereg_fail = false;
-    uint32_t total_latency;
+    pa_usec_t latency;
     pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
     int32_t mute_routing_before = 0;
     int32_t mute_routing_after = 0;
@@ -1148,10 +1148,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_xfree(thread_name);
     thread_name = NULL;
 
-    /* Latency consists of HAL latency + our memblockq latency */
-    total_latency = u->stream_out->get_latency(u->stream_out);
-    pa_sink_set_fixed_latency(u->sink, total_latency);
-    pa_log_debug("Set fixed latency %lu usec", (unsigned long) pa_bytes_to_usec(total_latency, &sample_spec));
+    /* HAL latencies are in milliseconds. */
+    latency = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
+    pa_sink_set_fixed_latency(u->sink, latency);
+    pa_log_debug("Set fixed latency %llu usec", latency);
     pa_sink_set_max_request(u->sink, u->buffer_size);
 
     if (u->sink->active_port)
