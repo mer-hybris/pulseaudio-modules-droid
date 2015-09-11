@@ -75,10 +75,10 @@ struct userdata {
 
     pa_memblockq *memblockq;
     pa_memchunk silence;
-    size_t buffer_count;
     size_t buffer_size;
-    pa_usec_t buffer_latency;
-    pa_usec_t timestamp;
+    pa_usec_t buffer_time;
+    pa_usec_t write_time;
+    pa_usec_t write_threshold;
 
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
@@ -244,6 +244,7 @@ static int thread_write_silence(struct userdata *u) {
 
     /* Drop our rendered audio and write silence to HAL. */
     pa_memblockq_drop(u->memblockq, u->buffer_size);
+    u->write_time = pa_rtclock_now();
 
     /* We should be able to write everything in one go as long as memblock size
      * is multiples of buffer_size. Even if we don't write whole buffer size
@@ -252,6 +253,8 @@ static int thread_write_silence(struct userdata *u) {
     p = pa_memblock_acquire(u->silence.memblock);
     wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + u->silence.index, u->silence.length);
     pa_memblock_release(u->silence.memblock);
+
+    u->write_time = pa_rtclock_now() - u->write_time;
 
     if (wrote < 0)
         return -1;
@@ -269,6 +272,8 @@ static int thread_write(struct userdata *u) {
     /* We should be able to write everything in one go as long as memblock size
      * is multiples of buffer_size. */
 
+    u->write_time = pa_rtclock_now();
+
     for (;;) {
         p = pa_memblock_acquire(c.memblock);
         wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + c.index, c.length);
@@ -277,6 +282,8 @@ static int thread_write(struct userdata *u) {
         if (wrote < 0) {
             pa_memblockq_drop(u->memblockq, c.length);
             pa_memblock_unref(c.memblock);
+            u->write_time = 0;
+            pa_log("failed to write stream (%d)", wrote);
             return -1;
         }
 
@@ -292,6 +299,8 @@ static int thread_write(struct userdata *u) {
         break;
     }
 
+    u->write_time = pa_rtclock_now() - u->write_time;
+
     return 0;
 }
 static void thread_render(struct userdata *u) {
@@ -299,7 +308,7 @@ static void thread_render(struct userdata *u) {
     size_t missing;
 
     length = pa_memblockq_get_length(u->memblockq);
-    missing = u->buffer_size * u->buffer_count - length;
+    missing = u->buffer_size - length;
 
     if (missing > 0) {
         pa_memchunk c;
@@ -361,22 +370,18 @@ static void thread_func(void *userdata) {
 
     pa_thread_mq_install(&u->thread_mq);
 
-    u->timestamp = 0;
-
     for (;;) {
         int ret;
 
         if (PA_SINK_IS_OPENED(u->sink->thread_info.state)) {
 
-            u->timestamp = pa_rtclock_now();
-
             if (PA_UNLIKELY(u->sink->thread_info.rewind_requested))
                 process_rewind(u);
-            else
-                thread_render(u);
 
             if (pa_rtpoll_timer_elapsed(u->rtpoll)) {
-                pa_usec_t now, sleept;
+                pa_usec_t sleept = 0;
+
+                thread_render(u);
 
                 if (u->routing_counter == u->mute_routing_after) {
                     do_routing(u);
@@ -387,12 +392,8 @@ static void thread_func(void *userdata) {
                 } else
                     thread_write(u);
 
-                now = pa_rtclock_now();
-
-                if (now - u->timestamp > u->buffer_latency / 2)
-                    sleept = 0;
-                else
-                    sleept = u->buffer_latency / 2 - (now - u->timestamp) ;
+                if (u->write_time > u->write_threshold)
+                    sleept = u->buffer_time;
 
                 pa_rtpoll_set_timer_relative(u->rtpoll, sleept);
             }
@@ -476,7 +477,7 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
 
             /* HAL reports milliseconds */
             if (u->stream_out)
-                r = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC * u->buffer_count;
+                r = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
 
             *((pa_usec_t*) data) = r;
 
@@ -500,7 +501,6 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
                     /* Fall through */
                 case PA_SINK_RUNNING: {
                     int r;
-                    u->timestamp = 0;
 
                     if (u->sink->thread_info.state == PA_SINK_SUSPENDED) {
                         if ((r = unsuspend(u)) < 0)
@@ -888,7 +888,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     bool namereg_fail = false;
-    uint32_t total_latency;
+    pa_usec_t latency;
     pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
     int32_t mute_routing_before = 0;
     int32_t mute_routing_after = 0;
@@ -1047,19 +1047,19 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
     }
 
-    u->buffer_latency = pa_bytes_to_usec(u->buffer_size, &sample_spec);
-    /* Disable internal rewinding for now. */
-    u->buffer_count = 1;
+    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &sample_spec);
 
-    pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u",
+    pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u (%llu usec)",
             dev_out,
             flags,
             sample_rate,
             config_out.channel_mask,
             config_out.format,
-            u->buffer_size);
+            u->buffer_size,
+            u->buffer_time);
 
 
+    u->write_threshold = u->buffer_time - u->buffer_time / 6;
     u->mute_routing_before = mute_routing_before / u->buffer_size;
     u->mute_routing_after = mute_routing_after / u->buffer_size;
     if (u->mute_routing_before == 0 && mute_routing_before)
@@ -1071,7 +1071,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                      u->mute_routing_before * u->buffer_size,
                      u->mute_routing_after * u->buffer_size);
     pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &sample_spec, u->buffer_size);
-    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size * u->buffer_count, u->buffer_size * u->buffer_count, &sample_spec, 1, 0, 0, &u->silence);
+    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &sample_spec, 1, 0, 0, &u->silence);
 
     pa_sink_new_data_init(&data);
     data.driver = driver;
@@ -1138,7 +1138,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_sink_set_rtpoll(u->sink, u->rtpoll);
 
     /* Rewind internal memblockq */
-    pa_sink_set_max_rewind(u->sink, u->buffer_size * (u->buffer_count - 1));
+    pa_sink_set_max_rewind(u->sink, 0);
 
     thread_name = pa_sprintf_malloc("droid-sink-%s", module_id);
     if (!(u->thread = pa_thread_new(thread_name, thread_func, u))) {
@@ -1148,11 +1148,11 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_xfree(thread_name);
     thread_name = NULL;
 
-    /* Latency consists of HAL latency + our memblockq latency */
-    total_latency = u->stream_out->get_latency(u->stream_out) + (uint32_t) pa_bytes_to_usec(u->buffer_size * u->buffer_count, &sample_spec);
-    pa_sink_set_fixed_latency(u->sink, total_latency);
-    pa_log_debug("Set fixed latency %lu usec", (unsigned long) pa_bytes_to_usec(total_latency, &sample_spec));
-    pa_sink_set_max_request(u->sink, u->buffer_size * u->buffer_count);
+    /* HAL latencies are in milliseconds. */
+    latency = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
+    pa_sink_set_fixed_latency(u->sink, latency);
+    pa_log_debug("Set fixed latency %llu usec", latency);
+    pa_sink_set_max_request(u->sink, u->buffer_size);
 
     if (u->sink->active_port)
         sink_set_port_cb(u->sink, u->sink->active_port);
