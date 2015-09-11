@@ -161,6 +161,44 @@ struct profile_data {
     struct virtual_profile virtual;
 };
 
+#ifdef DROID_AUDIO_HAL_USE_VSID
+
+/* From hal/voice_extn/voice_extn.c */
+#define AUDIO_PARAMETER_KEY_VSID            "vsid"
+#define AUDIO_PARAMETER_KEY_CALL_STATE      "call_state"
+
+/* From hal/voice_extn/voice_extn.c */
+#define VOICE2_VSID 0x10DC1000
+#define VOLTE_VSID  0x10C02000
+#define QCHAT_VSID  0x10803000
+#define VOWLAN_VSID 0x10002000
+
+/* From hal/voice.h */
+#define BASE_CALL_STATE     1
+#define CALL_INACTIVE       (BASE_CALL_STATE)
+#define CALL_ACTIVE         (BASE_CALL_STATE + 1)
+#define VOICE_VSID  0x10C01000
+
+/* For virtual profiles */
+#define VOICE_SESSION_VOICE1_PROFILE_NAME   "voicecall-voice1"
+#define VOICE_SESSION_VOICE1_PROFILE_DESC   "Call mode, default to voice 1 vsid"
+#define VOICE_SESSION_VOICE2_PROFILE_NAME   "voicecall-voice2"
+#define VOICE_SESSION_VOICE2_PROFILE_DESC   "Call mode, default to voice 2 vsid"
+#define VOICE_SESSION_VOLTE_PROFILE_NAME    "voicecall-volte"
+#define VOICE_SESSION_VOLTE_PROFILE_DESC    "Call mode, default to volte vsid"
+#define VOICE_SESSION_QCHAT_PROFILE_NAME    "voicecall-qchat"
+#define VOICE_SESSION_QCHAT_PROFILE_DESC    "Call mode, default to qchat vsid"
+#define VOICE_SESSION_VOWLAN_PROFILE_NAME   "voicecall-vowlan"
+#define VOICE_SESSION_VOWLAN_PROFILE_DESC   "Call mode, default to vowlan vsid"
+
+static bool voicecall_voice1_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
+static bool voicecall_voice2_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
+static bool voicecall_volte_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
+static bool voicecall_qchat_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
+static bool voicecall_vowlan_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
+
+#endif /* DROID_AUDIO_HAL_USE_VSID */
+
 static void add_disabled_profile(pa_hashmap *profiles) {
     pa_card_profile *cp;
     struct profile_data *d;
@@ -459,6 +497,50 @@ static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profi
     return true;
 }
 
+#ifdef DROID_AUDIO_HAL_USE_VSID
+static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsid, bool enabling)
+{
+    char *setparam;
+
+    voicecall_profile_event_cb(u, p, enabling);
+
+    setparam = pa_sprintf_malloc("%s=%u;%s=%d", AUDIO_PARAMETER_KEY_VSID, vsid,
+                                                AUDIO_PARAMETER_KEY_CALL_STATE,
+                                                enabling ? CALL_ACTIVE : CALL_INACTIVE);
+
+    pa_log_debug("set_parameters(%s)", setparam);
+    u->card_data.set_parameters(&u->card_data, setparam);
+    pa_xfree(setparam);
+
+    return true;
+}
+
+static bool voicecall_voice1_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
+{
+    return voicecall_vsid(u, p, VOICE_VSID, enabling);
+}
+
+static bool voicecall_voice2_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
+{
+    return voicecall_vsid(u, p, VOICE2_VSID, enabling);
+}
+
+static bool voicecall_volte_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
+{
+    return voicecall_vsid(u, p, VOLTE_VSID, enabling);
+}
+
+static bool voicecall_qchat_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
+{
+    return voicecall_vsid(u, p, QCHAT_VSID, enabling);
+}
+
+static bool voicecall_vowlan_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
+{
+    return voicecall_vsid(u, p, VOWLAN_VSID, enabling);
+}
+#endif /* DROID_AUDIO_HAL_USE_VSID */
+
 static void leave_virtual_profile(struct userdata *u, pa_card *c, pa_card_profile *cp, pa_card_profile *new_profile) {
     struct profile_data *pd, *parent;
 
@@ -702,6 +784,24 @@ int pa__init(pa_module *m) {
     add_virtual_profile(u, RINGTONE_PROFILE_NAME, RINGTONE_PROFILE_DESC,
                         AUDIO_MODE_RINGTONE, NULL,
                         PA_AVAILABLE_YES, NULL, data.profiles);
+#ifdef DROID_AUDIO_HAL_USE_VSID
+    add_virtual_profile(u, VOICE_SESSION_VOICE1_PROFILE_NAME, VOICE_SESSION_VOICE1_PROFILE_DESC,
+                        AUDIO_MODE_IN_CALL, voicecall_voice1_vsid_profile_event_cb,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
+    add_virtual_profile(u, VOICE_SESSION_VOICE2_PROFILE_NAME, VOICE_SESSION_VOICE2_PROFILE_DESC,
+                        AUDIO_MODE_IN_CALL, voicecall_voice2_vsid_profile_event_cb,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
+    /* TODO: Probably enabled state needs to be determined dynamically for VOLTE and friends. */
+    add_virtual_profile(u, VOICE_SESSION_VOLTE_PROFILE_NAME, VOICE_SESSION_VOLTE_PROFILE_DESC,
+                        AUDIO_MODE_IN_CALL, voicecall_volte_vsid_profile_event_cb,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
+    add_virtual_profile(u, VOICE_SESSION_QCHAT_PROFILE_NAME, VOICE_SESSION_QCHAT_PROFILE_DESC,
+                        AUDIO_MODE_IN_CALL, voicecall_qchat_vsid_profile_event_cb,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
+    add_virtual_profile(u, VOICE_SESSION_VOWLAN_PROFILE_NAME, VOICE_SESSION_VOWLAN_PROFILE_DESC,
+                        AUDIO_MODE_IN_CALL, voicecall_vowlan_vsid_profile_event_cb,
+                        PA_AVAILABLE_YES, NULL, data.profiles);
+#endif /* DROID_AUDIO_HAL_USE_VSID */
 
     add_disabled_profile(data.profiles);
 
