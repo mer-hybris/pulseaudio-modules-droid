@@ -114,8 +114,13 @@ static int do_routing(struct userdata *u, audio_devices_t devices) {
 #endif
 
     if (pa_input_device_default_audio_source(devices, &source))
+#ifdef DROID_AUDIO_HAL_ATOI_FIX
+        setparam = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) devices,
+                                                    AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+#else
         setparam = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices,
                                                     AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+#endif
     else
         setparam = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
 
