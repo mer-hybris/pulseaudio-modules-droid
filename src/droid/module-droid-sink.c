@@ -50,6 +50,12 @@ PA_MODULE_VERSION(PACKAGE_VERSION);
 
 static const char* const valid_modargs[] = {
     "rate",
+    "format",
+    "channels",
+    "channel_map",
+    "sink_rate",
+    "sink_format",
+    "sink_channel_map",
     "flags",
     "output_devices",
     "sink_name",
