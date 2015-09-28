@@ -89,6 +89,8 @@ static const char* const valid_modargs[] = {
     "namereg_fail",
     "format",
     "rate",
+    "channels",
+    "channel_map",
     "sink_rate",
     "sink_format",
     "sink_channel_map",
