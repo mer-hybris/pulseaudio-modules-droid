@@ -33,6 +33,10 @@
 #define QCOM_HARDWARE
 #endif
 
+#ifdef QCOM_BSP
+#define DROID_AUDIO_HAL_USE_VSID
+#endif
+
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
 

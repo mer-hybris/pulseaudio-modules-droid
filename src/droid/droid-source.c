@@ -114,8 +114,13 @@ static int do_routing(struct userdata *u, audio_devices_t devices) {
 #endif
 
     if (pa_input_device_default_audio_source(devices, &source))
+#ifdef DROID_AUDIO_HAL_ATOI_FIX
+        setparam = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) devices,
+                                                    AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+#else
         setparam = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices,
                                                     AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+#endif
     else
         setparam = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
 
@@ -464,6 +469,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     audio_devices_t dev_in;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
+    const char *format;
     bool namereg_fail = false;
     pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
@@ -491,8 +497,36 @@ pa_source *pa_droid_source_new(pa_module *m,
         voicecall_source = true;
     }
 
+    /* First parse both sample spec and channel map, then see if source_* override some
+     * of the values. */
     if (pa_modargs_get_sample_spec_and_channel_map(ma, &sample_spec, &channel_map, PA_CHANNEL_MAP_AIFF) < 0) {
-        pa_log("Failed to parse sample specification and channel map.");
+        pa_log("Failed to parse source sample specification and channel map.");
+        goto fail;
+    }
+
+    if (pa_modargs_get_value(ma, "source_channel_map", NULL)) {
+        if (pa_modargs_get_channel_map(ma, "source_channel_map", &channel_map) < 0) {
+            pa_log("Failed to parse source channel map.");
+            goto fail;
+        }
+
+        sample_spec.channels = channel_map.channels;
+    }
+
+    if ((format = pa_modargs_get_value(ma, "source_format", NULL))) {
+        if ((sample_spec.format = pa_parse_sample_format(format)) < 0) {
+            pa_log("Failed to parse source format.");
+            goto fail;
+        }
+    }
+
+    if (pa_modargs_get_value_u32(ma, "source_rate", &sample_spec.rate) < 0) {
+        pa_log("Failed to parse source_rate.");
+        goto fail;
+    }
+
+    if (!pa_sample_spec_valid(&sample_spec)) {
+        pa_log("Sample spec is not valid.");
         goto fail;
     }
 

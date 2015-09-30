@@ -29,7 +29,7 @@
 #include <pulsecore/macro.h>
 #include <pulsecore/mutex.h>
 
-#include <android-version.h>
+#include <android-config.h>
 
 #if !defined(ANDROID_VERSION_MAJOR) || !defined(ANDROID_VERSION_MINOR) || !defined(ANDROID_VERSION_PATCH)
 #error "ANDROID_VERSION_* not defined. Did you get your headers via extract-headers.sh?"

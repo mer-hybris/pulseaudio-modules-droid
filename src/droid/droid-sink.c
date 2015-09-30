@@ -884,6 +884,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     char *list = NULL;
     uint32_t alternate_sample_rate;
     uint32_t sample_rate;
+    const char *format;
     audio_devices_t dev_out;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
@@ -916,8 +917,36 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     sample_spec = m->core->default_sample_spec;
     channel_map = m->core->default_channel_map;
 
+    /* First parse both sample spec and channel map, then see if sink_* override some
+     * of the values. */
     if (pa_modargs_get_sample_spec_and_channel_map(ma, &sample_spec, &channel_map, PA_CHANNEL_MAP_AIFF) < 0) {
-        pa_log("Failed to parse sample specification and channel map.");
+        pa_log("Failed to parse sink sample specification and channel map.");
+        goto fail;
+    }
+
+    if (pa_modargs_get_value(ma, "sink_channel_map", NULL)) {
+        if (pa_modargs_get_channel_map(ma, "sink_channel_map", &channel_map) < 0) {
+            pa_log("Failed to parse sink channel map.");
+            goto fail;
+        }
+
+        sample_spec.channels = channel_map.channels;
+    }
+
+    if ((format = pa_modargs_get_value(ma, "sink_format", NULL))) {
+        if ((sample_spec.format = pa_parse_sample_format(format)) < 0) {
+            pa_log("Failed to parse sink format.");
+            goto fail;
+        }
+    }
+
+    if (pa_modargs_get_value_u32(ma, "sink_rate", &sample_spec.rate) < 0) {
+        pa_log("Failed to parse sink samplerate");
+        goto fail;
+    }
+
+    if (!pa_sample_spec_valid(&sample_spec)) {
+        pa_log("Sample spec is not valid.");
         goto fail;
     }
 
