@@ -187,6 +187,9 @@ PKG_CHECK_MODULES([DBUS], [dbus-1 >= 1.2])
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
+AC_CHECK_HEADERS([audioflingerglue/audioflingerglue.h], [droidglue=yes], [droidglue=no])
+AM_CONDITIONAL([BUILD_AFGLUE], [test x$droidglue = xyes])
+
 AC_ARG_WITH([module-dir],
         AS_HELP_STRING([--with-module-dir],[Directory where to install the modules to (defaults to ${pulseaudiodir}/lib/pulse-${PA_MAJORMINOR}/modules/]),
         [modlibexecdir=$withval], [modlibexecdir="${pulseaudiodir}/lib/pulse-${PA_MAJORMINOR}/modules"])
@@ -236,5 +239,6 @@ echo "
     PulseAudio prefix:      ${pulseaudiodir}
     modules directory:      ${modlibexecdir}
 
+    build module-droid-glue ${droidglue}
     Droid device            ${droiddevice}
     "

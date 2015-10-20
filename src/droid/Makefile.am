@@ -19,7 +19,11 @@ modlibexec_LTLIBRARIES = \
 	module-droid-source.la \
 	module-droid-card.la
 
-noinst_HEADERS = module-droid-sink-symdef.h module-droid-source-symdef.h module-droid-card-symdef.h module-droid-keepalive-symdef.h
+if BUILD_AFGLUE
+modlibexec_LTLIBRARIES += module-droid-glue.la
+endif
+
+noinst_HEADERS = module-droid-sink-symdef.h module-droid-source-symdef.h module-droid-card-symdef.h module-droid-keepalive-symdef.h module-droid-glue-symdef.h
 
 module_droid_keepalive_la_SOURCES = keepalive.c keepalive.h module-droid-keepalive.c
 module_droid_keepalive_la_LDFLAGS = -module -avoid-version -Wl,-no-undefined -Wl,-z,noexecstack
@@ -55,3 +59,10 @@ module_droid_card_la_SOURCES = module-droid-card.c
 module_droid_card_la_LDFLAGS = -module -avoid-version -Wl,-no-undefined -Wl,-z,noexecstack -lhybris-common
 module_droid_card_la_LIBADD = $(AM_LIBADD) -lm libdroid-util.la libdroid-sink.la libdroid-source.la
 module_droid_card_la_CFLAGS = $(AM_CFLAGS)
+
+if BUILD_AFGLUE
+module_droid_glue_la_SOURCES = /usr/share/audioflingerglue/hybris.c module-droid-glue.c
+module_droid_glue_la_LDFLAGS = -module -avoid-version -Wl,-no-undefined -Wl,-z,noexecstack -lhybris-common
+module_droid_glue_la_LIBADD = $(AM_LIBADD) -lm libdroid-util.la
+module_droid_glue_la_CFLAGS = $(AM_CFLAGS) -I/usr/include/audioflingerglue
+endif
