@@ -1,1 +1,1 @@
-SUBDIRS = droid
+SUBDIRS = common droid

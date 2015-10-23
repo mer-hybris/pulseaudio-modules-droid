@@ -220,6 +220,8 @@ fi
 AC_CONFIG_FILES([
 Makefile
 src/Makefile
+src/common/Makefile
+src/common/libdroid-util.pc
 src/droid/Makefile
 ])
 
