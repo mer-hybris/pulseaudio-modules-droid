@@ -431,10 +431,12 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
     return true;
 }
 
+#if DROID_HAL == 1
 static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
     pa_queue *source_outputs = NULL;
     pa_droid_mapping *am;
 
+    pa_assert_ctl_context();
     pa_assert(u);
     pa_assert(p);
     pa_assert(u->old_profile);
@@ -496,6 +498,40 @@ static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profi
 
     return true;
 }
+
+#else
+
+static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
+    pa_droid_mapping *am;
+    pa_device_port *port;
+    const char *port_name;
+
+    pa_assert_ctl_context();
+    pa_assert(u);
+    pa_assert(p);
+    pa_assert(u->old_profile);
+
+    am = u->old_profile->input;
+
+    if (!am->source) {
+        pa_log("No active source, refusing to switch source port.");
+        return false;
+    }
+
+    pa_source_assert_ref(am->source);
+
+    pa_assert_se(pa_droid_input_port_name(enabling ? AUDIO_DEVICE_IN_VOICE_CALL : AUDIO_DEVICE_IN_DEFAULT,
+                                          &port_name));
+    pa_assert_se((port = pa_hashmap_get(am->source->ports, port_name)));
+
+    if (pa_droid_source_set_port(am->source, port) != 0)
+        return false;
+
+    pa_hook_fire(&u->core->hooks[PA_CORE_HOOK_SOURCE_PORT_CHANGED], am->source);
+
+    return true;
+}
+#endif
 
 #ifdef DROID_AUDIO_HAL_USE_VSID
 static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsid, bool enabling)
