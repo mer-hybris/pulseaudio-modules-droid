@@ -222,9 +222,9 @@ struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX),
     STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX_A2DP),
 #endif
+    STRING_ENTRY(AUDIO_DEVICE_IN_DEFAULT),
     /* Combination entries consisting of multiple devices defined above.
      * These don't require counterpart in string_conversion_table_input_device_fancy. */
-    STRING_ENTRY(AUDIO_DEVICE_IN_DEFAULT),
     STRING_ENTRY(AUDIO_DEVICE_IN_ALL),
     STRING_ENTRY(AUDIO_DEVICE_IN_ALL_SCO),
     STRING_ENTRY(AUDIO_DEVICE_IN_ALL_USB),
@@ -258,6 +258,7 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_FM_RX,                    "input-fm_rx" },
     { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },
 #endif
+    { AUDIO_DEVICE_IN_DEFAULT,                  "input-default" },
     { 0, NULL }
 };
 
