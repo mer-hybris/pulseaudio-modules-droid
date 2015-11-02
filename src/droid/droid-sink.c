@@ -1139,6 +1139,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
     pa_proplist_sets(data.proplist, PROP_DROID_DEVICES, list);
     pa_xfree(list);
+    */
 
     if (flags) {
         if (!(list = pa_list_string_flags(flags))) {
@@ -1150,7 +1151,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     pa_proplist_sets(data.proplist, PROP_DROID_FLAGS, list ? list : "");
     pa_xfree(list);
-    */
 
     if (am)
         pa_droid_add_ports(data.ports, am, card);
