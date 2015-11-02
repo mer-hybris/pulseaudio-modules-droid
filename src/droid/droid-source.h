@@ -54,5 +54,6 @@ pa_source *pa_droid_source_new(pa_module *m,
 void pa_droid_source_free(pa_source *s);
 
 void pa_droid_source_set_routing(pa_source *s, bool enabled);
+int pa_droid_source_set_port(pa_source *s, pa_device_port *p);
 
 #endif

@@ -83,7 +83,7 @@ struct userdata {
 
 static void userdata_free(struct userdata *u);
 
-static int do_routing(struct userdata *u, audio_devices_t devices) {
+static int do_routing(struct userdata *u, audio_devices_t devices, bool force) {
     int ret;
     char *setparam;
     char *devlist;
@@ -95,7 +95,7 @@ static int do_routing(struct userdata *u, audio_devices_t devices) {
     pa_assert(u);
     pa_assert(u->stream);
 
-    if (!u->routing_changes_enabled) {
+    if (!force && !u->routing_changes_enabled) {
         pa_log_debug("Skipping routing change.");
         return 0;
     }
@@ -322,7 +322,7 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
 
-static int source_set_port_cb(pa_source *s, pa_device_port *p) {
+static int droid_source_set_port(pa_source *s, pa_device_port *p, bool force) {
     struct userdata *u = s->userdata;
     pa_droid_port_data *data;
 
@@ -341,7 +341,15 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     pa_log_debug("Source set port %u", data->device);
 
-    return do_routing(u, data->device);
+    return do_routing(u, data->device, force);
+}
+
+int pa_droid_source_set_port(pa_source *s, pa_device_port *p) {
+    return droid_source_set_port(s, p, true);
+}
+
+static int source_set_port_cb(pa_source *s, pa_device_port *p) {
+    return droid_source_set_port(s, p, false);
 }
 
 static void source_set_voicecall_source_port(struct userdata *u) {

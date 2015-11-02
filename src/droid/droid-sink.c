@@ -990,16 +990,22 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
         /* Sink wasn't created from inside card module, so we'll need to open
-         * hw module ourselves.
-         * TODO some way to share hw module between other sinks/sources since
-         * opening same module from different places likely isn't a good thing. */
+         * hw module ourself.
+         *
+         * First let's find out if hw module has already been opened, or if we need to
+         * do it ourself.
+         */
+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
 
-        if (!(config = pa_droid_config_load(ma)))
-            goto fail;
+            /* No hw module object in shared object db, let's open the module now. */
 
-        /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
-        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-            goto fail;
+            if (!(config = pa_droid_config_load(ma)))
+                goto fail;
+
+            /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
+            if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
+                goto fail;
+        }
     }
 
     if (!pa_convert_format(sample_spec.format, CONV_FROM_PA, &hal_audio_format)) {

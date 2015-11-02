@@ -181,6 +181,11 @@ struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET),
     STRING_ENTRY(AUDIO_DEVICE_IN_USB_ACCESSORY),
     STRING_ENTRY(AUDIO_DEVICE_IN_USB_DEVICE),
+    STRING_ENTRY(AUDIO_DEVICE_IN_DEFAULT),
+    /* Combination entries consisting of multiple devices defined above.
+     * These don't require counterpart in string_conversion_table_input_device_fancy. */
+    STRING_ENTRY(AUDIO_DEVICE_IN_ALL),
+    STRING_ENTRY(AUDIO_DEVICE_IN_ALL_SCO),
     { 0, NULL }
 };
 
@@ -194,6 +199,11 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_VOICE_CALL,               "input-voice_call" },
     { AUDIO_DEVICE_IN_BACK_MIC,                 "input-back_mic" },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,            "input-remote_submix" },
+    { AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET,        "input-analog_dock_headset" },
+    { AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET,        "input-digital_dock_headset" },
+    { AUDIO_DEVICE_IN_USB_ACCESSORY,            "input-usb_accessory" },
+    { AUDIO_DEVICE_IN_USB_DEVICE,               "input-usb_device" },
+    { AUDIO_DEVICE_IN_DEFAULT,                  "input-default" },
     { 0, NULL }
 };
 #endif

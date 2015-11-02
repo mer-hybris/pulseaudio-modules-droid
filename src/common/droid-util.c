@@ -944,6 +944,35 @@ static void add_o_ports(pa_droid_mapping *am) {
     pa_idxset_put(am->ports, p, NULL);
 }
 
+static void add_i_port(pa_droid_mapping *am, uint32_t device, const char *name) {
+    pa_droid_port *p;
+    char *desc;
+
+    pa_assert(am);
+    pa_assert(name);
+
+    if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
+        pa_log_debug("  New input port %s", name);
+        p = pa_xnew0(pa_droid_port, 1);
+
+        p->mapping = am;
+        p->name = pa_xstrdup(name);
+        desc = pa_replace(name, "input-", "Input from ");
+        p->description = pa_replace(desc, "_", " ");
+        pa_xfree(desc);
+        p->priority = DEFAULT_PRIORITY;
+        p->device = device;
+
+        if (am->profile_set->config->global_config.attached_input_devices & device)
+            p->priority += DEFAULT_PRIORITY;
+
+        pa_hashmap_put(am->profile_set->all_ports, p->name, p);
+    } else
+        pa_log_debug("  Input port %s from cache", name);
+
+    pa_idxset_put(am->ports, p, NULL);
+}
+
 static void add_i_ports(pa_droid_mapping *am) {
     pa_droid_port *p;
     const char *name;
@@ -953,7 +982,7 @@ static void add_i_ports(pa_droid_mapping *am) {
 
     pa_assert(am);
 
-    devices = am->input->devices;
+    devices = am->input->devices | AUDIO_DEVICE_IN_DEFAULT;
 #if DROID_HAL >= 2
     devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
@@ -970,31 +999,17 @@ static void add_i_ports(pa_droid_mapping *am) {
 #endif
 
             pa_assert_se(pa_droid_input_port_name(cur_device, &name));
-
-            if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
-                pa_log_debug("  New input port %s", name);
-                p = pa_xnew0(pa_droid_port, 1);
-
-                p->mapping = am;
-                p->name = pa_xstrdup(name);
-                desc = pa_replace(name, "input-", "Input from ");
-                p->description = pa_replace(desc, "_", " ");
-                pa_xfree(desc);
-                p->priority = DEFAULT_PRIORITY;
-                p->device = cur_device;
-
-                if (am->profile_set->config->global_config.attached_input_devices & cur_device)
-                    p->priority += DEFAULT_PRIORITY;
-
-                pa_hashmap_put(am->profile_set->all_ports, p->name, p);
-            } else
-                pa_log_debug("  Input port %s from cache", name);
-
-            pa_idxset_put(am->ports, p, NULL);
+            add_i_port(am, cur_device, name);
 
             devices &= ~cur_device;
         }
     }
+
+#if DROID_HAL == 1
+    /* HAL v1 has default input device defined as another input device,
+     * so we need to add it by hand here. */
+    add_i_port(am, AUDIO_DEVICE_IN_DEFAULT, "input-default");
+#endif
 
     if (!(p = pa_hashmap_get(am->profile_set->all_ports, PA_DROID_INPUT_PARKING))) {
         pa_log_debug("  New input port %s", PA_DROID_INPUT_PARKING);
