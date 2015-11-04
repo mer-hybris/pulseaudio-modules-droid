@@ -291,6 +291,9 @@ static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *mo
 static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa_droid_profile *ap) {
     pa_card_profile *cp;
     struct profile_data *d;
+    pa_droid_mapping *am;
+    int max_channels;
+    uint32_t idx;
 
     pa_assert(u);
     pa_assert(h);
@@ -303,14 +306,23 @@ static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa
     cp->available = PA_AVAILABLE_YES;
     cp->priority = ap->priority;
 
-    cp->n_sinks = 1;
-    pa_droid_add_card_ports(cp, ports, ap->output, u->core);
-    cp->max_sink_channels = popcount(ap->output->output->channel_masks);
-    if (ap->input) {
-        pa_droid_add_card_ports(cp, ports, ap->input, u->core);
-        cp->n_sources = 1;
-        cp->max_source_channels = popcount(ap->input->input->channel_masks);
+    max_channels = 0;
+    PA_IDXSET_FOREACH(am, ap->output_mappings, idx) {
+        cp->n_sinks++;
+        pa_droid_add_card_ports(cp, ports, am, u->core);
+        max_channels = popcount(am->output->channel_masks) > max_channels
+                        ? popcount(am->output->channel_masks) : max_channels;
     }
+    cp->max_sink_channels = max_channels;
+
+    max_channels = 0;
+    PA_IDXSET_FOREACH(am, ap->input_mappings, idx) {
+        cp->n_sources++;
+        pa_droid_add_card_ports(cp, ports, am, u->core);
+        max_channels = popcount(am->input->channel_masks) > max_channels
+                        ? popcount(am->input->channel_masks) : max_channels;
+    }
+    cp->max_source_channels = max_channels;
 
     d = PA_CARD_PROFILE_DATA(cp);
     d->profile = ap;
@@ -336,6 +348,7 @@ static void add_profiles(struct userdata *u, pa_hashmap *h, pa_hashmap *ports) {
 static void init_profile(struct userdata *u) {
     pa_droid_mapping *am;
     struct profile_data *d;
+    uint32_t idx;
 
     pa_assert(u);
 
@@ -343,14 +356,16 @@ static void init_profile(struct userdata *u) {
 
     d = PA_CARD_PROFILE_DATA(u->card->active_profile);
 
-    if (d->profile && d->profile->output) {
-        am = d->profile->output;
-        am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
+    if (d->profile && pa_idxset_size(d->profile->output_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, d->profile->output_mappings, idx) {
+            am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
+        }
     }
 
-    if (d->profile && d->profile->input) {
-        am = d->profile->input;
-        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+    if (d->profile && pa_idxset_size(d->profile->input_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, d->profile->input_mappings, idx) {
+            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+        }
     }
 }
 
@@ -388,27 +403,51 @@ static int set_mode(struct userdata *u, audio_mode_t mode) {
 }
 
 static void park_profile(pa_droid_profile *dp) {
+    struct profile_data *data;
+    pa_droid_mapping *am;
+    uint32_t idx;
+
     pa_assert(dp);
 
-    if (dp->output && dp->output->sink)
-        pa_sink_set_port(dp->output->sink, PA_DROID_OUTPUT_PARKING, false);
-    if (dp->input && dp->input->source)
-        pa_source_set_port(dp->input->source, PA_DROID_INPUT_PARKING, false);
+    /* Virtual profiles don't have output mappings. */
+    if (dp->output_mappings) {
+        PA_IDXSET_FOREACH(am, dp->output_mappings, idx) {
+            if (pa_droid_mapping_is_primary(am))
+                pa_sink_set_port(am->sink, PA_DROID_OUTPUT_PARKING, false);
+        }
+    };
+
+    /* Virtual profiles don't have input mappings. */
+    if (dp->input_mappings) {
+        PA_IDXSET_FOREACH(am, dp->input_mappings, idx) {
+            if (pa_droid_mapping_is_primary(am))
+                pa_source_set_port(am->source, PA_DROID_INPUT_PARKING, false);
+        }
+    };
 }
 
 static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
     pa_card_profile *cp;
+    pa_droid_mapping *am_output, *am_input;
 
     pa_assert(u);
     pa_assert(p);
     pa_assert(u->old_profile);
 
+    if (!(am_output = pa_droid_idxset_get_primary(u->old_profile->output_mappings))) {
+        pa_log("Active profile doesn't have primary output device.");
+        return false;
+    }
+
+    if (!(am_input = pa_droid_idxset_get_primary(u->old_profile->input_mappings)))
+        pa_log_warn("Active profile doesn't have primary input device.");
+
     /* call mode specialities */
     if (enabling) {
-        pa_droid_sink_set_voice_control(u->old_profile->output->sink, true);
-        if (!u->voice_source_routing)
-            pa_droid_source_set_routing(u->old_profile->input->source, false);
-        if (u->old_profile->input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
+        pa_droid_sink_set_voice_control(am_output->sink, true);
+        if (am_input && !u->voice_source_routing)
+            pa_droid_source_set_routing(am_input->source, false);
+        if (am_input && am_input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
             (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
             if (cp->available == PA_AVAILABLE_NO) {
                 pa_log_debug("Enable %s profile.", VOICE_RECORD_PROFILE_NAME);
@@ -416,10 +455,10 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
             }
         }
     } else {
-        pa_droid_sink_set_voice_control(u->old_profile->output->sink, false);
-        if (!u->voice_source_routing)
-            pa_droid_source_set_routing(u->old_profile->input->source, true);
-        if (u->old_profile->input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
+        pa_droid_sink_set_voice_control(am_output->sink, false);
+        if (am_input && !u->voice_source_routing)
+            pa_droid_source_set_routing(am_input->source, true);
+        if (am_input && am_input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
             (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
             if (cp->available == PA_AVAILABLE_YES) {
                 pa_log_debug("Disable %s profile.", VOICE_RECORD_PROFILE_NAME);
@@ -441,8 +480,6 @@ static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profi
     pa_assert(p);
     pa_assert(u->old_profile);
 
-    am = u->old_profile->input;
-
     if (enabling) {
         /* don't do anything if voicecall source has already been created. */
         if (u->voicecall_source)
@@ -450,14 +487,12 @@ static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profi
 
         pa_log_info("Enabling voice call record.");
 
-        if (u->old_profile->input) {
-            am = u->old_profile->input;
+        am = pa_droid_idxset_get_primary(u->old_profile->input_mappings);
 
-            if (am->source) {
-                source_outputs = pa_source_move_all_start(am->source, source_outputs);
-                pa_droid_source_free(am->source);
-                am->source = NULL;
-            }
+        if (am && am->source) {
+            source_outputs = pa_source_move_all_start(am->source, source_outputs);
+            pa_droid_source_free(am->source);
+            am->source = NULL;
         }
 
         u->voicecall_source = pa_droid_source_new(u->module, u->modargs, __FILE__, AUDIO_DEVICE_IN_VOICE_CALL, &u->card_data, am, u->card);
@@ -480,11 +515,10 @@ static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profi
         pa_droid_source_free(u->voicecall_source);
         u->voicecall_source = NULL;
 
-        if (u->old_profile->input) {
-            am = u->old_profile->input;
+        am = pa_droid_idxset_get_primary(u->old_profile->input_mappings);
 
-            if (!am->source)
-                am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+        if (am && !am->source) {
+            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
 
             if (source_outputs && am->source) {
                 pa_source_move_all_finish(am->source, source_outputs, false);
@@ -511,7 +545,10 @@ static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profi
     pa_assert(p);
     pa_assert(u->old_profile);
 
-    am = u->old_profile->input;
+    if (!(am = pa_droid_idxset_get_primary(u->old_profile->input_mappings))) {
+        pa_log("Active profile doesn't have primary input device. Cannot enable record profile.");
+        return false;
+    }
 
     if (!am->source) {
         pa_log("No active source, refusing to switch source port.");
@@ -613,6 +650,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_droid_mapping *am;
     struct profile_data *nd, *od;
     pa_queue *sink_inputs = NULL, *source_outputs = NULL;
+    uint32_t idx;
 
     pa_assert(c);
     pa_assert(new_profile);
@@ -675,59 +713,57 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     /* If there are connected sink inputs/source outputs in old profile's sinks/sources move
      * them all to new sinks/sources. */
 
-    if (od->profile && od->profile->output) {
-        do {
-            am = od->profile->output;
-
+    if (od->profile && pa_idxset_size(od->profile->output_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, od->profile->output_mappings, idx) {
             if (!am->sink)
                 continue;
 
-            if (nd->profile && nd->profile->output && am == nd->profile->output)
+            if (nd->profile &&
+                pa_idxset_get_by_data(nd->profile->output_mappings, am, NULL))
                 continue;
 
             sink_inputs = pa_sink_move_all_start(am->sink, sink_inputs);
             pa_droid_sink_free(am->sink);
             am->sink = NULL;
-        } while(0);
+        }
     }
 
-    if (od->profile && od->profile->input) {
-        do {
-            am = od->profile->input;
-
+    if (od->profile && pa_idxset_size(od->profile->input_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, od->profile->input_mappings, idx) {
             if (!am->source)
                 continue;
 
-            if (nd->profile && nd->profile->input && am == nd->profile->input)
+            if (nd->profile &&
+                pa_idxset_get_by_data(nd->profile->input_mappings, am, NULL))
                 continue;
 
             source_outputs = pa_source_move_all_start(am->source, source_outputs);
             pa_droid_source_free(am->source);
             am->source = NULL;
-        } while(0);
-    }
-
-    if (nd->profile && nd->profile->output) {
-        am = nd->profile->output;
-
-        if (!am->sink)
-            am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
-
-        if (sink_inputs && am->sink) {
-            pa_sink_move_all_finish(am->sink, sink_inputs, false);
-            sink_inputs = NULL;
         }
     }
 
-    if (nd->profile && nd->profile->input) {
-        am = nd->profile->input;
+    if (nd->profile && pa_idxset_size(nd->profile->output_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, nd->profile->output_mappings, idx) {
+            if (!am->sink)
+                am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
 
-        if (!am->source)
-            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+            if (sink_inputs && am->sink) {
+                pa_sink_move_all_finish(am->sink, sink_inputs, false);
+                sink_inputs = NULL;
+            }
+        }
+    }
 
-        if (source_outputs && am->source) {
-            pa_source_move_all_finish(am->source, source_outputs, false);
-            source_outputs = NULL;
+    if (nd->profile && pa_idxset_size(nd->profile->input_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, nd->profile->input_mappings, idx) {
+            if (!am->source)
+                am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+
+            if (source_outputs && am->source) {
+                pa_source_move_all_finish(am->source, source_outputs, false);
+                source_outputs = NULL;
+            }
         }
     }
 

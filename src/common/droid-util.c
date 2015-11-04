@@ -754,10 +754,13 @@ pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_
             p->priority += DEFAULT_PRIORITY;
     }
 
+    p->output_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    p->input_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+
     if (output)
-        p->output = pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, output);
+        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, output), NULL);
     if (input)
-        p->input = pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, input);
+        pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, input), NULL);
 
     pa_hashmap_put(ps->profiles, p->name, p);
 
@@ -822,6 +825,10 @@ void pa_droid_profile_free(pa_droid_profile *ap) {
 
     pa_xfree(ap->name);
     pa_xfree(ap->description);
+    if (ap->output_mappings)
+        pa_idxset_free(ap->output_mappings, NULL);
+    if (ap->input_mappings)
+        pa_idxset_free(ap->input_mappings, NULL);
     pa_xfree(ap);
 }
 
@@ -1070,6 +1077,32 @@ pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t 
     return am;
 }
 
+bool pa_droid_mapping_is_primary(pa_droid_mapping *am) {
+    pa_assert(am);
+
+    if (am->direction == PA_DIRECTION_OUTPUT) {
+        pa_assert(am->output);
+        return pa_streq(am->output->name, PA_DROID_PRIMARY_DEVICE);
+    } else {
+        pa_assert(am->input);
+        return pa_streq(am->input->name, PA_DROID_PRIMARY_DEVICE);
+    }
+}
+
+pa_droid_mapping *pa_droid_idxset_get_primary(pa_idxset *i) {
+    pa_droid_mapping *am;
+    uint32_t idx;
+
+    pa_assert(i);
+
+    PA_IDXSET_FOREACH(am, i, idx) {
+        if (pa_droid_mapping_is_primary(am))
+            return am;
+    }
+
+    return NULL;
+}
+
 bool pa_droid_output_port_name(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_output_device_fancy, (uint32_t) value, to_str);
 }
@@ -1114,14 +1147,18 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
         } else
             pa_log_debug("  Port %s from cache", p->name);
 
-        if (cp)
-            pa_hashmap_put(dp->profiles, cp->name, cp);
+        if (cp) {
+            if (!pa_hashmap_get(dp->profiles, cp->name))
+                pa_hashmap_put(dp->profiles, cp->name, cp);
+        }
 
         count++;
 
         if (extra) {
-            pa_hashmap_put(extra, dp->name, dp);
-            pa_device_port_ref(dp);
+            if (!pa_hashmap_get(extra, dp->name)) {
+                pa_hashmap_put(extra, dp->name, dp);
+                pa_device_port_ref(dp);
+            }
         }
     }
 

@@ -51,6 +51,8 @@
 #define PROP_DROID_FLAGS      "droid.flags"
 #define PROP_DROID_HW_MODULE  "droid.hw_module"
 
+#define PA_DROID_PRIMARY_DEVICE     "primary"
+
 typedef struct pa_droid_hw_module pa_droid_hw_module;
 typedef struct pa_droid_card_data pa_droid_card_data;
 typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
@@ -184,9 +186,10 @@ typedef struct pa_droid_profile {
     char *description;
     unsigned priority;
 
-    /* Profile doesn't own the mappings */
-    pa_droid_mapping *output;
-    pa_droid_mapping *input;
+    /* Idxsets contain pa_droid_mapping objects.
+     * Profile doesn't own the mappings. */
+    pa_idxset *output_mappings;
+    pa_idxset *input_mappings;
 
 } pa_droid_profile;
 
@@ -257,11 +260,17 @@ pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_
 void pa_droid_profile_free(pa_droid_profile *p);
 
 pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t direction, const void *data);
+bool pa_droid_mapping_is_primary(pa_droid_mapping *am);
+/* Go through idxset containing pa_droid_mapping objects and if primary output or input
+ * mapping is found, return pointer to that mapping. */
+pa_droid_mapping *pa_droid_idxset_get_primary(pa_idxset *i);
 void pa_droid_mapping_free(pa_droid_mapping *am);
 
-/* Add ports from sinks/sources */
+/* Add ports from sinks/sources.
+ * May be called multiple times for one sink/source. */
 void pa_droid_add_ports(pa_hashmap *ports, pa_droid_mapping *am, pa_card *card);
-/* Add ports from card */
+/* Add ports from card.
+ * May be called multiple times for one card profile. */
 void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_core *core);
 
 /* Pretty port names */
