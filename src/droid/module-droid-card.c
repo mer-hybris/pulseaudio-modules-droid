@@ -54,6 +54,7 @@
 #include <pulsecore/card.h>
 #include <pulsecore/device-port.h>
 #include <pulsecore/idxset.h>
+#include <pulsecore/strlist.h>
 
 //#include <droid/hardware/audio_policy.h>
 //#include <droid/system/audio_policy.h>
@@ -79,7 +80,8 @@ PA_MODULE_USAGE(
         "deferred_volume=<synchronize software and hardware volume changes to avoid momentary jumps?> "
         "config=<location for droid audio configuration> "
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
-        "voice_property_value=<proplist value for the key for voice control sink-input>"
+        "voice_property_value=<proplist value for the key for voice control sink-input> "
+        "combine=<comma separated list of outputs that should be merged to one profile. defaults to none>"
 );
 
 static const char* const valid_modargs[] = {
@@ -108,6 +110,7 @@ static const char* const valid_modargs[] = {
     "config",
     "voice_property_key",
     "voice_property_value",
+    "combine",
     NULL,
 };
 
@@ -785,6 +788,7 @@ int pa__init(pa_module *m) {
     bool namereg_fail = false;
     bool voice_source_routing = false;
     pa_card_profile *virtual;
+    const char *combine;
 
     pa_assert(m);
 
@@ -792,6 +796,8 @@ int pa__init(pa_module *m) {
         pa_log("Failed to parse module arguments.");
         goto fail;
     }
+
+    combine = pa_modargs_get_value(ma, "combine", NULL);
 
     struct userdata *u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
@@ -815,7 +821,19 @@ int pa__init(pa_module *m) {
     u->card_data.module_id = pa_xstrdup(module_id);
     u->card_data.userdata = u;
 
-    u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
+    if (combine) {
+        char *tmp;
+        pa_strlist *o = NULL;
+
+        tmp = pa_replace(combine, ",", " ");
+        o = pa_strlist_parse(tmp);
+
+        u->profile_set = pa_droid_profile_set_combined_new(u->hw_module->enabled_module,
+                                                           o, NULL);
+        pa_strlist_free(o);
+        pa_xfree(tmp);
+    } else
+        u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
 
     pa_card_new_data_init(&data);
     data.driver = __FILE__;
