@@ -1113,7 +1113,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     data.module = m;
     data.card = card;
 
-    set_sink_name(ma, &data, module_id);
+    if (am)
+        set_sink_name(ma, &data, am->output->name);
+    else
+        set_sink_name(ma, &data, module_id);
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
