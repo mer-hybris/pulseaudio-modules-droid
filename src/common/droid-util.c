@@ -54,6 +54,7 @@
 #include <pulsecore/refcnt.h>
 #include <pulsecore/shared.h>
 #include <pulsecore/mutex.h>
+#include <pulsecore/strlist.h>
 
 #include "droid-util.h"
 
@@ -732,21 +733,50 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
     return NULL;
 }
 
+static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
+                                     const pa_droid_config_hw_module *module,
+                                     const char *name,
+                                     const char *description) {
+    pa_droid_profile *p;
+
+    pa_assert(ps);
+    pa_assert(module);
+    pa_assert(name);
+    pa_assert(description);
+
+    p = pa_xnew0(pa_droid_profile, 1);
+    p->profile_set = ps;
+    p->module = module;
+    p->name = pa_xstrdup(name);
+    p->description = pa_xstrdup(description);
+    p->priority = DEFAULT_PRIORITY;
+
+    p->output_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    p->input_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+
+    pa_hashmap_put(ps->profiles, p->name, p);
+
+    return p;
+}
+
 pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input) {
     pa_droid_profile *p;
+    char *name;
+    char *description;
 
     pa_assert(ps);
     pa_assert(output);
 
-    p = pa_xnew0(pa_droid_profile, 1);
-    p->profile_set = ps;
-    p->module = output->module;
-    p->name = pa_sprintf_malloc("%s%s%s", output->name, input ? "-" : "", input ? input->name : "");
-    p->description = pa_sprintf_malloc("%s output%s%s%s", output->name,
-                                                          input ? " and " : "",
-                                                          input ? input->name : "",
-                                                          input ? " input." : "");
-    p->priority = DEFAULT_PRIORITY;
+    name = pa_sprintf_malloc("%s%s%s", output->name, input ? "-" : "", input ? input->name : "");
+    description = pa_sprintf_malloc("%s output%s%s%s", output->name,
+                                                       input ? " and " : "",
+                                                       input ? input->name : "",
+                                                       input ? " input." : "");
+
+    p = profile_new(ps, output->module, name, description);
+    pa_xfree(name);
+    pa_xfree(description);
+
     if (pa_streq(output->name, "primary")) {
         p->priority += DEFAULT_PRIORITY;
 
@@ -754,20 +784,25 @@ pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_
             p->priority += DEFAULT_PRIORITY;
     }
 
-    p->output_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
-    p->input_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
-
     if (output)
         pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, output), NULL);
     if (input)
         pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, input), NULL);
 
-    pa_hashmap_put(ps->profiles, p->name, p);
-
     return p;
 }
 
-static void add_profile(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input) {
+void pa_droid_profile_add_mapping(pa_droid_profile *p, pa_droid_mapping *am) {
+    pa_assert(p);
+    pa_assert(am);
+
+    if (am->direction == PA_DIRECTION_OUTPUT)
+        pa_idxset_put(p->output_mappings, am, NULL);
+    else
+        pa_idxset_put(p->input_mappings, am, NULL);
+}
+
+static pa_droid_profile *add_profile(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input) {
     pa_droid_profile *ap;
 
     pa_log_debug("New profile: %s-%s", output->name, input ? input->name : "no input");
@@ -775,9 +810,99 @@ static void add_profile(pa_droid_profile_set *ps, const pa_droid_config_output *
     ap = pa_droid_profile_new(ps, output, input);
 
     pa_hashmap_put(ps->profiles, ap->name, ap);
+
+    return ap;
 }
 
-pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module) {
+static bool str_in_strlist(const char *str, pa_strlist *list) {
+    pa_strlist *iter;
+
+    pa_assert(str);
+    pa_assert(list);
+
+    for (iter = list; iter; iter = pa_strlist_next(iter)) {
+        if (pa_streq(str, pa_strlist_data(iter)))
+            return true;
+    }
+
+    return false;
+}
+
+/* outputs or inputs string lists can be NULL, which means include all outputs and inputs
+ * from module. */
+static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
+                                              const pa_droid_config_hw_module *module,
+                                              pa_strlist *outputs,
+                                              pa_strlist *inputs) {
+    pa_droid_profile *p;
+    char *description;
+    char *o_str;
+    char *i_str;
+    pa_strlist *to_outputs = NULL;
+    pa_strlist *to_inputs = NULL;
+    pa_droid_mapping *am;
+
+    pa_assert(ps);
+    pa_assert(module);
+
+    for (unsigned i = 0; i < module->outputs_size; i++) {
+        if (outputs && !str_in_strlist(module->outputs[i].name, outputs))
+            continue;
+
+        to_outputs = pa_strlist_prepend(to_outputs, module->outputs[i].name);
+    }
+    to_outputs = pa_strlist_reverse(to_outputs);
+
+    for (unsigned i = 0; i < module->inputs_size; i++) {
+        if (inputs && !str_in_strlist(module->inputs[i].name, inputs))
+            continue;
+
+        to_inputs = pa_strlist_prepend(to_inputs, module->inputs[i].name);
+    }
+    to_inputs = pa_strlist_reverse(to_inputs);
+
+    o_str = pa_strlist_tostring(to_outputs);
+    i_str = pa_strlist_tostring(to_inputs);
+
+    pa_log_debug("New combined profile: %s (outputs: %s, inputs: %s)", module->name, o_str, i_str);
+
+    description = pa_sprintf_malloc("Combined outputs (%s) and inputs (%s) of %s.", o_str,
+                                                                                    i_str,
+                                                                                    module->name);
+    p = profile_new(ps, module, module->name, description);
+    pa_xfree(description);
+    pa_xfree(o_str);
+    pa_xfree(i_str);
+
+    for (unsigned i = 0; i < module->outputs_size; i++) {
+        if (!str_in_strlist(module->outputs[i].name, to_outputs))
+            continue;
+
+        am = pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, &module->outputs[i]);
+        pa_droid_profile_add_mapping(p, am);
+
+        if (pa_streq(module->outputs[i].name, "primary"))
+            p->priority += DEFAULT_PRIORITY;
+    }
+
+    for (unsigned i = 0; i < module->inputs_size; i++) {
+        if (!str_in_strlist(module->inputs[i].name, to_inputs))
+            continue;
+
+        am = pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, &module->inputs[i]);
+        pa_droid_profile_add_mapping(p, am);
+
+        if (pa_streq(module->inputs[i].name, "primary"))
+            p->priority += DEFAULT_PRIORITY;
+    }
+
+    pa_strlist_free(to_outputs);
+    pa_strlist_free(to_inputs);
+
+    return p;
+}
+
+static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *module) {
     pa_droid_profile_set *ps;
 
     pa_assert(module);
@@ -793,6 +918,14 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
     ps->all_ports       = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
                                               NULL, (pa_free_cb_t) droid_port_free);
 
+    return ps;
+}
+
+pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module) {
+    pa_droid_profile_set *ps;
+
+    ps = profile_set_new(module);
+
     /* Each distinct hw module output matches one profile. If there are multiple inputs
      * combinations are made so that all possible outputs and inputs can be selected.
      * So for outputs "primary" and "hdmi" and input "primary" profiles
@@ -807,6 +940,15 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
         } else
             add_profile(ps, &module->outputs[o], NULL);
     }
+
+    return ps;
+}
+
+pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module, pa_strlist *inputs, pa_strlist *outputs) {
+    pa_droid_profile_set *ps;
+
+    ps = profile_set_new(module);
+    add_combined_profile(ps, module, inputs, outputs);
 
     return ps;
 }

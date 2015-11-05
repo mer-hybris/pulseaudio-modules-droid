@@ -28,6 +28,7 @@
 #include <pulsecore/core-util.h>
 #include <pulsecore/macro.h>
 #include <pulsecore/mutex.h>
+#include <pulsecore/strlist.h>
 
 #include <android-config.h>
 
@@ -254,9 +255,13 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
 
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
+pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
+                                                        pa_strlist *inputs,
+                                                        pa_strlist *outputs);
 void pa_droid_profile_set_free(pa_droid_profile_set *ps);
 
 pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input);
+void pa_droid_profile_add_mapping(pa_droid_profile *p, pa_droid_mapping *am);
 void pa_droid_profile_free(pa_droid_profile *p);
 
 pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t direction, const void *data);
