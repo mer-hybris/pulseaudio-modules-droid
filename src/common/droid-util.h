@@ -55,6 +55,7 @@
 #define PA_DROID_PRIMARY_DEVICE     "primary"
 
 typedef struct pa_droid_hw_module pa_droid_hw_module;
+typedef struct pa_droid_stream pa_droid_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;
 typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
@@ -70,6 +71,8 @@ struct pa_droid_hw_module {
     pa_droid_config_audio *config;
     const pa_droid_config_hw_module *enabled_module;
     pa_mutex *hw_mutex;
+    pa_mutex *output_mutex;
+    pa_mutex *input_mutex;
 
     struct hw_module_t *hwmod;
     audio_hw_device_t *device;
@@ -79,6 +82,21 @@ struct pa_droid_hw_module {
     uint32_t stream_out_id;
     uint32_t stream_in_id;
 
+    pa_idxset *outputs;
+    pa_idxset *inputs;
+};
+
+struct pa_droid_stream {
+    PA_REFCNT_DECLARE;
+
+    pa_droid_hw_module *module;
+
+    pa_sample_spec sample_spec;
+    pa_channel_map channel_map;
+    uint32_t flags;
+
+    struct audio_stream_out *out;
+    struct audio_stream_in *in;
 };
 
 struct pa_droid_card_data {
@@ -284,5 +302,36 @@ bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 
 /* Pretty audio source names */
 bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
+
+/* Module operations */
+int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
+
+/* Stream operations */
+pa_droid_stream *pa_droid_stream_ref(pa_droid_stream *s);
+void pa_droid_stream_unref(pa_droid_stream *s);
+
+int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters);
+
+/* Output stream operations */
+pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
+                                             const pa_sample_spec *spec,
+                                             const pa_channel_map *map,
+                                             audio_output_flags_t flags,
+                                             audio_devices_t devices);
+
+/* Set routing to the output stream, with following side-effects:
+ * - if routing is set to primary output stream, set routing to all other
+ *   open streams as well
+ * - if routing is set to non-primary stream and primary stream exists, do nothing
+ * - if routing is set to non-primary stream and primary stream doesn't exist, set routing
+ */
+int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device);
+
+/* Input stream operations */
+pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
+                                            const pa_sample_spec *spec,
+                                            const pa_channel_map *map,
+                                            audio_devices_t devices);
+int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source);
 
 #endif

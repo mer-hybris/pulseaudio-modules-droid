@@ -1373,11 +1373,15 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     hw->core = core;
     hw->hwmod = hwmod;
     hw->hw_mutex = pa_mutex_new(true, false);
+    hw->output_mutex = pa_mutex_new(true, false);
+    hw->input_mutex = pa_mutex_new(true, false);
     hw->device = device;
     hw->config = config; /* We take ownership of config struct. */
     hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
     hw->module_id = hw->enabled_module->name;
     hw->shared_name = shared_name_get(hw->module_id);
+    hw->outputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    hw->inputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
 
     pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
 
@@ -1432,8 +1436,24 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     if (hw->hw_mutex)
         pa_mutex_free(hw->hw_mutex);
 
+    if (hw->output_mutex)
+        pa_mutex_free(hw->output_mutex);
+
+    if (hw->input_mutex)
+        pa_mutex_free(hw->input_mutex);
+
     if (hw->shared_name)
         pa_xfree(hw->shared_name);
+
+    if (hw->outputs) {
+        pa_assert(pa_idxset_size(hw->outputs) == 0);
+        pa_idxset_free(hw->outputs, NULL);
+    }
+
+    if (hw->inputs) {
+        pa_assert(pa_idxset_size(hw->inputs) == 0);
+        pa_idxset_free(hw->inputs, NULL);
+    }
 
     pa_xfree(hw);
 }
@@ -1501,4 +1521,401 @@ void pa_droid_hw_module_unlock(pa_droid_hw_module *hw) {
     pa_assert(hw);
 
     pa_mutex_unlock(hw->hw_mutex);
+}
+
+static pa_droid_stream *droid_stream_new(pa_droid_hw_module *module) {
+    pa_droid_stream *s;
+
+    s = pa_xnew0(pa_droid_stream, 1);
+    PA_REFCNT_INIT(s);
+
+    s->module = module;
+
+    return s;
+}
+
+pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
+                                             const pa_sample_spec *spec,
+                                             const pa_channel_map *map,
+                                             audio_output_flags_t flags,
+                                             audio_devices_t devices) {
+    pa_droid_stream *s = NULL;
+    int ret;
+    struct audio_stream_out *stream;
+    audio_format_t hal_audio_format = 0;
+    audio_channel_mask_t hal_channel_mask = 0;
+    struct audio_config config_out;
+    size_t buffer_size;
+
+    pa_assert(module);
+    pa_assert(spec);
+    pa_assert(map);
+
+    if (!pa_convert_format(spec->format, CONV_FROM_PA, &hal_audio_format)) {
+        pa_log("Sample spec format %u not supported.", spec->format);
+        goto fail;
+    }
+
+    for (int i = 0; i < map->channels; i++) {
+        audio_channel_mask_t c;
+        if (!pa_convert_output_channel(map->map[i], CONV_FROM_PA, &c)) {
+            pa_log("Failed to convert channel map.");
+            goto fail;
+        }
+        hal_channel_mask |= c;
+    }
+
+    config_out.sample_rate = spec->rate;
+    config_out.channel_mask = hal_channel_mask;
+    config_out.format = hal_audio_format;
+
+    pa_droid_hw_module_lock(module);
+    ret = module->device->open_output_stream(module->device,
+                                             module->stream_out_id++,
+                                             devices,
+                                             flags,
+                                             &config_out,
+                                             &stream
+#if DROID_HAL >= 3
+                                             /* Go with empty address, should work
+                                              * with most devices for now. */
+                                             , NULL
+#endif
+                                             );
+    pa_droid_hw_module_unlock(module);
+
+    if (ret < 0 || !stream) {
+        pa_log("Failed to open output stream: %d", ret);
+        goto fail;
+    }
+
+    s = droid_stream_new(module);
+    s->out = stream;
+    s->sample_spec = *spec;
+    s->channel_map = *map;
+    s->flags = flags;
+
+    if ((s->sample_spec.rate = s->out->common.get_sample_rate(&s->out->common)) != spec->rate)
+        pa_log_warn("Requested sample rate %u but got %u instead.", spec->rate, s->sample_spec.rate);
+
+    pa_idxset_put(module->outputs, s, NULL);
+
+    buffer_size = s->out->common.get_buffer_size(&s->out->common);
+
+    pa_log_info("Opened droid output stream %p with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u) buffer size: %u (%llu usec)",
+            (void *) s,
+            devices,
+            s->flags,
+            s->sample_spec.rate,
+            s->sample_spec.channels, hal_channel_mask,
+            s->sample_spec.format, hal_audio_format,
+            buffer_size,
+            pa_bytes_to_usec(buffer_size, &s->sample_spec));
+
+    return s;
+
+fail:
+    pa_xfree(s);
+
+    return NULL;
+}
+
+pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
+                                            const pa_sample_spec *spec,
+                                            const pa_channel_map *map,
+                                            audio_devices_t devices) {
+
+    pa_droid_stream *s = NULL;
+    int ret;
+    audio_stream_in_t *stream;
+    audio_format_t hal_audio_format = 0;
+    audio_channel_mask_t hal_channel_mask = 0;
+    pa_channel_map channel_map;
+    pa_sample_spec sample_spec;
+    bool voicecall_record = false;
+    struct audio_config config_in;
+    size_t buffer_size;
+
+#if DROID_HAL >= 2
+    if ((devices & ~AUDIO_DEVICE_BIT_IN) & AUDIO_DEVICE_IN_VOICE_CALL)
+#else
+    if (devices & AUDIO_DEVICE_IN_VOICE_CALL)
+#endif
+        voicecall_record = true;
+
+    channel_map = *map;
+    sample_spec = *spec;
+
+    if (!pa_convert_format(spec->format, CONV_FROM_PA, &hal_audio_format)) {
+        pa_log("Sample spec format %u not supported.", spec->format);
+        goto fail;
+    }
+
+    for (int i = 0; i < map->channels; i++) {
+        audio_channel_mask_t c;
+        if (!pa_convert_input_channel(map->map[i], CONV_FROM_PA, &c)) {
+            pa_log("Failed to convert channel map.");
+            goto fail;
+        }
+        hal_channel_mask |= c;
+    }
+
+    if (voicecall_record) {
+        pa_channel_map_init_mono(&channel_map);
+        sample_spec.channels = 1;
+        /* Only allow recording both downlink and uplink. */
+#ifdef QCOM_HARDWARE
+        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
+#else
+        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
+#endif
+    }
+
+    config_in.sample_rate = sample_spec.rate;
+    config_in.channel_mask = hal_channel_mask;
+    config_in.format = hal_audio_format;
+
+    pa_droid_hw_module_lock(module);
+    ret = module->device->open_input_stream(module->device,
+                                            module->stream_in_id++,
+                                            devices,
+                                            &config_in,
+                                            &stream
+#if DROID_HAL >= 3
+                                                  , AUDIO_INPUT_FLAG_NONE   /* Default to no input flags */
+                                                  , NULL                    /* Don't define address */
+                                                  , AUDIO_SOURCE_DEFAULT    /* Default audio source */
+#endif
+                                                  );
+    pa_droid_hw_module_unlock(module);
+
+    if (ret < 0 || !stream) {
+        pa_log("Failed to open input stream: %d", ret);
+        goto fail;
+    }
+
+    s = droid_stream_new(module);
+    s->in = stream;
+    s->sample_spec = sample_spec;
+    s->channel_map = channel_map;
+    s->flags = 0;
+
+    if ((s->sample_spec.rate = s->in->common.get_sample_rate(&s->in->common)) != spec->rate)
+        pa_log_warn("Requested sample rate %u but got %u instead.", spec->rate, s->sample_spec.rate);
+
+    pa_idxset_put(module->inputs, s, NULL);
+
+    buffer_size = s->in->common.get_buffer_size(&s->in->common);
+
+    pa_log_info("Opened droid input stream %p with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u) buffer size: %u (%llu usec)",
+            (void *) s,
+            devices,
+            s->flags,
+            s->sample_spec.rate,
+            s->sample_spec.channels, hal_channel_mask,
+            s->sample_spec.format, hal_audio_format,
+            buffer_size,
+            pa_bytes_to_usec(buffer_size, &s->sample_spec));
+
+    return s;
+
+fail:
+    pa_xfree(s);
+
+    return NULL;
+}
+
+pa_droid_stream *pa_droid_stream_ref(pa_droid_stream *s) {
+    pa_assert(s);
+    pa_assert(s->out || s->in);
+    pa_assert(PA_REFCNT_VALUE(s) >= 1);
+
+    PA_REFCNT_INC(s);
+    return s;
+}
+
+void pa_droid_stream_unref(pa_droid_stream *s) {
+    pa_assert(s);
+    pa_assert(s->out || s->in);
+    pa_assert(PA_REFCNT_VALUE(s) >= 1);
+
+    if (PA_REFCNT_DEC(s) > 0)
+        return;
+
+    if (s->out) {
+        pa_mutex_lock(s->module->output_mutex);
+        pa_idxset_remove_by_data(s->module->outputs, s, NULL);
+        s->module->device->close_output_stream(s->module->device, s->out);
+        pa_mutex_unlock(s->module->output_mutex);
+    } else {
+        pa_mutex_lock(s->module->input_mutex);
+        pa_idxset_remove_by_data(s->module->inputs, s, NULL);
+        s->module->device->close_input_stream(s->module->device, s->in);
+        pa_mutex_unlock(s->module->input_mutex);
+    }
+
+    pa_xfree(s);
+}
+
+static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw) {
+    pa_droid_stream *s;
+    uint32_t idx;
+
+    pa_assert(hw);
+    pa_assert(hw->outputs);
+
+    PA_IDXSET_FOREACH(s, hw->outputs, idx) {
+        if (s->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
+            return s;
+    }
+
+    return NULL;
+}
+
+int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device) {
+    pa_droid_stream *slave;
+    uint32_t idx;
+    char *parameters;
+    int ret;
+
+    pa_assert(s);
+    pa_assert(s->out);
+    pa_assert(s->module);
+    pa_assert(s->module->output_mutex);
+
+    pa_mutex_lock(s->module->output_mutex);
+
+    parameters = pa_sprintf_malloc("%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, device);
+
+    if (s->flags & AUDIO_OUTPUT_FLAG_PRIMARY || get_primary_output(s->module) == NULL) {
+        pa_log_debug("output stream %p set_parameters(%s) %#010x", (void *) s, parameters, device);
+        ret = s->out->common.set_parameters(&s->out->common, parameters);
+
+        if (ret < 0) {
+            if (ret == -ENOSYS)
+                pa_log_warn("output set_parameters(%s) not allowed while stream is active", parameters);
+            else
+                pa_log_warn("output set_parameters(%s) failed", parameters);
+        }
+    }
+
+    if (s->flags & AUDIO_OUTPUT_FLAG_PRIMARY && pa_idxset_size(s->module->outputs) > 1) {
+
+        PA_IDXSET_FOREACH(slave, s->module->outputs, idx) {
+            if (slave == s)
+                continue;
+
+            pa_log_debug("slave output stream %p set_parameters(%s)", (void *) slave, parameters);
+            ret = slave->out->common.set_parameters(&slave->out->common, parameters);
+
+            if (ret < 0) {
+                if (ret == -ENOSYS)
+                    pa_log_warn("output set_parameters(%s) not allowed while stream is active", parameters);
+                else
+                    pa_log_warn("output set_parameters(%s) failed", parameters);
+            }
+        }
+    }
+
+    pa_xfree(parameters);
+
+    pa_mutex_unlock(s->module->output_mutex);
+
+    return ret;
+}
+
+int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source) {
+    audio_source_t source = (uint32_t) -1;
+    char *parameters;
+    int ret;
+
+    pa_assert(s);
+    pa_assert(s->in);
+
+#ifdef DROID_DEVICE_I9305
+    device &= ~AUDIO_DEVICE_BIT_IN;
+#endif
+
+    if (pa_input_device_default_audio_source(device, &source))
+#ifdef DROID_AUDIO_HAL_ATOI_FIX
+        parameters = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) device,
+                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+#else
+        parameters = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device,
+                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+#endif
+    else
+        parameters = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device);
+
+    pa_log_debug("input stream %p set_parameters(%s) %#010x ; %#010x",
+                 (void *) s, parameters, device, source);
+
+
+#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_IYOKAN)
+#warning Using mako set_parameters hack.
+    pa_mutex_lock(s->module->hw_mutex);
+    ret = s->module->device->set_parameters(s->module->device, parameters);
+    pa_mutex_unlock(s->module->hw_mutex);
+#else
+    pa_mutex_lock(s->module->input_mutex);
+    ret = s->in->common.set_parameters(&s->in->common, parameters);
+    pa_mutex_unlock(s->module->input_mutex);
+#endif
+
+    if (ret < 0) {
+        if (ret == -ENOSYS)
+            pa_log_warn("input set_parameters(%s) not allowed while stream is active", parameters);
+        else
+            pa_log_warn("input set_parameters(%s) failed", parameters);
+    }
+
+    if (new_source)
+        *new_source = source;
+
+    pa_xfree(parameters);
+
+    return ret;
+}
+
+int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters) {
+    int ret;
+
+    pa_assert(s);
+    pa_assert(s->out || s->in);
+    pa_assert(parameters);
+
+    if (s->out) {
+        pa_log_debug("output stream %p set_parameters(%s)", (void *) s, parameters);
+        pa_mutex_lock(s->module->output_mutex);
+        ret = s->out->common.set_parameters(&s->out->common, parameters);
+        pa_mutex_unlock(s->module->output_mutex);
+    } else {
+        pa_log_debug("input stream %p set_parameters(%s)", (void *) s, parameters);
+        pa_mutex_lock(s->module->input_mutex);
+        ret = s->in->common.set_parameters(&s->in->common, parameters);
+        pa_mutex_unlock(s->module->input_mutex);
+    }
+
+    if (ret < 0)
+        pa_log("%s stream %p set_parameters(%s) failed: %d",
+               s->out ? "output" : "input", (void *) s, parameters, ret);
+
+    return ret;
+}
+
+int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters) {
+    int ret;
+
+    pa_assert(hw);
+    pa_assert(parameters);
+
+    pa_log_debug("hw %p set_parameters(%s)", (void *) hw, parameters);
+    pa_mutex_lock(hw->hw_mutex);
+    ret = hw->device->set_parameters(hw->device, parameters);
+    pa_mutex_unlock(hw->hw_mutex);
+
+    if (ret < 0)
+        pa_log("hw module %p set_parameters(%s) failed: %d", (void *) hw, parameters, ret);
+
+    return ret;
 }
