@@ -264,11 +264,7 @@ static int set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
     pa_assert_se((u = card_data->userdata));
     pa_assert(str);
 
-    pa_droid_hw_module_lock(u->hw_module);
-    ret = u->hw_module->device->set_parameters(u->hw_module->device, str);
-    pa_droid_hw_module_unlock(u->hw_module);
-
-    return ret;
+    return pa_droid_set_parameters(u->hw_module, str);
 }
 
 static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *module_id) {
@@ -584,8 +580,7 @@ static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsi
                                                 AUDIO_PARAMETER_KEY_CALL_STATE,
                                                 enabling ? CALL_ACTIVE : CALL_INACTIVE);
 
-    pa_log_debug("set_parameters(%s)", setparam);
-    u->card_data.set_parameters(&u->card_data, setparam);
+    pa_droid_set_parameters(u->hw_module, setparam);
     pa_xfree(setparam);
 
     return true;
