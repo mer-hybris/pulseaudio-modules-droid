@@ -1852,7 +1852,11 @@ int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, 
                  (void *) s, parameters, device, source);
 
 
-#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_IYOKAN)
+#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_ANZU) ||\
+    defined(DROID_DEVICE_COCONUT) || defined(DROID_DEVICE_HAIDA) ||\
+    defined(DROID_DEVICE_HALLON) || defined(DROID_DEVICE_IYOKAN) ||\
+    defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
+    defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
 #warning Using mako set_parameters hack.
     pa_mutex_lock(s->module->hw_mutex);
     ret = s->module->device->set_parameters(s->module->device, parameters);
