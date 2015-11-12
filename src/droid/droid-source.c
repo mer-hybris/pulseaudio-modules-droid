@@ -126,7 +126,11 @@ static int do_routing(struct userdata *u, audio_devices_t devices, bool force) {
 
     pa_log_debug("set_parameters(%s) %s : %#010x", setparam, devlist, devices);
 
-#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_IYOKAN)
+#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_ANZU) ||\
+    defined(DROID_DEVICE_COCONUT) || defined(DROID_DEVICE_HAIDA) ||\
+    defined(DROID_DEVICE_HALLON) || defined(DROID_DEVICE_IYOKAN) ||\
+    defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
+    defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
 #warning Using mako set_parameters hack.
     ret = u->card_data->set_parameters(u->card_data, setparam);
 #else
