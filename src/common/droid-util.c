@@ -1353,9 +1353,10 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
         goto fail;
     }
 
-    pa_log_info("Loaded hw module %s (HAL %d.%d.%d)", module->name, ANDROID_VERSION_MAJOR,
-                                                                    ANDROID_VERSION_MINOR,
-                                                                    ANDROID_VERSION_PATCH);
+    pa_log_info("Loaded hw module %s: %s (HAL %d.%d.%d)", DROID_DEVICE_STRING, module->name,
+                                                          ANDROID_VERSION_MAJOR,
+                                                          ANDROID_VERSION_MINOR,
+                                                          ANDROID_VERSION_PATCH);
 
     ret = audio_hw_device_open(hwmod, &device);
     if (!device) {
