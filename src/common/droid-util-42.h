@@ -149,7 +149,7 @@ struct string_conversion string_conversion_table_input_device[] = {
     { 0x200000,     "AUDIO_DEVICE_IN_AUX_DIGITAL" },
     { 0x400000,     "AUDIO_DEVICE_IN_VOICE_CALL" },
     { 0x800000,     "AUDIO_DEVICE_IN_BACK_MIC" },
-    { 0x80000000,   "AUDIO_DEVICE_IN_DEFAULT" },
+    { 0x40000000,   "AUDIO_DEVICE_IN_DEFAULT" },
     { 0x80000000,   "AUDIO_DEVICE_IN_REMOTE_SUBMIX" }, // What's this really??
     { 0, NULL }
 };
@@ -163,6 +163,7 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { 0x200000,     "input-aux_digital" },
     { 0x400000,     "input-voice_call" },
     { 0x800000,     "input-back_mic" },
+    { 0x40000000,   "input-default" },
     { 0x80000000,   "input-remote_submix" },
     { 0, NULL }
 };
