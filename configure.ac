@@ -201,7 +201,7 @@ AC_ARG_WITH([droid-device],
         [droiddevice=$withval], [droiddevice="generic"]
         )
 if test "x$droiddevice" != x ; then
-    DROID_DEVICE_CFLAGS="-DDROID_DEVICE_`echo $droiddevice | tr '[a-z]' '[A-Z]'`=1"
+    DROID_DEVICE_CFLAGS="-DDROID_DEVICE_`echo $droiddevice | tr '[a-z]' '[A-Z]'`=1 -DDROID_DEVICE_STRING=\"\\\"$droiddevice\\\"\""
     AC_SUBST([DROID_DEVICE_CFLAGS])
 fi
 

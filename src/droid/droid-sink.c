@@ -98,7 +98,7 @@ struct userdata {
 
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
-    struct audio_stream_out *stream_out;
+    pa_droid_stream *stream;
 };
 
 enum {
@@ -189,27 +189,14 @@ static bool remove_extra_devices(struct userdata *u, audio_devices_t devices) {
 
 /* Called from main context during voice calls, and from IO context during media operation. */
 static void do_routing(struct userdata *u) {
-    int ret;
     audio_devices_t routing;
-    char tmp[32];
 
     pa_assert(u);
-    pa_assert(u->stream_out);
+    pa_assert(u->stream);
 
     routing = u->primary_devices | u->extra_devices;
 
-    pa_snprintf(tmp, sizeof(tmp), "%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, routing);
-    pa_log_debug("set_parameters(%s) %#010x", tmp, routing);
-    pa_droid_hw_module_lock(u->hw_module);
-    ret = u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
-    pa_droid_hw_module_unlock(u->hw_module);
-
-    if (ret < 0) {
-        if (ret == -ENOSYS)
-            pa_log_warn("set_parameters(%s) not allowed while stream is active", tmp);
-        else
-            pa_log_warn("set_parameters(%s) failed", tmp);
-    }
+    pa_droid_stream_set_output_route(u->stream, routing);
 }
 
 static bool parse_device_list(const char *str, audio_devices_t *dst) {
@@ -251,7 +238,7 @@ static int thread_write_silence(struct userdata *u) {
      * here it's okay, as long as mute time isn't configured too strictly. */
 
     p = pa_memblock_acquire(u->silence.memblock);
-    wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + u->silence.index, u->silence.length);
+    wrote = u->stream->out->write(u->stream->out, (const uint8_t*) p + u->silence.index, u->silence.length);
     pa_memblock_release(u->silence.memblock);
 
     u->write_time = pa_rtclock_now() - u->write_time;
@@ -276,7 +263,7 @@ static int thread_write(struct userdata *u) {
 
     for (;;) {
         p = pa_memblock_acquire(c.memblock);
-        wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + c.index, c.length);
+        wrote = u->stream->out->write(u->stream->out, (const uint8_t*) p + c.index, c.length);
         pa_memblock_release(c.memblock);
 
         if (wrote < 0) {
@@ -429,9 +416,9 @@ static int suspend(struct userdata *u) {
 
     pa_assert(u);
     pa_assert(u->sink);
-    pa_assert(u->stream_out);
+    pa_assert(u->stream->out);
 
-    ret = u->stream_out->common.standby(&u->stream_out->common);
+    ret = u->stream->out->common.standby(&u->stream->out->common);
 
     if (ret == 0) {
         pa_sink_set_max_request_within_thread(u->sink, 0);
@@ -476,8 +463,8 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
             pa_usec_t r = 0;
 
             /* HAL reports milliseconds */
-            if (u->stream_out)
-                r = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
+            if (u->stream->out)
+                r = u->stream->out->get_latency(u->stream->out) * PA_USEC_PER_MSEC;
 
             *((pa_usec_t*) data) = r;
 
@@ -571,7 +558,7 @@ static void sink_set_volume_cb(pa_sink *s) {
         float val = pa_sw_volume_to_linear(r.values[0]);
         pa_log_debug("Set hw volume %f", val);
         pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream_out->set_volume(u->stream_out, val, val) < 0)
+        if (u->stream->out->set_volume(u->stream->out, val, val) < 0)
             pa_log_warn("Failed to set hw volume.");
         pa_droid_hw_module_unlock(u->hw_module);
     } else if (r.channels == 2) {
@@ -580,7 +567,7 @@ static void sink_set_volume_cb(pa_sink *s) {
             val[i] = pa_sw_volume_to_linear(r.values[i]);
         pa_log_debug("Set hw volume %f : %f", val[0], val[1]);
         pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream_out->set_volume(u->stream_out, val[0], val[1]) < 0)
+        if (u->stream->out->set_volume(u->stream->out, val[0], val[1]) < 0)
             pa_log_warn("Failed to set hw volume.");
         pa_droid_hw_module_unlock(u->hw_module);
     }
@@ -611,9 +598,9 @@ static void update_volumes(struct userdata *u) {
 
     /* set_volume returns 0 if hw volume control is implemented, < 0 otherwise. */
     pa_droid_hw_module_lock(u->hw_module);
-    if (u->stream_out->set_volume) {
+    if (u->stream->out->set_volume) {
         pa_log_debug("Probe hw volume support for %s", u->sink->name);
-        ret = u->stream_out->set_volume(u->stream_out, 1.0f, 1.0f);
+        ret = u->stream->out->set_volume(u->stream->out, 1.0f, 1.0f);
     }
     pa_droid_hw_module_unlock(u->hw_module);
 
@@ -857,9 +844,7 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
             pa_assert(parameter);
             tmp = pa_sprintf_malloc("%s=%s;", parameter->key, parameter->value);
             pa_log_debug("set_parameters(): %s", tmp);
-            pa_droid_hw_module_lock(u->hw_module);
-            u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
-            pa_droid_hw_module_unlock(u->hw_module);
+            pa_droid_stream_set_parameters(u->stream, tmp);
             pa_xfree(tmp);
         }
     }
@@ -883,7 +868,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     const char *tmp;
     char *list = NULL;
     uint32_t alternate_sample_rate;
-    uint32_t sample_rate;
     const char *format;
     audio_devices_t dev_out;
     pa_sample_spec sample_spec;
@@ -895,9 +879,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     int32_t mute_routing_after = 0;
     uint32_t sink_buffer = 0;
     int ret;
-
-    audio_format_t hal_audio_format = 0;
-    audio_channel_mask_t hal_channel_mask = 0;
 
     pa_assert(m);
     pa_assert(ma);
@@ -1008,26 +989,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
     }
 
-    if (!pa_convert_format(sample_spec.format, CONV_FROM_PA, &hal_audio_format)) {
-        pa_log("Sample spec format %u not supported.", sample_spec.format);
-        goto fail;
-    }
-
-    for (int i = 0; i < channel_map.channels; i++) {
-        audio_channel_mask_t c;
-        if (!pa_convert_output_channel(channel_map.map[i], CONV_FROM_PA, &c)) {
-            pa_log("Failed to convert channel map.");
-            goto fail;
-        }
-        hal_channel_mask |= c;
-    }
-
-    struct audio_config config_out = {
-        .sample_rate = sample_spec.rate,
-        .channel_mask = hal_channel_mask,
-        .format = hal_audio_format
-    };
-
     /* Default routing */
     dev_out = u->hw_module->config->global_config.default_output_device;
 
@@ -1043,32 +1004,14 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     if (am)
         flags = am->output->flags;
 
-    pa_droid_hw_module_lock(u->hw_module);
-    ret = u->hw_module->device->open_output_stream(u->hw_module->device,
-                                                   u->hw_module->stream_out_id++,
-                                                   dev_out,
-                                                   flags,
-                                                   &config_out,
-                                                   &u->stream_out
-#if DROID_HAL >= 3
-                                                   /* Go with empty address, should work
-                                                    * with most devices for now. */
-                                                   , NULL
-#endif
-                                                   );
-    pa_droid_hw_module_unlock(u->hw_module);
+    u->stream = pa_droid_open_output_stream(u->hw_module, &sample_spec, &channel_map, flags, dev_out);
 
-    if (!u->stream_out) {
-        pa_log("Failed to open output stream. (errno %d)", ret);
+    if (!u->stream) {
+        pa_log("Failed to open output stream.");
         goto fail;
     }
 
-    if ((sample_rate = u->stream_out->common.get_sample_rate(&u->stream_out->common)) != sample_spec.rate) {
-        pa_log_warn("Requested sample rate %u but got %u instead.", sample_spec.rate, sample_rate);
-        sample_spec.rate = sample_rate;
-    }
-
-    u->buffer_size = u->stream_out->common.get_buffer_size(&u->stream_out->common);
+    u->buffer_size = u->stream->out->common.get_buffer_size(&u->stream->out->common);
     if (sink_buffer) {
         if (sink_buffer < u->buffer_size)
             pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", sink_buffer, u->buffer_size);
@@ -1082,17 +1025,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
     }
 
-    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &sample_spec);
-
-    pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u (%llu usec)",
-            dev_out,
-            flags,
-            sample_rate,
-            config_out.channel_mask,
-            config_out.format,
-            u->buffer_size,
-            u->buffer_time);
-
+    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec);
 
     u->write_threshold = u->buffer_time - u->buffer_time / 6;
     u->mute_routing_before = mute_routing_before / u->buffer_size;
@@ -1105,15 +1038,18 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         pa_log_debug("Mute playback when routing is changing, %u before and %u after.",
                      u->mute_routing_before * u->buffer_size,
                      u->mute_routing_after * u->buffer_size);
-    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &sample_spec, u->buffer_size);
-    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &sample_spec, 1, 0, 0, &u->silence);
+    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &u->stream->sample_spec, u->buffer_size);
+    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &u->stream->sample_spec, 1, 0, 0, &u->silence);
 
     pa_sink_new_data_init(&data);
     data.driver = driver;
     data.module = m;
     data.card = card;
 
-    set_sink_name(ma, &data, module_id);
+    if (am)
+        set_sink_name(ma, &data, am->output->name);
+    else
+        set_sink_name(ma, &data, module_id);
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
@@ -1128,8 +1064,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
     data.namereg_fail = namereg_fail;
 
-    pa_sink_new_data_set_sample_spec(&data, &sample_spec);
-    pa_sink_new_data_set_channel_map(&data, &channel_map);
+    pa_sink_new_data_set_sample_spec(&data, &u->stream->sample_spec);
+    pa_sink_new_data_set_channel_map(&data, &u->stream->channel_map);
     pa_sink_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     /*
@@ -1139,6 +1075,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
     pa_proplist_sets(data.proplist, PROP_DROID_DEVICES, list);
     pa_xfree(list);
+    */
 
     if (flags) {
         if (!(list = pa_list_string_flags(flags))) {
@@ -1150,7 +1087,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     pa_proplist_sets(data.proplist, PROP_DROID_FLAGS, list ? list : "");
     pa_xfree(list);
-    */
 
     if (am)
         pa_droid_add_ports(data.ports, am, card);
@@ -1175,7 +1111,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     /* Rewind internal memblockq */
     pa_sink_set_max_rewind(u->sink, 0);
 
-    thread_name = pa_sprintf_malloc("droid-sink-%s", module_id);
+    if (am)
+        thread_name = pa_sprintf_malloc("droid-sink-%s", am->output->name);
+    else
+        thread_name = pa_sprintf_malloc("droid-sink-%s", module_id);
     if (!(u->thread = pa_thread_new(thread_name, thread_func, u))) {
         pa_log("Failed to create thread.");
         goto fail;
@@ -1184,7 +1123,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     thread_name = NULL;
 
     /* HAL latencies are in milliseconds. */
-    latency = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
+    latency = u->stream->out->get_latency(u->stream->out) * PA_USEC_PER_MSEC;
     pa_sink_set_fixed_latency(u->sink, latency);
     pa_log_debug("Set fixed latency %llu usec", latency);
     pa_sink_set_max_request(u->sink, u->buffer_size);
@@ -1266,11 +1205,8 @@ static void userdata_free(struct userdata *u) {
     if (u->parameters)
         pa_hashmap_free(u->parameters);
 
-    if (u->hw_module && u->stream_out) {
-        pa_droid_hw_module_lock(u->hw_module);
-        u->hw_module->device->close_output_stream(u->hw_module->device, u->stream_out);
-        pa_droid_hw_module_unlock(u->hw_module);
-    }
+    if (u->stream)
+        pa_droid_stream_unref(u->stream);
 
     if (u->memblockq)
         pa_memblockq_free(u->memblockq);

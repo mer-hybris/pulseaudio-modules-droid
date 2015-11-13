@@ -80,6 +80,8 @@ void pa__done(pa_module *m) {
 
 int pa__init(pa_module *m) {
     pa_modargs *ma = NULL;
+    const char *flags_str;
+    audio_output_flags_t flags = 0;
 
     pa_assert(m);
 
@@ -88,7 +90,14 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
-    if (!(m->userdata = pa_droid_sink_new(m, ma, __FILE__, NULL, 0, NULL, NULL)))
+    if ((flags_str = pa_modargs_get_value(ma, "flags", NULL))) {
+        if (!pa_string_convert_flag_str_to_num(flags_str, &flags)) {
+            pa_log("Failed to parse flags");
+            goto fail;
+        }
+    }
+
+    if (!(m->userdata = pa_droid_sink_new(m, ma, __FILE__, NULL, flags, NULL, NULL)))
         goto fail;
 
     pa_modargs_free(ma);
