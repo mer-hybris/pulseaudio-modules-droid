@@ -1,6 +1,11 @@
 PulseAudio Droid modules
 ========================
 
+Building of droid modules is split to two packages
+ * common (and common-devel) which contains shared library code for use in
+   PulseAudio modules in this package and for inclusion in other projects
+ * droid with actual PulseAudio modules
+
 Supported Android versions:
 
  * 4.1.x with Qualcomm extensions (tested with 4.1.2)
@@ -9,10 +14,11 @@ Supported Android versions:
  * 5.1
 
 Headers for defining devices and strings for different droid versions are in
-src/droid/droid-util-XXX.h
+src/common/droid-util-XXX.h
 
-These headers are then included in src/droid/droid-util.h based on detected
-droid version.
+These headers are then included in src/common/droid-util.h based on detected
+droid version. Version is defined in android-version.h, included from
+android-config.h, which is part of droid hal devel package.
 
 The purpose of droid-modules is to "replace AudioFlinger". Many hardware
 adaptations use ALSA as the kernel interface, but there is no saying that
