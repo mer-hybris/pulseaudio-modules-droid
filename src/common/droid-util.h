@@ -334,4 +334,6 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             audio_devices_t devices);
 int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source);
 
+bool pa_droid_stream_is_primary(pa_droid_stream *s);
+
 #endif

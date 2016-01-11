@@ -1924,3 +1924,17 @@ int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters) {
 
     return ret;
 }
+
+bool pa_droid_stream_is_primary(pa_droid_stream *s) {
+    pa_assert(s);
+    pa_assert(s->out || s->in);
+
+    /* Even though earlier (< 3) HALs don't have input flags,
+     * input flags don't have anything similar as output stream's
+     * primary flag and we can just always reply false for
+     * input streams. */
+    if (s->out)
+        return s->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
+    else
+        return false;
+}
