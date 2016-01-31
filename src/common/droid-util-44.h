@@ -90,7 +90,7 @@ uint32_t conversion_table_format[][2] = {
 };
 
 uint32_t conversion_table_default_audio_source[][2] = {
-#ifdef DROID_DEVICE_HAMMERHEAD
+#if defined(DROID_DEVICE_HAMMERHEAD) || defined(DROID_DEVICE_ARMANI)
     { AUDIO_DEVICE_IN_COMMUNICATION,                AUDIO_SOURCE_MIC },
     { AUDIO_DEVICE_IN_AMBIENT,                      AUDIO_SOURCE_MIC },
     { AUDIO_DEVICE_IN_BUILTIN_MIC,                  AUDIO_SOURCE_MIC },
