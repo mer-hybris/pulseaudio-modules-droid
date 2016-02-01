@@ -218,6 +218,9 @@ struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_BLUETOOTH_A2DP),
     STRING_ENTRY(AUDIO_DEVICE_IN_LOOPBACK),
 #ifdef QCOM_HARDWARE
+#ifdef DROID_AUDIO_HAL_SECONDARY_MIC
+    STRING_ENTRY(AUDIO_DEVICE_IN_SECONDARY_MIC),
+#endif
     STRING_ENTRY(AUDIO_DEVICE_IN_PROXY),
     STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX),
     STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX_A2DP),
@@ -254,6 +257,9 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_BLUETOOTH_A2DP,           "input-bluetooth_a2dp" },
     { AUDIO_DEVICE_IN_LOOPBACK,                 "input-loopback" },
 #ifdef QCOM_HARDWARE
+#ifdef DROID_AUDIO_HAL_SECONDARY_MIC
+    { AUDIO_DEVICE_IN_SECONDARY_MIC,            "input-secondary_mic" },
+#endif
     { AUDIO_DEVICE_IN_PROXY,                    "input-proxy" },
     { AUDIO_DEVICE_IN_FM_RX,                    "input-fm_rx" },
     { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },

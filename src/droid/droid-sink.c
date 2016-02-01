@@ -606,8 +606,10 @@ static void update_volumes(struct userdata *u) {
 
     u->use_hw_volume = (ret == 0);
 
-    /* Apply callbacks */
-    pa_droid_sink_set_voice_control(u->sink, false);
+    if (pa_droid_stream_is_primary(u->stream)) {
+        /* Apply callbacks */
+        pa_droid_sink_set_voice_control(u->sink, false);
+    }
 }
 
 static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *module_id) {
@@ -693,6 +695,11 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
     u = sink->userdata;
     pa_assert(u);
     pa_assert(u->sink == sink);
+
+    if (!pa_droid_stream_is_primary(u->stream)) {
+        pa_log_debug("skipping voice volume control with non-primary stream");
+        return;
+    }
 
     if (u->use_voice_volume == enable)
         return;
