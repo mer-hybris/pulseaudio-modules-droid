@@ -90,7 +90,7 @@ uint32_t conversion_table_format[][2] = {
 };
 
 uint32_t conversion_table_default_audio_source[][2] = {
-#if defined(DROID_DEVICE_HAMMERHEAD) || defined(DROID_DEVICE_ARMANI)
+#if defined(DROID_DEVICE_HAMMERHEAD) || defined(DROID_DEVICE_ARMANI) || defined(DROID_DEVICE_MAKO)
     { AUDIO_DEVICE_IN_COMMUNICATION,                AUDIO_SOURCE_MIC },
     { AUDIO_DEVICE_IN_AMBIENT,                      AUDIO_SOURCE_MIC },
     { AUDIO_DEVICE_IN_BUILTIN_MIC,                  AUDIO_SOURCE_MIC },
@@ -179,6 +179,35 @@ struct string_conversion string_conversion_table_output_device_fancy[] = {
 };
 
 /* Input devices */
+#ifdef DROID_DEVICE_MAKO
+struct string_conversion string_conversion_table_input_device[] = {
+    { 0x10000,      "AUDIO_DEVICE_IN_COMMUNICATION" },
+    { 0x20000,      "AUDIO_DEVICE_IN_AMBIENT" },
+    { 0x40000,      "AUDIO_DEVICE_IN_BUILTIN_MIC" },
+    { 0x80000,      "AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
+    { 0x100000,     "AUDIO_DEVICE_IN_WIRED_HEADSET" },
+    { 0x200000,     "AUDIO_DEVICE_IN_AUX_DIGITAL" },
+    { 0x400000,     "AUDIO_DEVICE_IN_VOICE_CALL" },
+    { 0x800000,     "AUDIO_DEVICE_IN_BACK_MIC" },
+    { 0x40000000,   "AUDIO_DEVICE_IN_DEFAULT" },
+    { 0x80000000,   "AUDIO_DEVICE_IN_REMOTE_SUBMIX" }, // What's this really??
+    { 0, NULL }
+};
+
+struct string_conversion string_conversion_table_input_device_fancy[] = {
+    { 0x10000,      "input-communication" },
+    { 0x20000,      "input-ambient" },
+    { 0x40000,      "input-builtin_mic" },
+    { 0x80000,      "input-bluetooth_sco_headset" },
+    { 0x100000,     "input-wired_headset" },
+    { 0x200000,     "input-aux_digital" },
+    { 0x400000,     "input-voice_call" },
+    { 0x800000,     "input-back_mic" },
+    { 0x40000000,   "input-default" },
+    { 0x80000000,   "input-remote_submix" },
+    { 0, NULL }
+};
+#else
 struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_COMMUNICATION),
     STRING_ENTRY(AUDIO_DEVICE_IN_AMBIENT),
@@ -228,6 +257,7 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_DEFAULT,                  "input-default" },
     { 0, NULL }
 };
+#endif
 
 struct string_conversion string_conversion_table_audio_source_fancy[] = {
     { AUDIO_SOURCE_DEFAULT,                         "default" },
