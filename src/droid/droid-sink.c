@@ -79,6 +79,8 @@ struct userdata {
     pa_usec_t buffer_time;
     pa_usec_t write_time;
     pa_usec_t write_threshold;
+    audio_devices_t prewrite_devices;
+    uint32_t prewrite_silence;
 
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
@@ -418,7 +420,7 @@ static int suspend(struct userdata *u) {
     pa_assert(u->sink);
     pa_assert(u->stream->out);
 
-    ret = u->stream->out->common.standby(&u->stream->out->common);
+    ret = pa_droid_stream_suspend(u->stream, true);
 
     if (ret == 0) {
         pa_sink_set_max_request_within_thread(u->sink, 0);
@@ -434,6 +436,8 @@ static int suspend(struct userdata *u) {
 }
 
 static int unsuspend(struct userdata *u) {
+    uint32_t i;
+
     pa_assert(u);
     pa_assert(u->sink);
 
@@ -441,6 +445,15 @@ static int unsuspend(struct userdata *u) {
     pa_sink_set_max_request_within_thread(u->sink, u->buffer_size);
 
     pa_log_info("Resuming...");
+
+    if (u->prewrite_silence &&
+        (u->primary_devices | u->extra_devices) & u->prewrite_devices &&
+        pa_droid_output_stream_any_active(u->stream) == 0) {
+        for (i = 0; i < u->prewrite_silence; i++)
+            thread_write_silence(u);
+    }
+
+    pa_droid_stream_suspend(u->stream, false);
 
     return 0;
 }
@@ -859,6 +872,66 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
     return PA_HOOK_OK;
 }
 
+static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_resume, const char *name) {
+    const char *state = NULL;
+    char *entry = NULL;
+    char *devices, *stream, *value;
+    uint32_t devices_len, devices_index, value_index, entry_len;
+    uint32_t b;
+
+    pa_assert(u);
+    pa_assert(prewrite_resume);
+    pa_assert(name);
+
+    /* Argument is string of for example "deep_buffer=AUDIO_DEVICE_OUT_SPEAKER:1,primary=FOO:5" */
+
+    while ((entry = pa_split(prewrite_resume, ",", &state))) {
+
+        entry_len = strlen(entry);
+        devices_index = strcspn(entry, "=");
+
+        if (devices_index == 0 || devices_index >= entry_len - 1)
+            goto error;
+
+        entry[devices_index] = '\0';
+        devices = entry + devices_index + 1;
+        stream = entry;
+
+        devices_len = strlen(devices);
+        value_index = strcspn(devices, ":");
+
+        if (value_index == 0 || value_index >= devices_len - 1)
+            goto error;
+
+        devices[value_index] = '\0';
+        value = devices + value_index + 1;
+
+        if (!parse_device_list(devices, &u->prewrite_devices)) {
+            u->prewrite_devices = 0;
+            goto error;
+        }
+
+        if (strlen(value) == 0 || pa_atou(value, &b) < 0)
+            goto error;
+
+        if (pa_streq(stream, name)) {
+            pa_log_info("Using requested prewrite size for %s: %u (%u * %u).",
+                        name, u->buffer_size * b, b, u->buffer_size);
+            u->prewrite_silence = b;
+            pa_xfree(entry);
+            return true;
+        }
+
+        pa_xfree(entry);
+    }
+
+return true;
+
+error:
+    pa_xfree(entry);
+    return false;
+}
+
 pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_modargs *ma,
                              const char *driver,
@@ -885,6 +958,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     int32_t mute_routing_before = 0;
     int32_t mute_routing_after = 0;
     uint32_t sink_buffer = 0;
+    const char *prewrite_resume = NULL;
     int ret;
 
     pa_assert(m);
@@ -1032,6 +1106,13 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
     }
 
+    if ((prewrite_resume = pa_modargs_get_value(ma, "prewrite_on_resume", NULL))) {
+        if (!parse_prewrite_on_resume(u, prewrite_resume, am ? am->output->name : module_id)) {
+            pa_log("Failed to parse prewrite_on_resume (%s)", prewrite_resume);
+            goto fail;
+        }
+    }
+
     u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec);
 
     u->write_threshold = u->buffer_time - u->buffer_time / 6;
@@ -1149,6 +1230,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     update_volumes(u);
 
+    pa_droid_stream_suspend(u->stream, false);
     pa_sink_put(u->sink);
 
     return u->sink;

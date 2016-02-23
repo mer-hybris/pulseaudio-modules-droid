@@ -62,6 +62,7 @@ static const char* const valid_modargs[] = {
     "module_id",
     "mute_routing_before",
     "mute_routing_after",
+    "prewrite_on_resume",
     "sink_buffer",
     "deferred_volume",
     "voice_property_key",
