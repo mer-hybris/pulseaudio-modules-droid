@@ -55,6 +55,7 @@
 #include <pulsecore/shared.h>
 #include <pulsecore/mutex.h>
 #include <pulsecore/strlist.h>
+#include <pulsecore/atomic.h>
 
 #include "droid-util.h"
 
@@ -1937,4 +1938,24 @@ bool pa_droid_stream_is_primary(pa_droid_stream *s) {
         return s->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
     else
         return false;
+}
+
+int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
+    pa_assert(s);
+    pa_assert(s->out || s->in);
+
+    if (s->out) {
+        if (suspend) {
+            pa_atomic_dec(&s->module->active_outputs);
+            return s->out->common.standby(&s->out->common);
+        } else {
+            pa_atomic_inc(&s->module->active_outputs);
+            return 0;
+        }
+    } else {
+        if (suspend)
+            return s->in->common.standby(&s->in->common);
+        else
+            return 0;
+    }
 }

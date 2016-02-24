@@ -29,6 +29,7 @@
 #include <pulsecore/macro.h>
 #include <pulsecore/mutex.h>
 #include <pulsecore/strlist.h>
+#include <pulsecore/atomic.h>
 
 #include <android-config.h>
 
@@ -84,6 +85,8 @@ struct pa_droid_hw_module {
 
     pa_idxset *outputs;
     pa_idxset *inputs;
+
+    pa_atomic_t active_outputs;
 };
 
 struct pa_droid_stream {
@@ -335,5 +338,11 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
 int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source);
 
 bool pa_droid_stream_is_primary(pa_droid_stream *s);
+
+int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend);
+
+static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
+    return pa_atomic_load(&s->module->active_outputs);
+}
 
 #endif
