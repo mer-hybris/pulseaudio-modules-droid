@@ -236,12 +236,21 @@ static int suspend(struct userdata *u) {
     pa_assert(u);
     pa_assert(u->stream);
 
-    ret = u->stream->in->common.standby(&u->stream->in->common);
+    ret = pa_droid_stream_suspend(u->stream, true);
 
     if (ret == 0)
         pa_log_info("Device suspended.");
 
     return ret;
+}
+
+/* Called from IO context */
+static void unsuspend(struct userdata *u) {
+    pa_assert(u);
+    pa_assert(u->stream);
+
+    pa_droid_stream_suspend(u->stream, false);
+    pa_log_info("Resuming...");
 }
 
 /* Called from IO context */
@@ -265,7 +274,7 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
                 case PA_SOURCE_IDLE:
                     break;
                 case PA_SOURCE_RUNNING: {
-                    pa_log_info("Resuming...");
+                    unsuspend(u);
                     u->timestamp = pa_rtclock_now();
                     break;
                 }
