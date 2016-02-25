@@ -81,6 +81,10 @@ struct userdata {
     pa_usec_t write_threshold;
     audio_devices_t prewrite_devices;
     uint32_t prewrite_silence;
+    pa_hook_slot *sink_put_hook_slot;
+    pa_hook_slot *sink_unlink_hook_slot;
+    pa_hook_slot *sink_port_changed_hook_slot;
+    pa_sink *primary_stream_sink;
 
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
@@ -872,6 +876,98 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
     return PA_HOOK_OK;
 }
 
+static pa_hook_result_t sink_port_changed_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
+    pa_device_port *port;
+
+    pa_assert(c);
+    pa_assert(sink);
+    pa_assert(u);
+
+    if (sink != u->primary_stream_sink)
+        return PA_HOOK_OK;
+
+    port = sink->active_port;
+    pa_log_info("Set slave sink port to %s", port->name);
+    pa_sink_set_port(u->sink, port->name, false);
+
+    return PA_HOOK_OK;
+}
+
+static void unset_primary_stream_sink(struct userdata *u) {
+    pa_assert(u);
+    pa_assert(u->primary_stream_sink);
+    pa_assert(u->sink_port_changed_hook_slot);
+
+    pa_hook_slot_free(u->sink_port_changed_hook_slot);
+    u->sink_port_changed_hook_slot = NULL;
+    u->primary_stream_sink = NULL;
+}
+
+static pa_hook_result_t sink_unlink_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
+    pa_assert(c);
+    pa_assert(sink);
+    pa_assert(u);
+
+    if (sink != u->primary_stream_sink)
+        return PA_HOOK_OK;
+
+    pa_log_info("Primary stream sink disappeared.");
+    unset_primary_stream_sink(u);
+
+    return PA_HOOK_OK;
+}
+
+static pa_hook_result_t sink_put_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
+    struct userdata *sink_u;
+
+    pa_assert(c);
+    pa_assert(sink);
+    pa_assert(u);
+
+    if (!pa_sink_is_droid_sink(sink))
+        return PA_HOOK_OK;
+
+    sink_u = sink->userdata;
+
+    if (!pa_droid_stream_is_primary(sink_u->stream))
+        return PA_HOOK_OK;
+
+    u->primary_stream_sink = sink;
+
+    pa_assert(!u->sink_port_changed_hook_slot);
+    u->sink_port_changed_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_PORT_CHANGED], PA_HOOK_NORMAL,
+            (pa_hook_cb_t) sink_port_changed_hook_cb, u);
+
+    pa_log_info("Primary stream sink setup for slave.");
+
+    sink_port_changed_hook_cb(c, sink, u);
+
+    return PA_HOOK_OK;
+}
+
+static void setup_track_primary(struct userdata *u) {
+    pa_sink *sink;
+    struct userdata *sink_u;
+    uint32_t idx;
+
+    pa_assert(u);
+
+    u->sink_put_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_NORMAL,
+            (pa_hook_cb_t) sink_put_hook_cb, u);
+    u->sink_unlink_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_NORMAL,
+            (pa_hook_cb_t) sink_unlink_hook_cb, u);
+
+    PA_IDXSET_FOREACH(sink, u->core->sinks, idx) {
+        if (pa_sink_is_droid_sink(sink)) {
+            sink_u = sink->userdata;
+            if (pa_droid_stream_is_primary(sink_u->stream)) {
+                sink_put_hook_cb(u->core, sink, u);
+                break;
+            }
+        }
+    }
+}
+
 static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_resume, const char *name) {
     const char *state = NULL;
     char *entry = NULL;
@@ -1139,6 +1235,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     else
         set_sink_name(ma, &data, module_id);
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, PROP_DROID_API_STRING);
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because
@@ -1230,6 +1327,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     update_volumes(u);
 
+    if (!pa_droid_stream_is_primary(u->stream))
+        setup_track_primary(u);
+
     pa_droid_stream_suspend(u->stream, false);
     pa_sink_put(u->sink);
 
@@ -1265,6 +1365,18 @@ static void parameter_free(droid_parameter_mapping *m) {
 }
 
 static void userdata_free(struct userdata *u) {
+
+    if (u->primary_stream_sink)
+        unset_primary_stream_sink(u);
+
+    if (u->sink_put_hook_slot)
+        pa_hook_slot_free(u->sink_put_hook_slot);
+
+    if (u->sink_unlink_hook_slot)
+        pa_hook_slot_free(u->sink_unlink_hook_slot);
+
+    if (u->sink_port_changed_hook_slot)
+        pa_hook_slot_free(u->sink_port_changed_hook_slot);
 
     if (u->sink)
         pa_sink_unlink(u->sink);
