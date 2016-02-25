@@ -1531,7 +1531,7 @@ static pa_droid_stream *droid_stream_new(pa_droid_hw_module *module) {
     s = pa_xnew0(pa_droid_stream, 1);
     PA_REFCNT_INIT(s);
 
-    s->module = module;
+    s->module = pa_droid_hw_module_ref(module);
 
     return s;
 }
@@ -1756,6 +1756,8 @@ void pa_droid_stream_unref(pa_droid_stream *s) {
         pa_mutex_unlock(s->module->input_mutex);
     }
 
+    pa_droid_hw_module_unref(s->module);
+
     pa_xfree(s);
 }
 
@@ -1958,4 +1960,15 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
         else
             return 0;
     }
+}
+
+bool pa_sink_is_droid_sink(pa_sink *s) {
+    const char *api;
+
+    pa_assert(s);
+
+    if ((api = pa_proplist_gets(s->proplist, PA_PROP_DEVICE_API)))
+        return pa_streq(api, PROP_DROID_API_STRING);
+    else
+        return false;
 }

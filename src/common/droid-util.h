@@ -52,6 +52,7 @@
 #define PROP_DROID_DEVICES    "droid.devices"
 #define PROP_DROID_FLAGS      "droid.flags"
 #define PROP_DROID_HW_MODULE  "droid.hw_module"
+#define PROP_DROID_API_STRING "droid-hal"
 
 #define PA_DROID_PRIMARY_DEVICE     "primary"
 
@@ -344,5 +345,7 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend);
 static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
     return pa_atomic_load(&s->module->active_outputs);
 }
+
+bool pa_sink_is_droid_sink(pa_sink *s);
 
 #endif
