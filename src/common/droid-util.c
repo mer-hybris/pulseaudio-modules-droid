@@ -55,6 +55,7 @@
 #include <pulsecore/shared.h>
 #include <pulsecore/mutex.h>
 #include <pulsecore/strlist.h>
+#include <pulsecore/atomic.h>
 
 #include "droid-util.h"
 
@@ -1530,7 +1531,7 @@ static pa_droid_stream *droid_stream_new(pa_droid_hw_module *module) {
     s = pa_xnew0(pa_droid_stream, 1);
     PA_REFCNT_INIT(s);
 
-    s->module = module;
+    s->module = pa_droid_hw_module_ref(module);
 
     return s;
 }
@@ -1755,6 +1756,8 @@ void pa_droid_stream_unref(pa_droid_stream *s) {
         pa_mutex_unlock(s->module->input_mutex);
     }
 
+    pa_droid_hw_module_unref(s->module);
+
     pa_xfree(s);
 }
 
@@ -1935,6 +1938,37 @@ bool pa_droid_stream_is_primary(pa_droid_stream *s) {
      * input streams. */
     if (s->out)
         return s->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
+    else
+        return false;
+}
+
+int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
+    pa_assert(s);
+    pa_assert(s->out || s->in);
+
+    if (s->out) {
+        if (suspend) {
+            pa_atomic_dec(&s->module->active_outputs);
+            return s->out->common.standby(&s->out->common);
+        } else {
+            pa_atomic_inc(&s->module->active_outputs);
+            return 0;
+        }
+    } else {
+        if (suspend)
+            return s->in->common.standby(&s->in->common);
+        else
+            return 0;
+    }
+}
+
+bool pa_sink_is_droid_sink(pa_sink *s) {
+    const char *api;
+
+    pa_assert(s);
+
+    if ((api = pa_proplist_gets(s->proplist, PA_PROP_DEVICE_API)))
+        return pa_streq(api, PROP_DROID_API_STRING);
     else
         return false;
 }
