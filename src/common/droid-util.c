@@ -1143,9 +1143,7 @@ static void add_i_ports(pa_droid_mapping *am) {
         if (devices & cur_device) {
 
 #if DROID_HAL >= 2
-#ifndef DROID_DEVICE_MAKO
             cur_device |= AUDIO_DEVICE_BIT_IN;
-#endif
 #endif
 
             pa_assert_se(pa_droid_input_port_name(cur_device, &name));
@@ -1855,12 +1853,12 @@ int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, 
                  (void *) s, parameters, device, source);
 
 
-#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_ANZU) ||\
+#if defined(DROID_DEVICE_ANZU) ||\
     defined(DROID_DEVICE_COCONUT) || defined(DROID_DEVICE_HAIDA) ||\
     defined(DROID_DEVICE_HALLON) || defined(DROID_DEVICE_IYOKAN) ||\
     defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
     defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
-#warning Using mako set_parameters hack.
+#warning Using set_parameters hack, originating from previous cm10 mako.
     pa_mutex_lock(s->module->hw_mutex);
     ret = s->module->device->set_parameters(s->module->device, parameters);
     pa_mutex_unlock(s->module->hw_mutex);
