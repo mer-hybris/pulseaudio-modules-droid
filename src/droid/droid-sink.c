@@ -193,12 +193,23 @@ static bool remove_extra_devices(struct userdata *u, audio_devices_t devices) {
     return need_update;
 }
 
+static void clear_extra_devices(struct userdata *u) {
+    pa_assert(u);
+    pa_assert(u->extra_devices_map);
+
+    pa_hashmap_remove_all(u->extra_devices_map);
+    u->extra_devices = 0;
+}
+
 /* Called from main context during voice calls, and from IO context during media operation. */
 static void do_routing(struct userdata *u) {
     audio_devices_t routing;
 
     pa_assert(u);
     pa_assert(u->stream);
+
+    if (u->use_voice_volume && u->extra_devices)
+        clear_extra_devices(u);
 
     routing = u->primary_devices | u->extra_devices;
 
