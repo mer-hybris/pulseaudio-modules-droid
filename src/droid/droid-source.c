@@ -209,7 +209,7 @@ static void thread_func(void *userdata) {
         /* Sleep */
 #if (PULSEAUDIO_VERSION == 5)
         if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
-#elif (PULSEAUDIO_VERSION == 6)
+#elif (PULSEAUDIO_VERSION >= 6)
         if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
 #endif
             goto fail;
@@ -368,7 +368,7 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
 
 #if (PULSEAUDIO_VERSION == 5)
 static void source_get_mute_cb(pa_source *s) {
-#elif (PULSEAUDIO_VERSION == 6)
+#elif (PULSEAUDIO_VERSION >= 6)
 static int source_get_mute_cb(pa_source *s, bool *muted) {
 #endif
     struct userdata *u = s->userdata;
@@ -388,7 +388,7 @@ static int source_get_mute_cb(pa_source *s, bool *muted) {
 #if (PULSEAUDIO_VERSION == 5)
     if (ret == 0)
         s->muted = b;
-#elif (PULSEAUDIO_VERSION == 6)
+#elif (PULSEAUDIO_VERSION >= 6)
     if (ret == 0)
         *muted = b;
 

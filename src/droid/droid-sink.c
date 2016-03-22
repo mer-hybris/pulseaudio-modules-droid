@@ -407,7 +407,7 @@ static void thread_func(void *userdata) {
         /* Sleep */
 #if (PULSEAUDIO_VERSION == 5)
         if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
-#elif (PULSEAUDIO_VERSION == 6)
+#elif (PULSEAUDIO_VERSION >= 6)
         if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
 #endif
             goto fail;
