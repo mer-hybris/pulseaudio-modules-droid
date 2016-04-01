@@ -470,7 +470,8 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
     return true;
 }
 
-#if DROID_HAL == 1
+#if (DROID_HAL == 1) || \
+    (defined(QCOM_HARDWARE) && ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1)
 static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
     pa_queue *source_outputs = NULL;
     pa_droid_mapping *am;
@@ -505,15 +506,13 @@ static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profi
         }
 
     } else {
-        /* don't do anything if voicecall source has already been destroyed. */
-        if (!u->voicecall_source)
-            return true;
-
         pa_log_info("Disabling voice call record.");
 
-        source_outputs = pa_source_move_all_start(u->voicecall_source, source_outputs);
-        pa_droid_source_free(u->voicecall_source);
-        u->voicecall_source = NULL;
+        if (u->voicecall_source) {
+            source_outputs = pa_source_move_all_start(u->voicecall_source, source_outputs);
+            pa_droid_source_free(u->voicecall_source);
+            u->voicecall_source = NULL;
+        }
 
         am = pa_droid_idxset_get_primary(u->old_profile->input_mappings);
 
