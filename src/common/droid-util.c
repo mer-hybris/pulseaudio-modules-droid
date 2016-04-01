@@ -1669,8 +1669,12 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
         pa_channel_map_init_mono(&channel_map);
         sample_spec.channels = 1;
         /* Only allow recording both downlink and uplink. */
-#ifdef QCOM_HARDWARE
+#if defined(QCOM_HARDWARE)
+  #if ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1
+        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
+  #else
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
+  #endif
 #else
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
 #endif
@@ -1695,7 +1699,15 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     pa_droid_hw_module_unlock(module);
 
     if (ret < 0 || !stream) {
-        pa_log("Failed to open input stream: %d", ret);
+        pa_log("Failed to open input stream: %d with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u)",
+               ret,
+               devices,
+               AUDIO_INPUT_FLAG_NONE,
+               config_in.sample_rate,
+               sample_spec.channels,
+               config_in.channel_mask,
+               sample_spec.format,
+               config_in.format);
         goto fail;
     }
 
@@ -1711,6 +1723,10 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     pa_idxset_put(module->inputs, s, NULL);
 
     buffer_size = s->in->common.get_buffer_size(&s->in->common);
+
+    /* As audio_source_t may not have any effect when opening the input stream
+     * set input parameters immediately after opening the stream. */
+    pa_droid_stream_set_input_route(s, devices, NULL);
 
     pa_log_info("Opened droid input stream %p with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u) buffer size: %u (%llu usec)",
             (void *) s,
