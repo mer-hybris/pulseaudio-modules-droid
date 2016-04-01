@@ -1702,7 +1702,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
         pa_log("Failed to open input stream: %d with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u)",
                ret,
                devices,
-               AUDIO_INPUT_FLAG_NONE,
+               0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
                config_in.sample_rate,
                sample_spec.channels,
                config_in.channel_mask,
