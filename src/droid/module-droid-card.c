@@ -903,6 +903,10 @@ int pa__init(pa_module *m) {
     u->card->userdata = u;
     u->card->set_profile = card_set_profile;
 
+#if (PULSEAUDIO_VERSION >= 8)
+    pa_card_put(u->card);
+#endif
+
     u->modargs = ma;
     u->module = m;
 
