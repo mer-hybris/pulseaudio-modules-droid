@@ -98,8 +98,12 @@ static int do_routing(struct userdata *u, audio_devices_t devices, bool force) {
         return 0;
     }
 
-    if (u->primary_devices == devices)
-        pa_log_debug("Refresh active device routing.");
+    if (u->primary_devices == devices) {
+        if (force)
+            pa_log_debug("Refresh active device routing.");
+        else
+            return 0;
+    }
 
     old_device = u->primary_devices;
     u->primary_devices = devices;
