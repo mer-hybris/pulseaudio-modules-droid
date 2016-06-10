@@ -1570,6 +1570,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
         hal_channel_mask |= c;
     }
 
+    memset(&config_out, 0, sizeof(struct audio_config));
     config_out.sample_rate = spec->rate;
     config_out.channel_mask = hal_channel_mask;
     config_out.format = hal_audio_format;
@@ -1688,6 +1689,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
 #endif
     }
 
+    memset(&config_in, 0, sizeof(struct audio_config));
     config_in.sample_rate = sample_spec.rate;
     config_in.channel_mask = hal_channel_mask;
     config_in.format = hal_audio_format;
