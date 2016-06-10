@@ -88,6 +88,7 @@ struct pa_droid_hw_module {
     pa_idxset *inputs;
 
     pa_atomic_t active_outputs;
+    uint32_t output_device;
 };
 
 struct pa_droid_stream {

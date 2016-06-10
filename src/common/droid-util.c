@@ -1574,6 +1574,14 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
     config_out.channel_mask = hal_channel_mask;
     config_out.format = hal_audio_format;
 
+    if (pa_idxset_size(module->outputs) == 0) {
+        pa_log_debug("Set initial output device to %#010x", devices);
+        module->output_device = devices;
+    } else {
+        pa_log_debug("Output with device %#010x already open, using as initial device.", module->output_device);
+        devices = module->output_device;
+    }
+
     pa_droid_hw_module_lock(module);
     ret = module->device->open_output_stream(module->device,
                                              module->stream_out_id++,
@@ -1819,6 +1827,9 @@ int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device)
                 pa_log_warn("output set_parameters(%s) not allowed while stream is active", parameters);
             else
                 pa_log_warn("output set_parameters(%s) failed", parameters);
+        } else {
+            /* Store last set output device. */
+            s->module->output_device = device;
         }
     }
 
