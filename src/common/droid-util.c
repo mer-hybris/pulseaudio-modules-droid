@@ -950,11 +950,11 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
     return ps;
 }
 
-pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module, pa_strlist *inputs, pa_strlist *outputs) {
+pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module, pa_strlist *outputs, pa_strlist *inputs) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
-    add_combined_profile(ps, module, inputs, outputs);
+    add_combined_profile(ps, module, outputs, inputs);
 
     return ps;
 }
