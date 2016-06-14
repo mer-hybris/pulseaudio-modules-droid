@@ -82,6 +82,9 @@ CONVERT_FUNC(input_channel);
 /* Section defining custom global configuration variables. */
 #define GLOBAL_CONFIG_EXT_TAG "custom_properties"
 
+static const char * const droid_combined_auto_outputs[3]    = { "primary", "low_latency", NULL };
+static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL };
+
 static void droid_port_free(pa_droid_port *p);
 
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
@@ -829,12 +832,15 @@ static bool str_in_strlist(const char *str, pa_strlist *list) {
     return false;
 }
 
-/* outputs or inputs string lists can be NULL, which means include all outputs and inputs
- * from module. */
+/* If outputs or inputs string list contain string *all* it means all
+ * outputs or inputs are added to the combined profile.
+ * If outputs or inputs string list contain string *auto* it means
+ * all devices that are in module and listed in droid_combined_auto_*
+ * are added to the combined profile. */
 static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
                                               const pa_droid_config_hw_module *module,
-                                              pa_strlist *outputs,
-                                              pa_strlist *inputs) {
+                                              const pa_strlist *outputs,
+                                              const pa_strlist *inputs) {
     pa_droid_profile *p;
     char *description;
     char *o_str;
@@ -846,21 +852,51 @@ static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
     pa_assert(ps);
     pa_assert(module);
 
-    for (unsigned i = 0; i < module->outputs_size; i++) {
-        if (outputs && !str_in_strlist(module->outputs[i].name, outputs))
-            continue;
+    if (outputs) {
+        if (str_in_strlist(PA_DROID_COMBINED_AUTO, outputs)) {
+            for (unsigned i = 0; droid_combined_auto_outputs[i]; i++) {
+                for (unsigned j = 0; j < module->outputs_size; j++) {
+                    if (pa_streq(droid_combined_auto_outputs[i], module->outputs[j].name)) {
+                        pa_log_debug("Auto add to combined profile output %s", module->outputs[j].name);
+                        to_outputs = pa_strlist_prepend(to_outputs, module->outputs[j].name);
+                    }
+                }
+            }
+        } else {
+            for (unsigned i = 0; i < module->outputs_size; i++) {
+                if (!str_in_strlist(PA_DROID_COMBINED_ALL, outputs) &&
+                    !str_in_strlist(module->outputs[i].name, outputs))
+                    continue;
 
-        to_outputs = pa_strlist_prepend(to_outputs, module->outputs[i].name);
+                to_outputs = pa_strlist_prepend(to_outputs, module->outputs[i].name);
+            }
+        }
+
+        to_outputs = pa_strlist_reverse(to_outputs);
     }
-    to_outputs = pa_strlist_reverse(to_outputs);
 
-    for (unsigned i = 0; i < module->inputs_size; i++) {
-        if (inputs && !str_in_strlist(module->inputs[i].name, inputs))
-            continue;
+    if (inputs) {
+        if (str_in_strlist(PA_DROID_COMBINED_AUTO, inputs)) {
+            for (unsigned i = 0; droid_combined_auto_inputs[i]; i++) {
+                for (unsigned j = 0; j < module->inputs_size; j++) {
+                    if (pa_streq(droid_combined_auto_inputs[i], module->inputs[j].name)) {
+                        pa_log_debug("Auto add to combined profile input %s", module->inputs[j].name);
+                        to_inputs = pa_strlist_prepend(to_inputs, module->inputs[j].name);
+                    }
+                }
+            }
+        } else {
+            for (unsigned i = 0; i < module->inputs_size; i++) {
+                if (!str_in_strlist(PA_DROID_COMBINED_ALL, inputs) &&
+                    !str_in_strlist(module->inputs[i].name, inputs))
+                    continue;
 
-        to_inputs = pa_strlist_prepend(to_inputs, module->inputs[i].name);
+                to_inputs = pa_strlist_prepend(to_inputs, module->inputs[i].name);
+            }
+        }
+
+        to_inputs = pa_strlist_reverse(to_inputs);
     }
-    to_inputs = pa_strlist_reverse(to_inputs);
 
 #if (PULSEAUDIO_VERSION >= 8)
     o_str = pa_strlist_to_string(to_outputs);
@@ -872,6 +908,9 @@ static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
 
     pa_log_debug("New combined profile: %s (outputs: %s, inputs: %s)", module->name, o_str, i_str);
 
+    if (!to_outputs && !to_inputs)
+        pa_log("Combined profile doesn't have any outputs or inputs!");
+
     description = pa_sprintf_malloc("Combined outputs (%s) and inputs (%s) of %s.", o_str,
                                                                                     i_str,
                                                                                     module->name);
@@ -880,26 +919,30 @@ static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
     pa_xfree(o_str);
     pa_xfree(i_str);
 
-    for (unsigned i = 0; i < module->outputs_size; i++) {
-        if (!str_in_strlist(module->outputs[i].name, to_outputs))
-            continue;
+    if (to_outputs) {
+        for (unsigned i = 0; i < module->outputs_size; i++) {
+            if (!str_in_strlist(module->outputs[i].name, to_outputs))
+                continue;
 
-        am = pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, &module->outputs[i]);
-        pa_droid_profile_add_mapping(p, am);
+            am = pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, &module->outputs[i]);
+            pa_droid_profile_add_mapping(p, am);
 
-        if (pa_streq(module->outputs[i].name, "primary"))
-            p->priority += DEFAULT_PRIORITY;
+            if (pa_streq(module->outputs[i].name, "primary"))
+                p->priority += DEFAULT_PRIORITY;
+        }
     }
 
-    for (unsigned i = 0; i < module->inputs_size; i++) {
-        if (!str_in_strlist(module->inputs[i].name, to_inputs))
-            continue;
+    if (to_inputs) {
+        for (unsigned i = 0; i < module->inputs_size; i++) {
+            if (!str_in_strlist(module->inputs[i].name, to_inputs))
+                continue;
 
-        am = pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, &module->inputs[i]);
-        pa_droid_profile_add_mapping(p, am);
+            am = pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, &module->inputs[i]);
+            pa_droid_profile_add_mapping(p, am);
 
-        if (pa_streq(module->inputs[i].name, "primary"))
-            p->priority += DEFAULT_PRIORITY;
+            if (pa_streq(module->inputs[i].name, "primary"))
+                p->priority += DEFAULT_PRIORITY;
+        }
     }
 
     pa_strlist_free(to_outputs);
@@ -927,10 +970,9 @@ static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *mo
     return ps;
 }
 
-pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module) {
-    pa_droid_profile_set *ps;
-
-    ps = profile_set_new(module);
+static void add_all_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_module *module) {
+    pa_assert(ps);
+    pa_assert(module);
 
     /* Each distinct hw module output matches one profile. If there are multiple inputs
      * combinations are made so that all possible outputs and inputs can be selected.
@@ -946,15 +988,25 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
         } else
             add_profile(ps, &module->outputs[o], NULL);
     }
+}
+
+pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module) {
+    pa_droid_profile_set *ps;
+
+    ps = profile_set_new(module);
+    add_all_profiles(ps, module);
 
     return ps;
 }
 
-pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module, pa_strlist *inputs, pa_strlist *outputs) {
+pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
+                                                        const pa_strlist *outputs,
+                                                        const pa_strlist *inputs) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
-    add_combined_profile(ps, module, inputs, outputs);
+    add_combined_profile(ps, module, outputs, inputs);
+    add_all_profiles(ps, module);
 
     return ps;
 }
@@ -1570,9 +1622,18 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
         hal_channel_mask |= c;
     }
 
+    memset(&config_out, 0, sizeof(struct audio_config));
     config_out.sample_rate = spec->rate;
     config_out.channel_mask = hal_channel_mask;
     config_out.format = hal_audio_format;
+
+    if (pa_idxset_size(module->outputs) == 0) {
+        pa_log_debug("Set initial output device to %#010x", devices);
+        module->output_device = devices;
+    } else {
+        pa_log_debug("Output with device %#010x already open, using as initial device.", module->output_device);
+        devices = module->output_device;
+    }
 
     pa_droid_hw_module_lock(module);
     ret = module->device->open_output_stream(module->device,
@@ -1680,6 +1741,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
 #endif
     }
 
+    memset(&config_in, 0, sizeof(struct audio_config));
     config_in.sample_rate = sample_spec.rate;
     config_in.channel_mask = hal_channel_mask;
     config_in.format = hal_audio_format;
@@ -1819,6 +1881,9 @@ int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device)
                 pa_log_warn("output set_parameters(%s) not allowed while stream is active", parameters);
             else
                 pa_log_warn("output set_parameters(%s) failed", parameters);
+        } else {
+            /* Store last set output device. */
+            s->module->output_device = device;
         }
     }
 
