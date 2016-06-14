@@ -56,6 +56,10 @@
 
 #define PA_DROID_PRIMARY_DEVICE     "primary"
 
+/* Special keywords for combined profile creation. */
+#define PA_DROID_COMBINED_ALL       "*all*"
+#define PA_DROID_COMBINED_AUTO      "*auto*"
+
 typedef struct pa_droid_hw_module pa_droid_hw_module;
 typedef struct pa_droid_stream pa_droid_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;

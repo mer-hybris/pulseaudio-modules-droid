@@ -817,16 +817,38 @@ int pa__init(pa_module *m) {
     u->card_data.userdata = u;
 
     if (combine) {
-        char *tmp;
         pa_strlist *o = NULL;
+        pa_strlist *i = NULL;
 
-        tmp = pa_replace(combine, ",", " ");
-        o = pa_strlist_parse(tmp);
+        if (pa_streq(combine, PA_DROID_COMBINED_AUTO)) {
+            o = pa_strlist_parse(PA_DROID_COMBINED_AUTO);
+            i = pa_strlist_parse(PA_DROID_COMBINED_AUTO);
+        } else {
+            char *tmp, *d;
+            const char *inputs = NULL;
+            const char *outputs = NULL;
 
-        u->profile_set = pa_droid_profile_set_combined_new(u->hw_module->enabled_module,
-                                                           o, NULL);
+            tmp = pa_replace(combine, ",", " ");
+
+            outputs = tmp;
+            if ((d = strstr(tmp, ":"))) {
+                d[0] = '\0';
+                inputs = d + 1;
+            }
+
+            if (outputs)
+                o = pa_strlist_parse(outputs);
+
+            if (inputs)
+                i = pa_strlist_parse(inputs);
+
+            pa_xfree(tmp);
+        }
+
+        u->profile_set = pa_droid_profile_set_combined_new(u->hw_module->enabled_module, o, i);
+
         pa_strlist_free(o);
-        pa_xfree(tmp);
+        pa_strlist_free(i);
     } else
         u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
 
