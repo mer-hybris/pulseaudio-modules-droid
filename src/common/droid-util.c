@@ -839,8 +839,8 @@ static bool str_in_strlist(const char *str, pa_strlist *list) {
  * are added to the combined profile. */
 static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
                                               const pa_droid_config_hw_module *module,
-                                              pa_strlist *outputs,
-                                              pa_strlist *inputs) {
+                                              const pa_strlist *outputs,
+                                              const pa_strlist *inputs) {
     pa_droid_profile *p;
     char *description;
     char *o_str;
@@ -970,10 +970,9 @@ static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *mo
     return ps;
 }
 
-pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module) {
-    pa_droid_profile_set *ps;
-
-    ps = profile_set_new(module);
+static void add_all_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_module *module) {
+    pa_assert(ps);
+    pa_assert(module);
 
     /* Each distinct hw module output matches one profile. If there are multiple inputs
      * combinations are made so that all possible outputs and inputs can be selected.
@@ -989,15 +988,25 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
         } else
             add_profile(ps, &module->outputs[o], NULL);
     }
+}
+
+pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module) {
+    pa_droid_profile_set *ps;
+
+    ps = profile_set_new(module);
+    add_all_profiles(ps, module);
 
     return ps;
 }
 
-pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module, pa_strlist *outputs, pa_strlist *inputs) {
+pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
+                                                        const pa_strlist *outputs,
+                                                        const pa_strlist *inputs) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
     add_combined_profile(ps, module, outputs, inputs);
+    add_all_profiles(ps, module);
 
     return ps;
 }
