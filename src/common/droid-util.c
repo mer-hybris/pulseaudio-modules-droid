@@ -1943,7 +1943,8 @@ int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, 
     defined(DROID_DEVICE_COCONUT) || defined(DROID_DEVICE_HAIDA) ||\
     defined(DROID_DEVICE_HALLON) || defined(DROID_DEVICE_IYOKAN) ||\
     defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
-    defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
+    defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI) ||\
+    defined(DROID_DEVICE_MOTO_MSM8960_JBBL)
 #warning Using set_parameters hack, originating from previous cm10 mako.
     pa_mutex_lock(s->module->hw_mutex);
     ret = s->module->device->set_parameters(s->module->device, parameters);
