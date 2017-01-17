@@ -49,6 +49,20 @@
 #error "No valid ANDROID_VERSION found."
 #endif
 
+/* We currently support API version up-to 3.0 */
+#define DROID_API_VERSION_SUPPORT       HARDWARE_DEVICE_API_VERSION(3, 0)
+
+#if AUDIO_DEVICE_API_VERSION_CURRENT > DROID_API_VERSION_SUPPORT
+#warning Compiling against higher audio device API version than currently supported!
+#warning Compile likely fails or module may malfunction.
+#endif
+
+#define AUDIO_API_VERSION_MAJ           ((AUDIO_DEVICE_API_VERSION_CURRENT ^ 0xff) >> 8)
+#define AUDIO_API_VERSION_MIN           (AUDIO_DEVICE_API_VERSION_CURRENT & 0xff)
+
+#define AUDIO_API_VERSION_GET_MAJ(x)    ((x ^ 0xff) >> 8)
+#define AUDIO_API_VERSION_GET_MIN(x)    (x & 0xff)
+
 #define PROP_DROID_DEVICES    "droid.devices"
 #define PROP_DROID_FLAGS      "droid.flags"
 #define PROP_DROID_HW_MODULE  "droid.hw_module"
@@ -145,7 +159,7 @@ typedef struct pa_droid_config_input {
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
     audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
-#if DROID_HAL >= 3
+#if AUDIO_API_VERSION_MAJ >= 3
     audio_input_flags_t flags;
 #endif
 } pa_droid_config_input;

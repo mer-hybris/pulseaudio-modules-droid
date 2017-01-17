@@ -25,6 +25,7 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <string.h>
 
 #ifdef HAVE_VALGRIND_MEMCHECK_H
 #include <valgrind/memcheck.h>
@@ -118,13 +119,13 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
     char *str = NULL;
     char *tmp;
 
-#if DROID_HAL >= 2
+#if AUDIO_API_VERSION_MAJ >= 2
     if (flags & AUDIO_DEVICE_BIT_IN)
         flags &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
     for (unsigned int i = 0; list[i].str; i++) {
-#if DROID_HAL >= 2
+#if AUDIO_API_VERSION_MAJ >= 2
         if (list[i].value & AUDIO_DEVICE_BIT_IN) {
             if (popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN) != 1)
                 continue;
@@ -189,7 +190,7 @@ char *pa_list_string_flags(audio_output_flags_t flags) {
 
 bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
 {
-#if DROID_HAL >= 2
+#if AUDIO_API_VERSION_MAJ >= 2
     input_device &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
@@ -260,7 +261,7 @@ static bool parse_sampling_rates(const char *fn, const unsigned ln,
     while ((entry = pa_split(str, "|", &state))) {
         int32_t val;
 
-#if DROID_HAL >= 3
+#if AUDIO_API_VERSION_MAJ >= 3
         if (pos == 0 && pa_streq(entry, "dynamic")) {
             sampling_rates[pos++] = (uint32_t) -1;
             pa_xfree(entry);
@@ -324,7 +325,7 @@ static bool parse_formats(const char *fn, const unsigned ln,
     pa_assert(str);
     pa_assert(formats);
 
-#if DROID_HAL >= 3
+#if AUDIO_API_VERSION_MAJ >= 3
     /* Needs to be probed later */
     if (pa_streq(str, "dynamic")) {
         *formats = 0;
@@ -391,7 +392,7 @@ static bool parse_output_flags(const char *fn, const unsigned ln,
     return check_and_log(fn, ln, "flags", count, str, unknown, false);
 }
 
-#if DROID_HAL >= 3
+#if AUDIO_API_VERSION_MAJ >= 3
 static bool parse_input_flags(const char *fn, const unsigned ln,
                         const char *str, audio_input_flags_t *flags) {
     int count;
@@ -665,7 +666,7 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     if (in_output)
                         success = parse_output_flags(filename, n, value, &output->flags);
                     else {
-#if DROID_HAL >= 3
+#if AUDIO_API_VERSION_MAJ >= 3
                         success = parse_input_flags(filename, n, value, &input->flags);
 #else
                         pa_log("[%s:%u] failed to parse line - output flags inside input definition", filename, n);
@@ -1190,7 +1191,7 @@ static void add_i_ports(pa_droid_mapping *am) {
     pa_assert(am);
 
     devices = am->input->devices | AUDIO_DEVICE_IN_DEFAULT;
-#if DROID_HAL >= 2
+#if AUDIO_API_VERSION_MAJ >= 2
     devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
@@ -1199,7 +1200,7 @@ static void add_i_ports(pa_droid_mapping *am) {
 
         if (devices & cur_device) {
 
-#if DROID_HAL >= 2
+#if AUDIO_API_VERSION_MAJ >= 2
             cur_device |= AUDIO_DEVICE_BIT_IN;
 #endif
 
@@ -1210,7 +1211,7 @@ static void add_i_ports(pa_droid_mapping *am) {
         }
     }
 
-#if DROID_HAL == 1
+#if AUDIO_API_VERSION_MAJ == 1
     /* HAL v1 has default input device defined as another input device,
      * so we need to add it by hand here. */
     add_i_port(am, AUDIO_DEVICE_IN_DEFAULT, "input-default");
@@ -1403,25 +1404,28 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
         goto fail;
     }
 
-    hw_get_module_by_class(AUDIO_HARDWARE_MODULE_ID, module->name, (const hw_module_t**) &hwmod);
-    if (!hwmod) {
-        pa_log("Failed to get hw module %s.", module->name);
+    ret = hw_get_module_by_class(AUDIO_HARDWARE_MODULE_ID, module->name, (const hw_module_t**) &hwmod);
+    if (ret) {
+        pa_log("Failed to load audio hw module %s.%s : %s (%d)", AUDIO_HARDWARE_MODULE_ID, module->name,
+                                                                 strerror(-ret), -ret);
         goto fail;
     }
 
-    pa_log_info("Loaded hw module %s: %s (HAL %d.%d.%d)", DROID_DEVICE_STRING, module->name,
-                                                          ANDROID_VERSION_MAJOR,
-                                                          ANDROID_VERSION_MINOR,
-                                                          ANDROID_VERSION_PATCH);
+    pa_log_info("Loaded hw module %s.%s (%s)", AUDIO_HARDWARE_MODULE_ID, module->name, DROID_DEVICE_STRING);
 
     ret = audio_hw_device_open(hwmod, &device);
-    if (!device) {
-        pa_log("Failed to open device (errno %d).", ret);
+    if (ret) {
+        pa_log("Failed to open audio hw device : %s (%d).", strerror(-ret), -ret);
         goto fail;
     }
 
+    pa_log_info("Opened hw audio device version %d.%d (This module compiled for API %d.%d, Android %d.%d.%d)",
+                AUDIO_API_VERSION_GET_MAJ(device->common.version), AUDIO_API_VERSION_GET_MIN(device->common.version),
+                AUDIO_API_VERSION_MAJ, AUDIO_API_VERSION_MIN,
+                ANDROID_VERSION_MAJOR, ANDROID_VERSION_MINOR, ANDROID_VERSION_PATCH);
+
     if ((ret = device->init_check(device)) != 0) {
-        pa_log("Failed init_check() (errno %d)", ret);
+        pa_log("Failed init_check() : %s (%d)", strerror(-ret), -ret);
         goto fail;
     }
 
@@ -1642,7 +1646,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              flags,
                                              &config_out,
                                              &stream
-#if DROID_HAL >= 3
+#if AUDIO_API_VERSION_MAJ >= 3
                                              /* Go with empty address, should work
                                               * with most devices for now. */
                                              , NULL
@@ -1702,7 +1706,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     struct audio_config config_in;
     size_t buffer_size;
 
-#if DROID_HAL >= 2
+#if AUDIO_API_VERSION_MAJ >= 2
     if ((devices & ~AUDIO_DEVICE_BIT_IN) & AUDIO_DEVICE_IN_VOICE_CALL)
 #else
     if (devices & AUDIO_DEVICE_IN_VOICE_CALL)
@@ -1752,7 +1756,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             devices,
                                             &config_in,
                                             &stream
-#if DROID_HAL >= 3
+#if AUDIO_API_VERSION_MAJ >= 3
                                                   , AUDIO_INPUT_FLAG_NONE   /* Default to no input flags */
                                                   , NULL                    /* Don't define address */
                                                   , AUDIO_SOURCE_DEFAULT    /* Default audio source */

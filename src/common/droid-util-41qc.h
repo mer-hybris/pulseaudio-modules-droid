@@ -22,8 +22,6 @@
 #ifndef _ANDROID_UTIL_V412_H_
 #define _ANDROID_UTIL_V412_H_
 
-#define DROID_HAL 1
-
 #ifdef DROID_DEVICE_SBJ
 #define QCOM_HARDWARE
 #endif

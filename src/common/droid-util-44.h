@@ -22,8 +22,6 @@
 #ifndef _ANDROID_UTIL_V44_H_
 #define _ANDROID_UTIL_V44_H_
 
-#define DROID_HAL 2
-
 // Android v4.4 has SPEAKER_DRC_ENABLED_TAG, so might the future versions
 #define DROID_HAVE_DRC
 

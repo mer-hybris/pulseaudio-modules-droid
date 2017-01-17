@@ -22,8 +22,6 @@
 #ifndef _DROID_UTIL_V51_H_
 #define _DROID_UTIL_V51_H_
 
-#define DROID_HAL 3
-
 #define DROID_HAVE_DRC
 
 // Until we implement MER_HA_CHIPSET in hw-release, every non-Qualcomm ARM
