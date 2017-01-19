@@ -304,7 +304,7 @@ static bool check_and_log(const char *fn, const unsigned ln, const char *field,
     fail = must_have_all && unknown;
 
     if (unknown) {
-        pa_log_warn("[%s:%u] Unknown %s entries: %s", fn, ln, field, unknown);
+        pa_log_info("[%s:%u] Unknown %s entries: %s", fn, ln, field, unknown);
         pa_xfree(unknown);
     }
 
