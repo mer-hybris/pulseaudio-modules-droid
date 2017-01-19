@@ -466,7 +466,11 @@ struct string_conversion string_conversion_table_input_flag[] = {
      * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
 #ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_NONE
     STRING_ENTRY( AUDIO_INPUT_FLAG_NONE                             ),
+#endif
+#ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_FAST
     STRING_ENTRY( AUDIO_INPUT_FLAG_FAST                             ),
+#endif
+#ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_HW_HOTWORD
     STRING_ENTRY( AUDIO_INPUT_FLAG_HW_HOTWORD                       ),
 #endif
 #ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_RAW
