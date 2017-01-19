@@ -470,7 +470,7 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
     return true;
 }
 
-#if (DROID_HAL == 1) || \
+#if (AUDIO_API_VERSION_MAJ == 1) || \
     (defined(QCOM_HARDWARE) && ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1)
 static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
     pa_queue *source_outputs = NULL;
