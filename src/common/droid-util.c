@@ -1865,7 +1865,7 @@ int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device)
     pa_droid_stream *slave;
     uint32_t idx;
     char *parameters;
-    int ret;
+    int ret = 0;
 
     pa_assert(s);
     pa_assert(s->out);
