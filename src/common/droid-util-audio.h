@@ -27,12 +27,7 @@
 
 #ifdef QCOM_BSP
 #define QCOM_HARDWARE
-
-#if AUDIO_API_VERSION_MAJ >= 3
-#define DROID_AUDIO_HAL_USE_VSID
 #endif
-
-#endif /* QCOM_BSP */
 
 #ifdef SPEAKER_DRC_ENABLED_TAG
 #define DROID_HAVE_DRC
@@ -337,7 +332,6 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_WIRED_HEADSET,                    "input-wired_headset"               },
     { AUDIO_DEVICE_IN_AUX_DIGITAL,                      "input-aux_digital"                 },
     { AUDIO_DEVICE_IN_VOICE_CALL,                       "input-voice_call"                  },
-    { AUDIO_DEVICE_IN_TELEPHONY_RX,                     "input-telephony"                   },
     { AUDIO_DEVICE_IN_BACK_MIC,                         "input-back_mic"                    },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                    "input-remote_submix"               },
     { AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET,                "input-analog_dock_headset"         },
@@ -506,7 +500,9 @@ struct string_conversion string_conversion_table_output_channels[] = {
     STRING_ENTRY( AUDIO_CHANNEL_OUT_MONO                            ),
     STRING_ENTRY( AUDIO_CHANNEL_OUT_STEREO                          ),
     STRING_ENTRY( AUDIO_CHANNEL_OUT_QUAD                            ),
+#ifdef HAVE_ENUM_AUDIO_CHANNEL_OUT_SURROUND
     STRING_ENTRY( AUDIO_CHANNEL_OUT_SURROUND                        ),
+#endif
     STRING_ENTRY( AUDIO_CHANNEL_OUT_5POINT1                         ),
 #ifdef HAVE_ENUM_AUDIO_CHANNEL_OUT_5POINT1_BACK
     STRING_ENTRY( AUDIO_CHANNEL_OUT_5POINT1_BACK                    ),
