@@ -27,12 +27,7 @@
 
 #ifdef QCOM_BSP
 #define QCOM_HARDWARE
-
-#if AUDIO_API_VERSION_MAJ >= 3
-#define DROID_AUDIO_HAL_USE_VSID
 #endif
-
-#endif /* QCOM_BSP */
 
 #ifdef SPEAKER_DRC_ENABLED_TAG
 #define DROID_HAVE_DRC
