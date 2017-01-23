@@ -1801,10 +1801,10 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
         sample_spec.channels = 1;
         /* Only allow recording both downlink and uplink. */
 #if defined(QCOM_HARDWARE)
-  #if ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1
-        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
-  #else
+  #if (ANDROID_VERSION_MAJOR <= 4) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_CALL_MONO)
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
+  #else
+        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
   #endif
 #else
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
