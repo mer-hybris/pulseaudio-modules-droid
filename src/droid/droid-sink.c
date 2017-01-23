@@ -1066,7 +1066,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     int32_t mute_routing_after = 0;
     uint32_t sink_buffer = 0;
     const char *prewrite_resume = NULL;
-    int ret;
 
     pa_assert(m);
     pa_assert(ma);

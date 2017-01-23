@@ -874,8 +874,8 @@ static bool str_in_strlist(const char *str, pa_strlist *list) {
  * are added to the combined profile. */
 static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
                                               const pa_droid_config_hw_module *module,
-                                              const pa_strlist *outputs,
-                                              const pa_strlist *inputs) {
+                                              pa_strlist *outputs,
+                                              pa_strlist *inputs) {
     pa_droid_profile *p;
     char *description;
     char *o_str;
@@ -1039,8 +1039,8 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
 }
 
 pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
-                                                        const pa_strlist *outputs,
-                                                        const pa_strlist *inputs) {
+                                                        pa_strlist *outputs,
+                                                        pa_strlist *inputs) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
@@ -1222,7 +1222,6 @@ static void add_i_port(pa_droid_mapping *am, uint32_t device, const char *name) 
 static void add_i_ports(pa_droid_mapping *am) {
     pa_droid_port *p;
     const char *name;
-    char *desc;
     uint32_t devices;
     uint32_t i = 0;
 

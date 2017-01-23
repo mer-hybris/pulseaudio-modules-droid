@@ -295,8 +295,8 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
 pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
-                                                        const pa_strlist *outputs,
-                                                        const pa_strlist *inputs);
+                                                        pa_strlist *outputs,
+                                                        pa_strlist *inputs);
 void pa_droid_profile_set_free(pa_droid_profile_set *ps);
 
 pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input);
