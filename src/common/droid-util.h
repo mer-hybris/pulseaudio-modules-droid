@@ -128,9 +128,6 @@ struct pa_droid_card_data {
 };
 
 #define AUDIO_MAX_SAMPLING_RATES (32)
-#define AUDIO_MAX_HW_MODULES (8)
-#define AUDIO_MAX_INPUTS (8)
-#define AUDIO_MAX_OUTPUTS (8)
 
 typedef struct pa_droid_config_global {
     audio_devices_t attached_output_devices;
@@ -141,18 +138,20 @@ typedef struct pa_droid_config_global {
 typedef struct pa_droid_config_output {
     const pa_droid_config_hw_module *module;
 
-    char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
+    char *name;
     uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
     audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
     audio_output_flags_t flags;
+
+    struct pa_droid_config_output *next;
 } pa_droid_config_output;
 
 typedef struct pa_droid_config_input {
     const pa_droid_config_hw_module *module;
 
-    char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
+    char *name;
     uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
     audio_format_t formats; /* 0 -> dynamic */
@@ -160,22 +159,23 @@ typedef struct pa_droid_config_input {
 #if AUDIO_API_VERSION_MAJ >= 3
     audio_input_flags_t flags;
 #endif
+
+    struct pa_droid_config_input *next;
 } pa_droid_config_input;
 
 struct pa_droid_config_hw_module {
     const pa_droid_config_audio *config;
 
-    char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
-    pa_droid_config_output outputs[AUDIO_MAX_OUTPUTS];
-    uint32_t outputs_size;
-    pa_droid_config_input inputs[AUDIO_MAX_INPUTS];
-    uint32_t inputs_size;
+    char *name;
+    pa_droid_config_output *outputs;
+    pa_droid_config_input *inputs;
+
+    struct pa_droid_config_hw_module *next;
 };
 
 struct pa_droid_config_audio {
     pa_droid_config_global global_config;
-    pa_droid_config_hw_module hw_modules[AUDIO_MAX_HW_MODULES];
-    uint32_t hw_modules_size;
+    pa_droid_config_hw_module *hw_modules;
 };
 
 
@@ -295,8 +295,8 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
 pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
-                                                        const pa_strlist *outputs,
-                                                        const pa_strlist *inputs);
+                                                        pa_strlist *outputs,
+                                                        pa_strlist *inputs);
 void pa_droid_profile_set_free(pa_droid_profile_set *ps);
 
 pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input);

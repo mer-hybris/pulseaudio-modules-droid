@@ -451,7 +451,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_source_new_data data;
     const char *module_id = NULL;
     const char *tmp;
-    uint32_t sample_rate;
     uint32_t alternate_sample_rate;
     audio_devices_t dev_in;
     pa_sample_spec sample_spec;

@@ -259,7 +259,6 @@ static pa_card_profile* add_virtual_profile(struct userdata *u, const char *name
 
 static int set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
     struct userdata *u;
-    int ret;
 
     pa_assert(card_data);
     pa_assert_se((u = card_data->userdata));
@@ -403,7 +402,6 @@ static int set_mode(struct userdata *u, audio_mode_t mode) {
 }
 
 static void park_profile(pa_droid_profile *dp) {
-    struct profile_data *data;
     pa_droid_mapping *am;
     uint32_t idx;
 

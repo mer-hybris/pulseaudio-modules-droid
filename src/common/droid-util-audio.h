@@ -317,9 +317,11 @@ struct string_conversion string_conversion_table_input_device[] = {
 
     /* Combination entries consisting of multiple devices defined above.
      * These don't require counterpart in string_conversion_table_input_device_fancy. */
-    STRING_ENTRY(AUDIO_DEVICE_IN_ALL),
-    STRING_ENTRY(AUDIO_DEVICE_IN_ALL_SCO),
-    STRING_ENTRY(AUDIO_DEVICE_IN_ALL_USB),
+    STRING_ENTRY( AUDIO_DEVICE_IN_ALL                               ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_ALL_SCO                           ),
+#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_ALL_USB
+    STRING_ENTRY( AUDIO_DEVICE_IN_ALL_USB                           ),
+#endif
 
     { 0, NULL }
 };

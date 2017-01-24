@@ -60,6 +60,31 @@
 
 #include "droid-util.h"
 
+#define SLLIST_APPEND(t, head, item)                                \
+    do {                                                            \
+        item->next = NULL;                                          \
+        if (!head) {                                                \
+            head = item;                                            \
+        } else {                                                    \
+            t *_list;                                               \
+            for (_list = head; _list->next; _list = _list->next);   \
+            _list->next = item;                                     \
+        }                                                           \
+    } while (0)
+
+#define SLLIST_FOREACH(i, head)                                     \
+    for (i = (head); i; i = i->next)
+
+#define SLLIST_STEAL_FIRST(i, head)                                 \
+    do {                                                            \
+        if (head) {                                                 \
+            i = head;                                               \
+            head = head->next;                                      \
+        } else                                                      \
+            i = NULL;                                               \
+    } while (0)
+
+
 #define CONVERT_FUNC(TABL) \
 bool pa_convert_ ## TABL (uint32_t value, pa_conversion_field_t field, uint32_t *to_value) {                    \
     for (unsigned int i = 0; i < sizeof( conversion_table_ ## TABL )/(sizeof(uint32_t)*2); i++) {               \
@@ -86,6 +111,7 @@ CONVERT_FUNC(input_channel);
 static const char * const droid_combined_auto_outputs[3]    = { "primary", "low_latency", NULL };
 static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL };
 
+static void droid_config_free(pa_droid_config_audio *config);
 static void droid_port_free(pa_droid_port *p);
 
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
@@ -415,6 +441,7 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
     unsigned n = 0;
     bool ret = true;
     char *full_line = NULL;
+    uint32_t hw_module_count = 0;
 
     enum config_loc {
         IN_ROOT             = 0,
@@ -508,9 +535,10 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     break;
 
                 case IN_HW_MODULES:
-                    module = &config->hw_modules[config->hw_modules_size];
-                    config->hw_modules_size++;
-                    strncpy(module->name, v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
+                    module = pa_xnew0(pa_droid_config_hw_module, 1);
+                    SLLIST_APPEND(pa_droid_config_hw_module, config->hw_modules, module);
+                    hw_module_count++;
+                    module->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
                     module->config = config;
                     loc = IN_MODULE;
                     pa_log_debug("config: New module: %s", module->name);
@@ -534,16 +562,16 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     pa_assert(module);
 
                     if (in_output) {
-                        output = &module->outputs[module->outputs_size];
-                        module->outputs_size++;
-                        strncpy(output->name, v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
+                        output = pa_xnew0(pa_droid_config_output, 1);
+                        SLLIST_APPEND(pa_droid_config_output, module->outputs, output);
+                        output->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
                         output->module = module;
                         loc = IN_CONFIG;
                         pa_log_debug("config: %s: New output: %s", module->name, output->name);
                     } else {
-                        input = &module->inputs[module->inputs_size];
-                        module->inputs_size++;
-                        strncpy(input->name, v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
+                        input = pa_xnew0(pa_droid_config_input, 1);
+                        SLLIST_APPEND(pa_droid_config_input, module->inputs, input);
+                        input->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
                         input->module = module;
                         loc = IN_CONFIG;
                         pa_log_debug("config: %s: New input: %s", module->name, input->name);
@@ -688,7 +716,7 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
         }
     }
 
-    pa_log_info("Parsed config file (%s): %u modules.", filename, config->hw_modules_size);
+    pa_log_info("Parsed config file (%s): %u modules.", filename, hw_module_count);
 
 finish:
     if (f) {
@@ -703,36 +731,42 @@ finish:
 
 
 const pa_droid_config_output *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name) {
+    pa_droid_config_output *output;
+
     pa_assert(module);
     pa_assert(name);
 
-    for (unsigned i = 0; i < module->outputs_size; i++) {
-        if (pa_streq(name, module->outputs[i].name))
-            return &module->outputs[i];
+    SLLIST_FOREACH(output, module->outputs) {
+        if (pa_streq(name, output->name))
+            return output;
     }
 
     return NULL;
 }
 
 const pa_droid_config_input *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name) {
+    pa_droid_config_input *input;
+
     pa_assert(module);
     pa_assert(name);
 
-    for (unsigned i = 0; i < module->inputs_size; i++) {
-        if (pa_streq(name, module->inputs[i].name))
-            return &module->inputs[i];
+    SLLIST_FOREACH(input, module->inputs) {
+        if (pa_streq(name, input->name))
+            return input;
     }
 
     return NULL;
 }
 
 const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_config_audio *config, const char* module_id) {
+    pa_droid_config_hw_module *module;
+
     pa_assert(config);
     pa_assert(module_id);
 
-    for (unsigned i = 0; i < config->hw_modules_size; i++) {
-        if (pa_streq(module_id, config->hw_modules[i].name))
-            return &config->hw_modules[i];
+    SLLIST_FOREACH(module, config->hw_modules) {
+        if (pa_streq(module_id, module->name))
+            return module;
     }
 
     return NULL;
@@ -840,8 +874,8 @@ static bool str_in_strlist(const char *str, pa_strlist *list) {
  * are added to the combined profile. */
 static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
                                               const pa_droid_config_hw_module *module,
-                                              const pa_strlist *outputs,
-                                              const pa_strlist *inputs) {
+                                              pa_strlist *outputs,
+                                              pa_strlist *inputs) {
     pa_droid_profile *p;
     char *description;
     char *o_str;
@@ -849,6 +883,8 @@ static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
     pa_strlist *to_outputs = NULL;
     pa_strlist *to_inputs = NULL;
     pa_droid_mapping *am;
+    pa_droid_config_output *output;
+    pa_droid_config_input *input;
 
     pa_assert(ps);
     pa_assert(module);
@@ -856,20 +892,20 @@ static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
     if (outputs) {
         if (str_in_strlist(PA_DROID_COMBINED_AUTO, outputs)) {
             for (unsigned i = 0; droid_combined_auto_outputs[i]; i++) {
-                for (unsigned j = 0; j < module->outputs_size; j++) {
-                    if (pa_streq(droid_combined_auto_outputs[i], module->outputs[j].name)) {
-                        pa_log_debug("Auto add to combined profile output %s", module->outputs[j].name);
-                        to_outputs = pa_strlist_prepend(to_outputs, module->outputs[j].name);
+                SLLIST_FOREACH(output, module->outputs) {
+                    if (pa_streq(droid_combined_auto_outputs[i], output->name)) {
+                        pa_log_debug("Auto add to combined profile output %s", output->name);
+                        to_outputs = pa_strlist_prepend(to_outputs, output->name);
                     }
                 }
             }
         } else {
-            for (unsigned i = 0; i < module->outputs_size; i++) {
+            SLLIST_FOREACH(output, module->outputs) {
                 if (!str_in_strlist(PA_DROID_COMBINED_ALL, outputs) &&
-                    !str_in_strlist(module->outputs[i].name, outputs))
+                    !str_in_strlist(output->name, outputs))
                     continue;
 
-                to_outputs = pa_strlist_prepend(to_outputs, module->outputs[i].name);
+                to_outputs = pa_strlist_prepend(to_outputs, output->name);
             }
         }
 
@@ -879,20 +915,20 @@ static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
     if (inputs) {
         if (str_in_strlist(PA_DROID_COMBINED_AUTO, inputs)) {
             for (unsigned i = 0; droid_combined_auto_inputs[i]; i++) {
-                for (unsigned j = 0; j < module->inputs_size; j++) {
-                    if (pa_streq(droid_combined_auto_inputs[i], module->inputs[j].name)) {
-                        pa_log_debug("Auto add to combined profile input %s", module->inputs[j].name);
-                        to_inputs = pa_strlist_prepend(to_inputs, module->inputs[j].name);
+                SLLIST_FOREACH(input, module->inputs) {
+                    if (pa_streq(droid_combined_auto_inputs[i], input->name)) {
+                        pa_log_debug("Auto add to combined profile input %s", input->name);
+                        to_inputs = pa_strlist_prepend(to_inputs, input->name);
                     }
                 }
             }
         } else {
-            for (unsigned i = 0; i < module->inputs_size; i++) {
+            SLLIST_FOREACH(input, module->inputs) {
                 if (!str_in_strlist(PA_DROID_COMBINED_ALL, inputs) &&
-                    !str_in_strlist(module->inputs[i].name, inputs))
+                    !str_in_strlist(input->name, inputs))
                     continue;
 
-                to_inputs = pa_strlist_prepend(to_inputs, module->inputs[i].name);
+                to_inputs = pa_strlist_prepend(to_inputs, input->name);
             }
         }
 
@@ -921,27 +957,27 @@ static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
     pa_xfree(i_str);
 
     if (to_outputs) {
-        for (unsigned i = 0; i < module->outputs_size; i++) {
-            if (!str_in_strlist(module->outputs[i].name, to_outputs))
+        SLLIST_FOREACH(output, module->outputs) {
+            if (!str_in_strlist(output->name, to_outputs))
                 continue;
 
-            am = pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, &module->outputs[i]);
+            am = pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, output);
             pa_droid_profile_add_mapping(p, am);
 
-            if (pa_streq(module->outputs[i].name, "primary"))
+            if (pa_streq(output->name, "primary"))
                 p->priority += DEFAULT_PRIORITY;
         }
     }
 
     if (to_inputs) {
-        for (unsigned i = 0; i < module->inputs_size; i++) {
-            if (!str_in_strlist(module->inputs[i].name, to_inputs))
+        SLLIST_FOREACH(input, module->inputs) {
+            if (!str_in_strlist(input->name, to_inputs))
                 continue;
 
-            am = pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, &module->inputs[i]);
+            am = pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, input);
             pa_droid_profile_add_mapping(p, am);
 
-            if (pa_streq(module->inputs[i].name, "primary"))
+            if (pa_streq(input->name, "primary"))
                 p->priority += DEFAULT_PRIORITY;
         }
     }
@@ -972,6 +1008,9 @@ static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *mo
 }
 
 static void add_all_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_module *module) {
+    pa_droid_config_output *output;
+    pa_droid_config_input *input;
+
     pa_assert(ps);
     pa_assert(module);
 
@@ -980,14 +1019,13 @@ static void add_all_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_
      * So for outputs "primary" and "hdmi" and input "primary" profiles
      * "primary-primary" and "hdmi-primary" are created. */
 
-    for (unsigned o = 0; o < module->outputs_size; o++) {
+    SLLIST_FOREACH(output, module->outputs) {
 
-        if (module->inputs_size > 0) {
-            for (unsigned i = 0; i < module->inputs_size; i++) {
-                add_profile(ps, &module->outputs[o], &module->inputs[i]);
-            }
+        if (module->inputs) {
+            SLLIST_FOREACH(input, module->inputs)
+                add_profile(ps, output, input);
         } else
-            add_profile(ps, &module->outputs[o], NULL);
+            add_profile(ps, output, NULL);
     }
 }
 
@@ -1001,8 +1039,8 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
 }
 
 pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
-                                                        const pa_strlist *outputs,
-                                                        const pa_strlist *inputs) {
+                                                        pa_strlist *outputs,
+                                                        pa_strlist *inputs) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
@@ -1184,7 +1222,6 @@ static void add_i_port(pa_droid_mapping *am, uint32_t device, const char *name) 
 static void add_i_ports(pa_droid_mapping *am) {
     pa_droid_port *p;
     const char *name;
-    char *desc;
     uint32_t devices;
     uint32_t i = 0;
 
@@ -1489,7 +1526,7 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     pa_log_info("Closing hw module %s", hw->enabled_module->name);
 
     if (hw->config)
-        pa_xfree(hw->config);
+        droid_config_free(hw->config);
 
     if (hw->device)
         audio_hw_device_close(hw->device);
@@ -1531,6 +1568,35 @@ void pa_droid_hw_module_unref(pa_droid_hw_module *hw) {
     droid_hw_module_close(hw);
 }
 
+static void droid_config_free(pa_droid_config_audio *config) {
+    pa_droid_config_hw_module *module;
+    pa_droid_config_output *output;
+    pa_droid_config_input *input;
+
+    pa_assert(config);
+
+    while (config->hw_modules) {
+        SLLIST_STEAL_FIRST(module, config->hw_modules);
+
+        while (module->outputs) {
+            SLLIST_STEAL_FIRST(output, module->outputs);
+            pa_xfree(output->name);
+            pa_xfree(output);
+        }
+
+        while (module->inputs) {
+            SLLIST_STEAL_FIRST(input, module->inputs);
+            pa_xfree(input->name);
+            pa_xfree(input);
+        }
+
+        pa_xfree(module->name);
+        pa_xfree(module);
+    }
+
+    pa_xfree(config);
+}
+
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
     pa_droid_config_audio *config;
     const char *config_location;
@@ -1562,7 +1628,7 @@ pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
     return config;
 
 fail:
-    pa_xfree(config);
+    droid_config_free(config);
     return NULL;
 }
 
@@ -1735,10 +1801,10 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
         sample_spec.channels = 1;
         /* Only allow recording both downlink and uplink. */
 #if defined(QCOM_HARDWARE)
-  #if ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1
-        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
-  #else
+  #if (ANDROID_VERSION_MAJOR <= 4) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_CALL_MONO)
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
+  #else
+        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
   #endif
 #else
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
