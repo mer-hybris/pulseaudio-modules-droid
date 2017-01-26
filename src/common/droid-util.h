@@ -130,6 +130,7 @@ struct pa_droid_card_data {
 #define AUDIO_MAX_SAMPLING_RATES (32)
 
 typedef struct pa_droid_config_global {
+    uint32_t audio_hal_version;
     audio_devices_t attached_output_devices;
     audio_devices_t default_output_device;
     audio_devices_t attached_input_devices;
@@ -167,6 +168,8 @@ struct pa_droid_config_hw_module {
     const pa_droid_config_audio *config;
 
     char *name;
+    /* If global config is not defined for module, use root global config. */
+    pa_droid_config_global *global_config;
     pa_droid_config_output *outputs;
     pa_droid_config_input *inputs;
 
@@ -174,7 +177,7 @@ struct pa_droid_config_hw_module {
 };
 
 struct pa_droid_config_audio {
-    pa_droid_config_global global_config;
+    pa_droid_config_global *global_config;
     pa_droid_config_hw_module *hw_modules;
 };
 
