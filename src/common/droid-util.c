@@ -108,6 +108,17 @@ CONVERT_FUNC(input_channel);
 /* Section defining custom global configuration variables. */
 #define GLOBAL_CONFIG_EXT_TAG "custom_properties"
 
+/* From recent audio_policy_conf.h */
+#ifndef AUDIO_HAL_VERSION_TAG
+#define AUDIO_HAL_VERSION_TAG "audio_hal_version"
+#endif
+#ifndef GAINS_TAG
+#define GAINS_TAG "gains"
+#endif
+
+#define GAIN_TAG_PREFIX "gain_"
+
+
 static const char * const droid_combined_auto_outputs[3]    = { "primary", "low_latency", NULL };
 static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL };
 
@@ -434,6 +445,27 @@ static bool parse_input_flags(const char *fn, const unsigned ln,
 }
 #endif
 
+static bool parse_version(const char *fn, const unsigned ln, const char *str, uint32_t *version) {
+    uint32_t version_maj;
+    uint32_t version_min;
+
+    pa_assert(fn);
+    pa_assert(str);
+    pa_assert(version);
+
+    if ((sscanf(str, "%u.%u", &version_maj, &version_min)) != 2) {
+        pa_log("[%s:%u] Failed to parse %s (%s).", fn, ln, AUDIO_HAL_VERSION_TAG, str);
+        return false;
+    } else {
+        *version = HARDWARE_DEVICE_API_VERSION(version_maj, version_min);
+        return true;
+    }
+}
+
+static void log_parse_error(const char *fn, const unsigned ln, const char *section, const char *v) {
+    pa_log("[%s:%u] failed to parse line in section %s: unknown section (%s)", fn, ln, section, v);
+}
+
 #define MAX_LINE_LENGTH (1024)
 
 bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
@@ -450,7 +482,12 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
         IN_HW_MODULES       = 3,
         IN_MODULE           = 4,
         IN_OUTPUT_INPUT     = 5,
-        IN_CONFIG           = 6
+        IN_CONFIG           = 6,
+        IN_MODULE_GLOBAL    = 10,
+        IN_DEVICES          = 20,
+        IN_DEVICES_DEVICE   = 21,
+        IN_GAINS            = 22,
+        IN_GAIN_N           = 23
     } loc = IN_ROOT;
 
     bool in_output = true;
@@ -463,6 +500,7 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
     pa_assert(config);
 
     memset(config, 0, sizeof(pa_droid_config_audio));
+    config->global_config = pa_xnew0(pa_droid_config_global, 1);
 
     f = fopen(filename, "r");
 
@@ -518,7 +556,7 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     else if (pa_streq(v, AUDIO_HW_MODULE_TAG))
                         loc = IN_HW_MODULES;
                     else {
-                        pa_log("[%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
+                        log_parse_error(filename, n, "<root>", v);
                         ret = false;
                         goto finish;
                     }
@@ -528,13 +566,15 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     if (pa_streq(v, GLOBAL_CONFIG_EXT_TAG))
                         loc = IN_GLOBAL_EXT;
                     else {
-                        pa_log("[%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
+                        log_parse_error(filename, n, GLOBAL_CONFIG_TAG, v);
                         ret = false;
                         goto finish;
                     }
                     break;
 
                 case IN_HW_MODULES:
+                    pa_assert(!module);
+
                     module = pa_xnew0(pa_droid_config_hw_module, 1);
                     SLLIST_APPEND(pa_droid_config_hw_module, config->hw_modules, module);
                     hw_module_count++;
@@ -545,14 +585,20 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     break;
 
                 case IN_MODULE:
+                    pa_assert(module);
+
                     if (pa_streq(v, OUTPUTS_TAG)) {
                         loc = IN_OUTPUT_INPUT;
                         in_output = true;
                     } else if (pa_streq(v, INPUTS_TAG)) {
                         loc = IN_OUTPUT_INPUT;
                         in_output = false;
+                    } else if (pa_streq(v, GLOBAL_CONFIG_TAG)) {
+                        loc = IN_MODULE_GLOBAL;
+                    } else if (pa_streq(v, DEVICES_TAG)) {
+                        loc = IN_DEVICES;
                     } else {
-                        pa_log("[%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
+                        log_parse_error(filename, n, module->name, v);
                         ret = false;
                         goto finish;
                     }
@@ -578,13 +624,48 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     }
                     break;
 
+                case IN_DEVICES:
+                    /* TODO Missing implementation of parsing the module/devices section.
+                     * As of now there is no need for the information, fix this when that
+                     * changes. */
+                    loc = IN_DEVICES_DEVICE;
+                    break;
+
+                case IN_DEVICES_DEVICE:
+                    if (pa_streq(v, GAINS_TAG))
+                        loc = IN_GAINS;
+                    else {
+                        log_parse_error(filename, n, DEVICES_TAG, v);
+                        ret = false;
+                        goto finish;
+                    }
+                    break;
+
+                case IN_GAINS:
+                    /* TODO Missing implementation of parsing the gain_n section.
+                     * As of now there is no need for the information, fix this when that
+                     * changes. */
+                    if (pa_startswith(v, GAIN_TAG_PREFIX))
+                        loc = IN_GAIN_N;
+                    else {
+                        log_parse_error(filename, n, GAINS_TAG, v);
+                        ret = false;
+                        goto finish;
+                    }
+                    break;
+
                 case IN_CONFIG:
-                    pa_log("[%s:%u] failed to parse line - unknown field in config (%s)", filename, n, v);
-                    ret = false;
-                    goto finish;
+                    if (pa_streq(v, GAINS_TAG)) {
+                        loc = IN_GAINS;
+                    } else {
+                        log_parse_error(filename, n, in_output ? output->name : input->name, v);
+                        ret = false;
+                        goto finish;
+                    }
+                    break;
 
                 default:
-                    pa_log("[%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
+                    pa_log("[%s:%u] failed to parse line: unknown section (%s)", filename, n, v);
                     ret = false;
                     goto finish;
             }
@@ -601,10 +682,27 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     goto finish;
 
                 case IN_HW_MODULES:
-                    module = NULL;
                     /* fall through */
                 case IN_GLOBAL:
                     loc = IN_ROOT;
+                    break;
+
+                case IN_MODULE:
+                    module = NULL;
+                    loc = IN_HW_MODULES;
+                    break;
+
+                case IN_DEVICES:
+                    /* fall through */
+                case IN_MODULE_GLOBAL:
+                    loc = IN_MODULE;
+                    break;
+
+                case IN_GAINS:
+                    if (output || input)
+                        loc = IN_CONFIG;
+                    else
+                        loc = IN_DEVICES_DEVICE;
                     break;
 
                 case IN_OUTPUT_INPUT:
@@ -613,7 +711,9 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     else
                         input = NULL;
                     /* fall through */
-                case IN_MODULE:
+                case IN_GAIN_N:
+                    /* fall through */
+                case IN_DEVICES_DEVICE:
                     /* fall through */
                 case IN_CONFIG:
                     /* fall through */
@@ -625,25 +725,43 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
             continue;
         }
 
+        /* Parsing of values */
         if (loc == IN_GLOBAL ||
             loc == IN_GLOBAL_EXT ||
-            loc == IN_CONFIG) {
+            loc == IN_MODULE_GLOBAL ||
+            loc == IN_CONFIG ||
+            loc == IN_DEVICES_DEVICE ||
+            loc == IN_GAIN_N) {
 
             bool success = false;
 
-            if (loc == IN_GLOBAL) {
+            if (loc == IN_GLOBAL || loc == IN_MODULE_GLOBAL) {
+                pa_droid_config_global *global_config = NULL;
+
+                if (loc == IN_MODULE_GLOBAL) {
+                    pa_assert(module);
+                    if (!module->global_config)
+                        module->global_config = pa_xnew0(pa_droid_config_global, 1);
+                    global_config = module->global_config;
+                } else
+                    global_config = config->global_config;
+
+                pa_assert(global_config);
 
                 /* Parse global configuration */
 
                 if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
                     success = parse_devices(filename, n, value, true,
-                                            &config->global_config.attached_output_devices, false);
+                                            &global_config->attached_output_devices, false);
                 else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
                     success = parse_devices(filename, n, value, true,
-                                            &config->global_config.default_output_device, true);
+                                            &global_config->default_output_device, true);
                 else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
                     success = parse_devices(filename, n, value, false,
-                                            &config->global_config.attached_input_devices, false);
+                                            &global_config->attached_input_devices, false);
+                else if (pa_streq(v, AUDIO_HAL_VERSION_TAG))
+                    success = parse_version(filename, n, value,
+                                            &global_config->audio_hal_version);
 #ifdef DROID_HAVE_DRC
                 // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
                 else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
@@ -706,6 +824,16 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     success = false;
                 }
 
+            } else if (loc == IN_DEVICES_DEVICE) {
+                /* TODO Missing implementation of parsing the module/devices section.
+                 * As of now there is no need for the information, fix this when that
+                 * changes. */
+                success = true;
+            } else if (loc == IN_GAIN_N) {
+                /* TODO Missing implementation of parsing the gain_n section.
+                 * As of now there is no need for the information, fix this when that
+                 * changes. */
+                success = true;
             } else
                 pa_assert_not_reached();
 
@@ -1119,10 +1247,12 @@ static pa_droid_port *create_o_port(pa_droid_mapping *am, uint32_t device, const
     p->priority = DEFAULT_PRIORITY;
     p->device = device;
 
-    if (am->profile_set->config->global_config.attached_output_devices & device)
+    if (am->output->module->global_config ? am->output->module->global_config->attached_output_devices & device
+                                          : am->profile_set->config->global_config->attached_output_devices & device)
         p->priority += DEFAULT_PRIORITY;
 
-    if (am->profile_set->config->global_config.default_output_device & device)
+    if (am->output->module->global_config ? am->output->module->global_config->default_output_device & device
+                                          : am->profile_set->config->global_config->default_output_device & device)
         p->priority += DEFAULT_PRIORITY;
 
     return p;
@@ -1209,7 +1339,8 @@ static void add_i_port(pa_droid_mapping *am, uint32_t device, const char *name) 
         p->priority = DEFAULT_PRIORITY;
         p->device = device;
 
-        if (am->profile_set->config->global_config.attached_input_devices & device)
+        if (am->input->module->global_config ? am->input->module->global_config->attached_input_devices & device
+                                             : am->profile_set->config->global_config->attached_input_devices & device)
             p->priority += DEFAULT_PRIORITY;
 
         pa_hashmap_put(am->profile_set->all_ports, p->name, p);
@@ -1590,10 +1721,12 @@ static void droid_config_free(pa_droid_config_audio *config) {
             pa_xfree(input);
         }
 
+        pa_xfree(module->global_config);
         pa_xfree(module->name);
         pa_xfree(module);
     }
 
+    pa_xfree(config->global_config);
     pa_xfree(config);
 }
 
