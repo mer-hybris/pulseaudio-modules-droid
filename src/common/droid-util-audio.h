@@ -22,12 +22,12 @@
 #ifndef _DROID_UTIL_AUDIO_H_
 #define _DROID_UTIL_AUDIO_H_
 
-#include <hardware/audio.h>
-#include <hardware_legacy/audio_policy_conf.h>
-
 #ifdef QCOM_BSP
 #define QCOM_HARDWARE
 #endif
+
+#include <hardware/audio.h>
+#include <hardware_legacy/audio_policy_conf.h>
 
 #ifdef SPEAKER_DRC_ENABLED_TAG
 #define DROID_HAVE_DRC
