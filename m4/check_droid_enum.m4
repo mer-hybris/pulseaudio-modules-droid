@@ -5,7 +5,11 @@ AC_DEFUN([CC_CHECK_DROID_ENUM],
  SAVE_CFLAGS="$CFLAGS"
  CFLAGS="$CFLAGS $1"
  AC_TRY_COMPILE(
- [ #include <system/audio.h> ],
+ [ #include <android-config.h>
+   #ifdef QCOM_BSP
+   #define QCOM_HARDWARE
+   #endif
+   #include <system/audio.h> ],
  [ unsigned int e = $2; ],
  cc_check_droid_enum=yes, cc_check_droid_enum=no)
  CFLAGS="$SAVE_CFLAGS"
