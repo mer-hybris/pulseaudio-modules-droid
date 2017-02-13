@@ -22,12 +22,12 @@
 #ifndef _DROID_UTIL_AUDIO_H_
 #define _DROID_UTIL_AUDIO_H_
 
-#include <hardware/audio.h>
-#include <hardware_legacy/audio_policy_conf.h>
-
 #ifdef QCOM_BSP
 #define QCOM_HARDWARE
 #endif
+
+#include <hardware/audio.h>
+#include <hardware_legacy/audio_policy_conf.h>
 
 #ifdef SPEAKER_DRC_ENABLED_TAG
 #define DROID_HAVE_DRC
@@ -105,10 +105,10 @@ uint32_t conversion_table_default_audio_source[][2] = {
     { AUDIO_DEVICE_IN_VOICE_CALL,                   AUDIO_SOURCE_VOICE_CALL                 },
     { AUDIO_DEVICE_IN_BACK_MIC,                     AUDIO_SOURCE_MIC                        },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                AUDIO_SOURCE_REMOTE_SUBMIX              },
-#if defined(AUDIO_DEVICE_IN_FM_RX) && defined(AUDIO_SOURCE_FM_RX)
+#if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_RX)
     { AUDIO_DEVICE_IN_FM_RX,                        AUDIO_SOURCE_FM_RX                      },
 #endif
-#if defined(AUDIO_DEVICE_IN_FM_RX_A2DP) && defined(AUDIO_SOURCE_FM_RX_A2DP)
+#if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX_A2DP) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_RX_A2DP)
     { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP                 },
 #endif
     { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
