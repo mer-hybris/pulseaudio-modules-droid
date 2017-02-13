@@ -11,14 +11,27 @@ Supported Android versions:
  * 4.1.x with Qualcomm extensions (tested with 4.1.2)
  * 4.2.x
  * 4.4.x
- * 5.1
+ * 5.x
+ * 6.0.x
 
 Headers for defining devices and strings for different droid versions are in
-src/common/droid-util-XXX.h
+src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
 
-These headers are then included in src/common/droid-util.h based on detected
-droid version. Version is defined in android-version.h, included from
-android-config.h, which is part of droid hal devel package.
+When new devices with relevant new enums appear, add enum check to configure.ac,
+for example: (the CC_CHECK_DROID_ENUM m4 macro will create define HAVE_ENUM_FOO
+if the enum FOO exists in HAL audio.h)
+    CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_IP])
+
+and then in droid-util-audio.h add the enum to proper tables with ifdefs:
+    /* string_conversion_table_output_device[] */
+    #ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_IP
+        STRING_ENTRY( AUDIO_DEVICE_OUT_IP ),
+    #endif
+
+    /* string_conversion_table_output_device_fancy[] */
+    #ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_IP
+        { AUDIO_DEVICE_OUT_IP, "output-ip" },
+    #endif
 
 The purpose of droid-modules is to "replace AudioFlinger". Many hardware
 adaptations use ALSA as the kernel interface, but there is no saying that
