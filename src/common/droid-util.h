@@ -80,6 +80,8 @@ typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const c
 typedef struct pa_droid_config_audio pa_droid_config_audio;
 typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
 
+typedef struct pa_droid_quirks pa_droid_quirks;
+
 struct pa_droid_hw_module {
     PA_REFCNT_DECLARE;
 
@@ -105,6 +107,8 @@ struct pa_droid_hw_module {
 
     pa_atomic_t active_outputs;
     uint32_t output_device;
+
+    pa_droid_quirks *quirks;
 };
 
 struct pa_droid_stream {
@@ -248,6 +252,12 @@ struct pa_droid_profile_set {
 #define PA_DROID_OUTPUT_PARKING "output-parking"
 #define PA_DROID_INPUT_PARKING "input-parking"
 
+enum pa_droid_quirk_type {
+    QUIRK_INPUT_ATOI,
+    QUIRK_SET_PARAMETERS,
+    QUIRK_COUNT
+};
+
 /* Open hardware module */
 /* 'config' can be NULL if it is assumed that hw module with module_id already is open. */
 /* if opening of hw_module succeeds, config ownership is transferred to hw_module and config
@@ -259,6 +269,9 @@ void pa_droid_hw_module_unref(pa_droid_hw_module *hw);
 void pa_droid_hw_module_lock(pa_droid_hw_module *hw);
 bool pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
+
+bool pa_droid_parse_quirks(pa_droid_hw_module *hw, const char *quirks);
+bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk);
 
 /* Conversion helpers */
 typedef enum {

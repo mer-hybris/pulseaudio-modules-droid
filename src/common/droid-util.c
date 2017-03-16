@@ -60,6 +60,20 @@
 
 #include "droid-util.h"
 
+struct droid_quirk {
+    const char *name;
+    uint32_t value;
+};
+
+struct droid_quirk valid_quirks[] = {
+    { "input_atoi",             QUIRK_INPUT_ATOI            },
+    { "set_parameters",         QUIRK_SET_PARAMETERS        }
+};
+
+struct pa_droid_quirks {
+    bool enabled[QUIRK_COUNT];
+};
+
 #define SLLIST_APPEND(t, head, item)                                \
     do {                                                            \
         item->next = NULL;                                          \
@@ -1547,6 +1561,101 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
     add_ports(core, cp, ports, am, NULL);
 }
 
+static void log_active_quirks(pa_droid_quirks *quirks) {
+    uint32_t i;
+
+    if (quirks) {
+        pa_log_debug("Enabled quirks:");
+        for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++)
+            if (quirks->enabled[i])
+                pa_log_debug("  %s", valid_quirks[i].name);
+    }
+}
+
+static pa_droid_quirks *get_quirks(pa_droid_quirks *q) {
+    if (!q)
+        q = pa_xnew0(pa_droid_quirks, 1);
+
+    return q;
+}
+
+static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
+    q = NULL;
+
+#if defined(DROID_AUDIO_HAL_ATOI_FIX)
+    q = get_quirks(q);
+    q->enabled[QUIRK_INPUT_ATOI] = true;
+#endif
+
+#if defined(DROID_DEVICE_ANZU) ||\
+    defined(DROID_DEVICE_COCONUT) || defined(DROID_DEVICE_HAIDA) ||\
+    defined(DROID_DEVICE_HALLON) || defined(DROID_DEVICE_IYOKAN) ||\
+    defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
+    defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
+#warning Using set_parameters hack, originating from previous cm10 mako.
+    q = get_quirks(q);
+    q->enabled[QUIRK_SET_PARAMETERS] = true;
+#endif
+
+    log_active_quirks(q);
+
+    return q;
+}
+
+bool pa_droid_parse_quirks(pa_droid_hw_module *hw, const char *quirks) {
+    char *quirk = NULL;
+    char *d;
+    const char *state = NULL;
+
+    pa_assert(hw);
+    pa_assert(quirks);
+
+    hw->quirks = get_quirks(hw->quirks);
+
+    while ((quirk = pa_split(quirks, ",", &state))) {
+        uint32_t i;
+        bool enable = false;
+
+        if (strlen(quirk) < 2)
+            goto error;
+
+        d = quirk + 1;
+
+        if (quirk[0] == '+')
+            enable = true;
+        else if (quirk[0] == '-')
+            enable = false;
+        else
+            goto error;
+
+        for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++) {
+            if (pa_streq(valid_quirks[i].name, d))
+                hw->quirks->enabled[valid_quirks[i].value] = enable;
+        }
+
+        pa_xfree(quirk);
+    }
+
+    log_active_quirks(hw->quirks);
+
+    return true;
+
+error:
+    pa_log("Incorrect quirk definition \"%s\" (\"%s\")", quirk ? quirk : "<null>", quirks);
+    pa_xfree(quirk);
+
+    return false;
+}
+
+bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk) {
+    pa_assert(hw);
+
+    if (hw->quirks && hw->quirks->enabled[quirk])
+        return true;
+    else
+        return false;
+}
+
 static char *shared_name_get(const char *module_id) {
     pa_assert(module_id);
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
@@ -1611,6 +1720,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     hw->shared_name = shared_name_get(hw->module_id);
     hw->outputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
     hw->inputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    hw->quirks = set_default_quirks(hw->quirks);
 
     pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
 
@@ -1654,7 +1764,7 @@ pa_droid_hw_module *pa_droid_hw_module_ref(pa_droid_hw_module *hw) {
 static void droid_hw_module_close(pa_droid_hw_module *hw) {
     pa_assert(hw);
 
-    pa_log_info("Closing hw module %s", hw->enabled_module->name);
+    pa_log_info("Closing hw module %s.%s (%s)", AUDIO_HARDWARE_MODULE_ID, hw->enabled_module->name, DROID_DEVICE_STRING);
 
     if (hw->config)
         droid_config_free(hw->config);
@@ -1683,6 +1793,8 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         pa_assert(pa_idxset_size(hw->inputs) == 0);
         pa_idxset_free(hw->inputs, NULL);
     }
+
+    pa_xfree(hw->quirks);
 
     pa_xfree(hw);
 }
@@ -2127,35 +2239,29 @@ int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, 
     device &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
-    if (pa_input_device_default_audio_source(device, &source))
-#ifdef DROID_AUDIO_HAL_ATOI_FIX
-        parameters = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) device,
-                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
-#else
-        parameters = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device,
-                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
-#endif
-    else
-        parameters = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device);
+    if (pa_input_device_default_audio_source(device, &source)) {
+        if (pa_droid_quirk(s->module, QUIRK_INPUT_ATOI))
+            parameters = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) device,
+                                                          AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+        else
+            parameters = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device,
+                                                          AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+    } else
+            parameters = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device);
 
     pa_log_debug("input stream %p set_parameters(%s) %#010x ; %#010x",
                  (void *) s, parameters, device, source);
 
 
-#if defined(DROID_DEVICE_ANZU) ||\
-    defined(DROID_DEVICE_COCONUT) || defined(DROID_DEVICE_HAIDA) ||\
-    defined(DROID_DEVICE_HALLON) || defined(DROID_DEVICE_IYOKAN) ||\
-    defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
-    defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
-#warning Using set_parameters hack, originating from previous cm10 mako.
-    pa_mutex_lock(s->module->hw_mutex);
-    ret = s->module->device->set_parameters(s->module->device, parameters);
-    pa_mutex_unlock(s->module->hw_mutex);
-#else
-    pa_mutex_lock(s->module->input_mutex);
-    ret = s->in->common.set_parameters(&s->in->common, parameters);
-    pa_mutex_unlock(s->module->input_mutex);
-#endif
+    if (pa_droid_quirk(s->module, QUIRK_SET_PARAMETERS)) {
+        pa_mutex_lock(s->module->hw_mutex);
+        ret = s->module->device->set_parameters(s->module->device, parameters);
+        pa_mutex_unlock(s->module->hw_mutex);
+    } else {
+        pa_mutex_lock(s->module->input_mutex);
+        ret = s->in->common.set_parameters(&s->in->common, parameters);
+        pa_mutex_unlock(s->module->input_mutex);
+    }
 
     if (ret < 0) {
         if (ret == -ENOSYS)
