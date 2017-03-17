@@ -81,7 +81,8 @@ PA_MODULE_USAGE(
         "config=<location for droid audio configuration> "
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
         "voice_property_value=<proplist value for the key for voice control sink-input> "
-        "combine=<comma separated list of outputs that should be merged to one profile. defaults to none>"
+        "combine=<comma separated list of outputs that should be merged to one profile. defaults to none> "
+        "quirks=<comma separated list of quirks to enable/disable>"
 );
 
 static const char* const valid_modargs[] = {
@@ -112,6 +113,7 @@ static const char* const valid_modargs[] = {
     "voice_property_key",
     "voice_property_value",
     "combine",
+    "quirks",
     NULL,
 };
 
@@ -782,6 +784,7 @@ int pa__init(pa_module *m) {
     bool voice_source_routing = false;
     pa_card_profile *virtual;
     const char *combine;
+    const char *quirks;
 
     pa_assert(m);
 
@@ -794,6 +797,7 @@ int pa__init(pa_module *m) {
 
     struct userdata *u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
+    m->userdata = u;
 
     if (!(config = pa_droid_config_load(ma)))
         goto fail;
@@ -809,6 +813,13 @@ int pa__init(pa_module *m) {
     /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
     if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
         goto fail;
+
+    if ((quirks = pa_modargs_get_value(ma, "quirks", NULL))) {
+        if (!pa_droid_parse_quirks(u->hw_module, quirks)) {
+            pa_log("Failed to parse quirks.");
+            goto fail;
+        }
+    }
 
     u->card_data.set_parameters = set_parameters_cb;
     u->card_data.module_id = pa_xstrdup(module_id);
@@ -926,8 +937,6 @@ int pa__init(pa_module *m) {
     u->modargs = ma;
     u->module = m;
 
-    m->userdata = u;
-
     init_profile(u);
 
     return 0;
@@ -935,8 +944,6 @@ int pa__init(pa_module *m) {
 fail:
     if (ma)
         pa_modargs_free(ma);
-
-    pa_xfree(config);
 
     pa__done(m);
 
