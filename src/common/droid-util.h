@@ -384,4 +384,7 @@ static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
 
 bool pa_sink_is_droid_sink(pa_sink *s);
 
+/* Misc */
+size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size);
+
 #endif

@@ -577,17 +577,10 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     u->buffer_size = pa_droid_stream_buffer_size(u->stream);
     if (source_buffer) {
-        if (source_buffer < u->buffer_size)
-            pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", source_buffer, u->buffer_size);
-        else if (source_buffer % u->buffer_size) {
-            uint32_t trunc = (source_buffer / u->buffer_size) * u->buffer_size;
-            pa_log_warn("Requested buffer size %u not multiple of HAL buffer size (%u). Using buffer size %u", source_buffer, u->buffer_size, trunc);
-            u->buffer_size = trunc;
-        } else {
-            pa_log_info("Using requested buffer size %u.", source_buffer);
-            u->buffer_size = source_buffer;
-        }
-    }
+        u->buffer_size = pa_droid_buffer_size_round_up(source_buffer, u->buffer_size);
+        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, source_buffer);
+    } else
+        pa_log_info("Using buffer size %u.", u->buffer_size);
 
     pa_source_new_data_init(&data);
     data.driver = driver;

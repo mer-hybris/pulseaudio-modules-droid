@@ -1201,17 +1201,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     u->buffer_size = pa_droid_stream_buffer_size(u->stream);
     if (sink_buffer) {
-        if (sink_buffer < u->buffer_size)
-            pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", sink_buffer, u->buffer_size);
-        else if (sink_buffer % u->buffer_size) {
-            uint32_t trunc = (sink_buffer / u->buffer_size) * u->buffer_size;
-            pa_log_warn("Requested buffer size %u not multiple of HAL buffer size (%u). Using buffer size %u", sink_buffer, u->buffer_size, trunc);
-            u->buffer_size = trunc;
-        } else {
-            pa_log_info("Using requested buffer size %u.", sink_buffer);
-            u->buffer_size = sink_buffer;
-        }
-    }
+        u->buffer_size = pa_droid_buffer_size_round_up(sink_buffer, u->buffer_size);
+        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, sink_buffer);
+    } else
+        pa_log_info("Using buffer size %u.", u->buffer_size);
 
     if ((prewrite_resume = pa_modargs_get_value(ma, "prewrite_on_resume", NULL))) {
         if (!parse_prewrite_on_resume(u, prewrite_resume, am ? am->output->name : module_id)) {

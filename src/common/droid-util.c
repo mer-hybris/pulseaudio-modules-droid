@@ -2409,3 +2409,17 @@ bool pa_sink_is_droid_sink(pa_sink *s) {
     else
         return false;
 }
+
+size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size) {
+    size_t r;
+
+    pa_assert(buffer_size);
+    pa_assert(block_size);
+
+    r = buffer_size % block_size;
+
+    if (r)
+        return buffer_size + block_size - r;
+
+    return buffer_size;
+}
