@@ -2112,6 +2112,9 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
         goto fail;
     }
 
+    /* we need to call standby before reading with some devices. */
+    stream->common.standby(&stream->common);
+
     s = droid_stream_new(module);
     s->in = stream;
     s->sample_spec = sample_spec;

@@ -198,8 +198,6 @@ static void thread_func(void *userdata) {
 
     u->timestamp = pa_rtclock_now();
 
-    u->stream->in->common.standby(&u->stream->in->common);
-
     for (;;) {
         int ret;
 
