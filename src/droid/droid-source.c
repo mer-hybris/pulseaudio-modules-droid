@@ -577,7 +577,7 @@ pa_source *pa_droid_source_new(pa_module *m,
         goto fail;
     }
 
-    u->buffer_size = u->stream->in->common.get_buffer_size(&u->stream->in->common);
+    u->buffer_size = pa_droid_stream_buffer_size(u->stream);
     if (source_buffer) {
         if (source_buffer < u->buffer_size)
             pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", source_buffer, u->buffer_size);

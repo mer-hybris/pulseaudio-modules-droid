@@ -1199,7 +1199,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
-    u->buffer_size = u->stream->out->common.get_buffer_size(&u->stream->out->common);
+    u->buffer_size = pa_droid_stream_buffer_size(u->stream);
     if (sink_buffer) {
         if (sink_buffer < u->buffer_size)
             pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", sink_buffer, u->buffer_size);

@@ -139,6 +139,8 @@ static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL 
 static void droid_config_free(pa_droid_config_audio *config);
 static void droid_port_free(pa_droid_port *p);
 
+static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw);
+
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
     pa_assert(to_str);
@@ -1671,6 +1673,8 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     pa_assert(core);
     pa_assert(module_id);
 
+    pa_log_info("Droid hw module %s", VERSION);
+
     if (!config) {
         pa_log("No configuration provided for opening module with id %s", module_id);
         goto fail;
@@ -1906,16 +1910,87 @@ static pa_droid_stream *droid_stream_new(pa_droid_hw_module *module) {
     return s;
 }
 
+static bool stream_config_fill(audio_devices_t devices,
+                               pa_sample_spec *sample_spec,
+                               pa_channel_map *channel_map,
+                               struct audio_config *config) {
+    audio_format_t hal_audio_format = 0;
+    audio_channel_mask_t hal_channel_mask = 0;
+    bool voicecall_record = false;
+
+    pa_assert(sample_spec);
+    pa_assert(channel_map);
+    pa_assert(config);
+
+#if AUDIO_API_VERSION_MAJ >= 2
+    devices &= ~AUDIO_DEVICE_BIT_IN;
+#endif
+
+    if (devices & AUDIO_DEVICE_IN_VOICE_CALL)
+        voicecall_record = true;
+
+    if (!pa_convert_format(sample_spec->format, CONV_FROM_PA, &hal_audio_format)) {
+        pa_log("Sample spec format %u not supported.", sample_spec->format);
+        goto fail;
+    }
+
+    if (devices & AUDIO_DEVICE_IN_ALL) {
+        for (int i = 0; i < channel_map->channels; i++) {
+            audio_channel_mask_t c;
+            if (!pa_convert_input_channel(channel_map->map[i], CONV_FROM_PA, &c)) {
+                pa_log("Failed to convert channel map.");
+                goto fail;
+            }
+            hal_channel_mask |= c;
+        }
+    } else {
+        for (int i = 0; i < channel_map->channels; i++) {
+            audio_channel_mask_t c;
+            if (!pa_convert_output_channel(channel_map->map[i], CONV_FROM_PA, &c)) {
+                pa_log("Failed to convert channel map.");
+                goto fail;
+            }
+            hal_channel_mask |= c;
+        }
+    }
+
+    if (voicecall_record) {
+        pa_channel_map_init_mono(channel_map);
+        sample_spec->channels = 1;
+        /* Only allow recording both downlink and uplink. */
+#if defined(QCOM_HARDWARE)
+  #if (ANDROID_VERSION_MAJOR <= 4) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_CALL_MONO)
+        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
+  #else
+        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
+  #endif
+#else
+        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
+#endif
+    }
+
+    memset(config, 0, sizeof(*config));
+    config->sample_rate = sample_spec->rate;
+    config->channel_mask = hal_channel_mask;
+    config->format = hal_audio_format;
+
+    return true;
+
+fail:
+    return false;
+}
+
 pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              const pa_sample_spec *spec,
                                              const pa_channel_map *map,
                                              audio_output_flags_t flags,
                                              audio_devices_t devices) {
     pa_droid_stream *s = NULL;
+    pa_droid_stream *primary_stream = NULL;
     int ret;
     struct audio_stream_out *stream;
-    audio_format_t hal_audio_format = 0;
-    audio_channel_mask_t hal_channel_mask = 0;
+    pa_channel_map channel_map;
+    pa_sample_spec sample_spec;
     struct audio_config config_out;
     size_t buffer_size;
 
@@ -1923,31 +1998,17 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
     pa_assert(spec);
     pa_assert(map);
 
-    if (!pa_convert_format(spec->format, CONV_FROM_PA, &hal_audio_format)) {
-        pa_log("Sample spec format %u not supported.", spec->format);
+    sample_spec = *spec;
+    channel_map = *map;
+
+    if (!stream_config_fill(devices, &sample_spec, &channel_map, &config_out))
         goto fail;
-    }
 
-    for (int i = 0; i < map->channels; i++) {
-        audio_channel_mask_t c;
-        if (!pa_convert_output_channel(map->map[i], CONV_FROM_PA, &c)) {
-            pa_log("Failed to convert channel map.");
-            goto fail;
-        }
-        hal_channel_mask |= c;
-    }
-
-    memset(&config_out, 0, sizeof(struct audio_config));
-    config_out.sample_rate = spec->rate;
-    config_out.channel_mask = hal_channel_mask;
-    config_out.format = hal_audio_format;
-
-    if (pa_idxset_size(module->outputs) == 0) {
+    if (pa_idxset_size(module->outputs) == 0)
         pa_log_debug("Set initial output device to %#010x", devices);
-        module->output_device = devices;
-    } else {
-        pa_log_debug("Output with device %#010x already open, using as initial device.", module->output_device);
-        devices = module->output_device;
+    else if ((primary_stream = get_primary_output(module))) {
+        pa_log_debug("Primary output with device %#010x already open, using as initial device.", primary_stream->device);
+        devices = primary_stream->device;
     }
 
     pa_droid_hw_module_lock(module);
@@ -1972,9 +2033,10 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 
     s = droid_stream_new(module);
     s->out = stream;
-    s->sample_spec = *spec;
-    s->channel_map = *map;
+    s->sample_spec = sample_spec;
+    s->channel_map = channel_map;
     s->flags = flags;
+    s->device = devices;
 
     if ((s->sample_spec.rate = s->out->common.get_sample_rate(&s->out->common)) != spec->rate)
         pa_log_warn("Requested sample rate %u but got %u instead.", spec->rate, s->sample_spec.rate);
@@ -1988,8 +2050,8 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
             devices,
             s->flags,
             s->sample_spec.rate,
-            s->sample_spec.channels, hal_channel_mask,
-            s->sample_spec.format, hal_audio_format,
+            s->sample_spec.channels, config_out.channel_mask,
+            s->sample_spec.format, config_out.format,
             buffer_size,
             pa_bytes_to_usec(buffer_size, &s->sample_spec));
 
@@ -2009,57 +2071,19 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     pa_droid_stream *s = NULL;
     int ret;
     audio_stream_in_t *stream;
-    audio_format_t hal_audio_format = 0;
-    audio_channel_mask_t hal_channel_mask = 0;
+    audio_source_t audio_source = AUDIO_SOURCE_DEFAULT;
     pa_channel_map channel_map;
     pa_sample_spec sample_spec;
-    bool voicecall_record = false;
     struct audio_config config_in;
     size_t buffer_size;
-
-#if AUDIO_API_VERSION_MAJ >= 2
-    if ((devices & ~AUDIO_DEVICE_BIT_IN) & AUDIO_DEVICE_IN_VOICE_CALL)
-#else
-    if (devices & AUDIO_DEVICE_IN_VOICE_CALL)
-#endif
-        voicecall_record = true;
 
     channel_map = *map;
     sample_spec = *spec;
 
-    if (!pa_convert_format(spec->format, CONV_FROM_PA, &hal_audio_format)) {
-        pa_log("Sample spec format %u not supported.", spec->format);
+    pa_input_device_default_audio_source(devices, &audio_source);
+
+    if (!stream_config_fill(devices, &sample_spec, &channel_map, &config_in))
         goto fail;
-    }
-
-    for (int i = 0; i < map->channels; i++) {
-        audio_channel_mask_t c;
-        if (!pa_convert_input_channel(map->map[i], CONV_FROM_PA, &c)) {
-            pa_log("Failed to convert channel map.");
-            goto fail;
-        }
-        hal_channel_mask |= c;
-    }
-
-    if (voicecall_record) {
-        pa_channel_map_init_mono(&channel_map);
-        sample_spec.channels = 1;
-        /* Only allow recording both downlink and uplink. */
-#if defined(QCOM_HARDWARE)
-  #if (ANDROID_VERSION_MAJOR <= 4) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_CALL_MONO)
-        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
-  #else
-        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
-  #endif
-#else
-        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
-#endif
-    }
-
-    memset(&config_in, 0, sizeof(struct audio_config));
-    config_in.sample_rate = sample_spec.rate;
-    config_in.channel_mask = hal_channel_mask;
-    config_in.format = hal_audio_format;
 
     pa_droid_hw_module_lock(module);
     ret = module->device->open_input_stream(module->device,
@@ -2068,9 +2092,9 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             &config_in,
                                             &stream
 #if AUDIO_API_VERSION_MAJ >= 3
-                                                  , AUDIO_INPUT_FLAG_NONE   /* Default to no input flags */
-                                                  , NULL                    /* Don't define address */
-                                                  , AUDIO_SOURCE_DEFAULT    /* Default audio source */
+                                            , AUDIO_INPUT_FLAG_NONE   /* Default to no input flags */
+                                            , NULL                    /* Don't define address */
+                                            , audio_source
 #endif
                                                   );
     pa_droid_hw_module_unlock(module);
@@ -2093,6 +2117,8 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     s->sample_spec = sample_spec;
     s->channel_map = channel_map;
     s->flags = 0;
+    s->device = devices;
+    s->audio_source = audio_source;
 
     if ((s->sample_spec.rate = s->in->common.get_sample_rate(&s->in->common)) != spec->rate)
         pa_log_warn("Requested sample rate %u but got %u instead.", spec->rate, s->sample_spec.rate);
@@ -2110,8 +2136,8 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
             devices,
             s->flags,
             s->sample_spec.rate,
-            s->sample_spec.channels, hal_channel_mask,
-            s->sample_spec.format, hal_audio_format,
+            s->sample_spec.channels, config_in.channel_mask,
+            s->sample_spec.format, config_in.format,
             buffer_size,
             pa_bytes_to_usec(buffer_size, &s->sample_spec));
 
@@ -2175,7 +2201,7 @@ static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw) {
 int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device) {
     pa_droid_stream *slave;
     uint32_t idx;
-    char *parameters;
+    char *parameters = NULL;
     int ret = 0;
 
     pa_assert(s);
@@ -2185,9 +2211,9 @@ int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device)
 
     pa_mutex_lock(s->module->output_mutex);
 
-    parameters = pa_sprintf_malloc("%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, device);
-
     if (s->flags & AUDIO_OUTPUT_FLAG_PRIMARY || get_primary_output(s->module) == NULL) {
+        parameters = pa_sprintf_malloc("%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, device);
+
         pa_log_debug("output stream %p set_parameters(%s) %#010x", (void *) s, parameters, device);
         ret = s->out->common.set_parameters(&s->out->common, parameters);
 
@@ -2198,11 +2224,12 @@ int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device)
                 pa_log_warn("output set_parameters(%s) failed", parameters);
         } else {
             /* Store last set output device. */
-            s->module->output_device = device;
+            s->device = device;
         }
     }
 
     if (s->flags & AUDIO_OUTPUT_FLAG_PRIMARY && pa_idxset_size(s->module->outputs) > 1) {
+        pa_assert(parameters);
 
         PA_IDXSET_FOREACH(slave, s->module->outputs, idx) {
             if (slave == s)
@@ -2216,7 +2243,8 @@ int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device)
                     pa_log_warn("output set_parameters(%s) not allowed while stream is active", parameters);
                 else
                     pa_log_warn("output set_parameters(%s) failed", parameters);
-            }
+            } else
+                slave->device = s->device;
         }
     }
 
@@ -2268,6 +2296,9 @@ int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, 
             pa_log_warn("input set_parameters(%s) not allowed while stream is active", parameters);
         else
             pa_log_warn("input set_parameters(%s) failed", parameters);
+    } else {
+        s->device = device;
+        s->audio_source = source;
     }
 
     if (new_source)
@@ -2353,6 +2384,16 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
         else
             return 0;
     }
+}
+
+size_t pa_droid_stream_buffer_size(pa_droid_stream *s) {
+    pa_assert(s);
+    pa_assert(s->out || s->in);
+
+    if (s->out)
+        return s->out->common.get_buffer_size(&s->out->common);
+    else
+        return s->in->common.get_buffer_size(&s->in->common);
 }
 
 bool pa_sink_is_droid_sink(pa_sink *s) {

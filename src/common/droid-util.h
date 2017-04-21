@@ -106,7 +106,6 @@ struct pa_droid_hw_module {
     pa_idxset *inputs;
 
     pa_atomic_t active_outputs;
-    uint32_t output_device;
 
     pa_droid_quirks *quirks;
 };
@@ -119,6 +118,8 @@ struct pa_droid_stream {
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     uint32_t flags;
+    uint32_t device;
+    audio_source_t audio_source;
 
     struct audio_stream_out *out;
     struct audio_stream_in *in;
@@ -374,6 +375,8 @@ int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, 
 bool pa_droid_stream_is_primary(pa_droid_stream *s);
 
 int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend);
+
+size_t pa_droid_stream_buffer_size(pa_droid_stream *s);
 
 static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
     return pa_atomic_load(&s->module->active_outputs);
