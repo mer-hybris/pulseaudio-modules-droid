@@ -401,6 +401,10 @@ static inline ssize_t pa_droid_stream_write(pa_droid_stream *stream, const void 
     return stream->out->write(stream->out, buffer, bytes);
 }
 
+static inline ssize_t pa_droid_stream_read(pa_droid_stream *stream, void *buffer, size_t bytes) {
+    return stream->in->read(stream->in, buffer, bytes);
+}
+
 bool pa_sink_is_droid_sink(pa_sink *s);
 
 /* Misc */
