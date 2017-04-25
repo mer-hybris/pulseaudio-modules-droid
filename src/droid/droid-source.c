@@ -357,24 +357,6 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
     return droid_source_set_port(s, p, false);
 }
 
-static void source_set_voicecall_source_port(struct userdata *u) {
-    pa_device_port *port;
-    pa_droid_port_data *data;
-    void *state;
-
-    pa_assert(u);
-    pa_assert(u->source);
-
-    PA_HASHMAP_FOREACH(port, u->source->ports, state) {
-        data = PA_DEVICE_PORT_DATA(port);
-
-        if (data->device & AUDIO_DEVICE_IN_VOICE_CALL) {
-            pa_source_set_port(u->source, port->name, false);
-            break;
-        }
-    }
-}
-
 static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char *module_id) {
     const char *tmp;
 
@@ -552,7 +534,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     bool namereg_fail = false;
     pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
-    bool voicecall_source = false;
 
     pa_assert(m);
     pa_assert(ma);
@@ -566,11 +547,6 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     sample_spec = m->core->default_sample_spec;
     channel_map = m->core->default_channel_map;
-
-    if (device & AUDIO_DEVICE_IN_VOICE_CALL) {
-        pa_log_info("Enabling voice call record source. Most module arguments are overridden.");
-        voicecall_source = true;
-    }
 
     /* First parse both sample spec and channel map, then see if source_* override some
      * of the values. */
@@ -623,8 +599,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
-    /* Enabled routing changes by default, except for voicecall source. */
-    u->routing_changes_enabled = voicecall_source ? false : true;
+    /* Enable routing changes by default. */
+    u->routing_changes_enabled = true;
 
     if (card_data) {
         pa_assert(card);
@@ -729,11 +705,8 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     update_latency(u);
 
-    if (!voicecall_source && u->source->active_port)
+    if (u->source->active_port)
         source_set_port_cb(u->source, u->source->active_port);
-
-    if (voicecall_source)
-        source_set_voicecall_source_port(u);
 
     u->input_buffer_size_changed_slot = pa_hook_connect(&pa_droid_hooks(u->hw_module)[PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED],
                                                         PA_HOOK_NORMAL,
