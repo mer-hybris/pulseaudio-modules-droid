@@ -749,11 +749,13 @@ int pa__init(pa_module *m) {
         goto fail;
 
     if ((quirks = pa_modargs_get_value(ma, "quirks", NULL))) {
-        if (!pa_droid_parse_quirks(u->hw_module, quirks)) {
+        if (!pa_droid_quirk_parse(u->hw_module, quirks)) {
             pa_log("Failed to parse quirks.");
             goto fail;
         }
     }
+
+    pa_droid_quirk_log(u->hw_module);
 
     u->card_data.set_parameters = set_parameters_cb;
     u->card_data.module_id = pa_xstrdup(module_id);

@@ -1565,14 +1565,21 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
     add_ports(core, cp, ports, am, NULL);
 }
 
-static void log_active_quirks(pa_droid_quirks *quirks) {
+void pa_droid_quirk_log(pa_droid_hw_module *hw) {
     uint32_t i;
 
-    if (quirks) {
-        pa_log_debug("Enabled quirks:");
-        for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++)
-            if (quirks->enabled[i])
-                pa_log_debug("  %s", valid_quirks[i].name);
+    pa_assert(hw);
+
+    if (hw->quirks) {
+        for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++) {
+            if (hw->quirks->enabled[i]) {
+                pa_log_debug("Enabled quirks:");
+                for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++)
+                    if (hw->quirks->enabled[i])
+                        pa_log_debug("  %s", valid_quirks[i].name);
+                return;
+            }
+        }
     }
 }
 
@@ -1604,12 +1611,10 @@ static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
     q = get_quirks(q);
     q->enabled[QUIRK_CLOSE_INPUT] = true;
 
-    log_active_quirks(q);
-
     return q;
 }
 
-bool pa_droid_parse_quirks(pa_droid_hw_module *hw, const char *quirks) {
+bool pa_droid_quirk_parse(pa_droid_hw_module *hw, const char *quirks) {
     char *quirk = NULL;
     char *d;
     const char *state = NULL;
@@ -1642,8 +1647,6 @@ bool pa_droid_parse_quirks(pa_droid_hw_module *hw, const char *quirks) {
 
         pa_xfree(quirk);
     }
-
-    log_active_quirks(hw->quirks);
 
     return true;
 

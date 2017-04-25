@@ -282,8 +282,9 @@ void pa_droid_hw_module_lock(pa_droid_hw_module *hw);
 bool pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
 
-bool pa_droid_parse_quirks(pa_droid_hw_module *hw, const char *quirks);
+bool pa_droid_quirk_parse(pa_droid_hw_module *hw, const char *quirks);
 bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk);
+void pa_droid_quirk_log(pa_droid_hw_module *hw);
 
 /* Conversion helpers */
 typedef enum {
