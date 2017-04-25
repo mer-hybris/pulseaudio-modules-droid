@@ -397,6 +397,10 @@ static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
     return pa_atomic_load(&s->module->active_outputs);
 }
 
+static inline ssize_t pa_droid_stream_write(pa_droid_stream *stream, const void *buffer, size_t bytes) {
+    return stream->out->write(stream->out, buffer, bytes);
+}
+
 bool pa_sink_is_droid_sink(pa_sink *s);
 
 /* Misc */
