@@ -141,7 +141,7 @@ static void droid_config_free(pa_droid_config_audio *config);
 static void droid_port_free(pa_droid_port *p);
 
 static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw);
-static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source);
+static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
@@ -2143,7 +2143,7 @@ static int input_stream_open(pa_droid_stream *s) {
 
     pa_log_debug("Opened input stream %p", (void *) s);
 
-    input_stream_set_route(s, s->device, NULL);
+    input_stream_set_route(s, s->device);
 
     if (buffer_size_changed) {
         pa_log_debug("Input stream %p buffer size changed to %u.", (void *) s, s->buffer_size);
@@ -2208,7 +2208,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     /* As audio_source_t may not have any effect when opening the input stream
      * set input parameters immediately after opening the stream. */
     if (!pa_droid_quirk(module, QUIRK_CLOSE_INPUT))
-        input_stream_set_route(s, devices, NULL);
+        input_stream_set_route(s, devices);
 
     /* We start the stream in suspended state. */
     pa_droid_stream_suspend(s, true);
@@ -2269,7 +2269,7 @@ static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw) {
     return NULL;
 }
 
-int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device) {
+static int droid_output_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
     pa_droid_stream *slave;
     uint32_t idx;
     char *parameters = NULL;
@@ -2326,7 +2326,7 @@ int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device)
     return ret;
 }
 
-static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source) {
+static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
     audio_source_t source = (uint32_t) -1;
     char *parameters;
     int ret = 0;
@@ -2370,29 +2370,33 @@ static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device, au
     } else
         s->device = device;
 
-    if (new_source)
-        *new_source = source;
-
     pa_xfree(parameters);
 
     return ret;
 }
 
-int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source) {
+static int droid_input_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
     int ret = 0;
 
     pa_assert(s);
 
     if (s->in) {
-        input_stream_set_route(s, device, new_source);
+        input_stream_set_route(s, device);
     } else {
         s->device = device;
-        if (new_source)
-            pa_input_device_default_audio_source(device, new_source);
         pa_log_debug("input stream (inactive) %p store route %#010x", (void *) s, device);
     }
 
     return ret;
+}
+
+int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
+    pa_assert(s);
+
+    if (s->out)
+        return droid_output_stream_set_route(s, device);
+    else
+        return droid_input_stream_set_route(s, device);
 }
 
 int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters) {

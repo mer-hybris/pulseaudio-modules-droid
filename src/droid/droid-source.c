@@ -96,7 +96,6 @@ static void userdata_free(struct userdata *u);
 static int do_routing(struct userdata *u, audio_devices_t devices, bool force) {
     int ret;
     audio_devices_t old_device;
-    audio_source_t source;
 
     pa_assert(u);
     pa_assert(u->stream);
@@ -116,7 +115,7 @@ static int do_routing(struct userdata *u, audio_devices_t devices, bool force) {
     old_device = u->primary_devices;
     u->primary_devices = devices;
 
-    ret = pa_droid_stream_set_input_route(u->stream, devices, &source);
+    ret = pa_droid_stream_set_route(u->stream, devices);
 
     if (ret < 0)
         u->primary_devices = old_device;

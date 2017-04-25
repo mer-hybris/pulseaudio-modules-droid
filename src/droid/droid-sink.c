@@ -213,7 +213,7 @@ static void do_routing(struct userdata *u) {
 
     routing = u->primary_devices | u->extra_devices;
 
-    pa_droid_stream_set_output_route(u->stream, routing);
+    pa_droid_stream_set_route(u->stream, routing);
 }
 
 static bool parse_device_list(const char *str, audio_devices_t *dst) {
