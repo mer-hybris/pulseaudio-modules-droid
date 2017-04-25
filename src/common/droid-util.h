@@ -82,6 +82,13 @@ typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
 
 typedef struct pa_droid_quirks pa_droid_quirks;
 
+typedef enum pa_droid_hook {
+    PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED,    /* Call data: pa_droid_stream */
+    PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED,    /* Call data: pa_droid_stream */
+    PA_DROID_HOOK_MAX
+} pa_droid_hook_t;
+
+
 struct pa_droid_hw_module {
     PA_REFCNT_DECLARE;
 
@@ -108,6 +115,7 @@ struct pa_droid_hw_module {
     pa_atomic_t active_outputs;
 
     pa_droid_quirks *quirks;
+    pa_hook hooks[PA_DROID_HOOK_MAX];
 };
 
 struct pa_droid_stream {
@@ -117,9 +125,11 @@ struct pa_droid_stream {
 
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
+    pa_sample_spec input_sample_spec;
+    pa_channel_map input_channel_map;
     uint32_t flags;
     uint32_t device;
-    audio_source_t audio_source;
+    size_t buffer_size;
 
     struct audio_stream_out *out;
     struct audio_stream_in *in;
@@ -256,6 +266,7 @@ struct pa_droid_profile_set {
 enum pa_droid_quirk_type {
     QUIRK_INPUT_ATOI,
     QUIRK_SET_PARAMETERS,
+    QUIRK_CLOSE_INPUT,
     QUIRK_COUNT
 };
 
@@ -340,6 +351,8 @@ bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 
 /* Pretty audio source names */
 bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
+
+pa_hook *pa_droid_hooks(pa_droid_hw_module *hw);
 
 /* Module operations */
 int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
