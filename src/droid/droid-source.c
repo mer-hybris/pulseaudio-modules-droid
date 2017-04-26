@@ -67,7 +67,6 @@ struct userdata {
 
     pa_memchunk memchunk;
     audio_devices_t primary_devices;
-    bool routing_changes_enabled;
 
     size_t source_buffer_size;
     size_t buffer_size;
@@ -93,24 +92,15 @@ enum {
 
 static void userdata_free(struct userdata *u);
 
-static int do_routing(struct userdata *u, audio_devices_t devices, bool force) {
+static int do_routing(struct userdata *u, audio_devices_t devices) {
     int ret;
     audio_devices_t old_device;
 
     pa_assert(u);
     pa_assert(u->stream);
 
-    if (!force && !u->routing_changes_enabled) {
-        pa_log_debug("Skipping routing change.");
-        return 0;
-    }
-
-    if (u->primary_devices == devices) {
-        if (force)
-            pa_log_debug("Refresh active device routing.");
-        else
-            return 0;
-    }
+    if (u->primary_devices == devices)
+        pa_log_debug("Refresh active device routing.");
 
     old_device = u->primary_devices;
     u->primary_devices = devices;
@@ -275,7 +265,7 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
             pa_assert(PA_SOURCE_IS_OPENED(u->source->thread_info.state));
 
             pa_droid_stream_suspend(u->stream, true);
-            do_routing(u, device, true);
+            do_routing(u, device);
             pa_droid_stream_suspend(u->stream, false);
             break;
         }
@@ -321,7 +311,7 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
 
-static int droid_source_set_port(pa_source *s, pa_device_port *p, bool force) {
+static int source_set_port_cb(pa_source *s, pa_device_port *p) {
     struct userdata *u = s->userdata;
     pa_droid_port_data *data;
 
@@ -341,20 +331,12 @@ static int droid_source_set_port(pa_source *s, pa_device_port *p, bool force) {
     pa_log_debug("Source set port %u", data->device);
 
     if (!PA_SOURCE_IS_OPENED(pa_source_get_state(u->source)))
-        do_routing(u, data->device, force);
+        do_routing(u, data->device);
     else {
         pa_asyncmsgq_post(u->source->asyncmsgq, PA_MSGOBJECT(u->source), SOURCE_MESSAGE_DO_ROUTING, PA_UINT_TO_PTR(data->device), 0, NULL, NULL);
     }
 
     return 0;
-}
-
-int pa_droid_source_set_port(pa_source *s, pa_device_port *p) {
-    return droid_source_set_port(s, p, true);
-}
-
-static int source_set_port_cb(pa_source *s, pa_device_port *p) {
-    return droid_source_set_port(s, p, false);
 }
 
 static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char *module_id) {
@@ -433,17 +415,6 @@ static void source_set_mute_control(struct userdata *u) {
         pa_source_set_get_mute_callback(u->source, NULL);
         pa_source_set_set_mute_callback(u->source, NULL);
     }
-}
-
-void pa_droid_source_set_routing(pa_source *s, bool enabled) {
-    struct userdata *u = s->userdata;
-
-    pa_assert(s);
-    pa_assert(s->userdata);
-
-    if (u->routing_changes_enabled != enabled)
-        pa_log_debug("%s source routing changes.", enabled ? "Enabling" : "Disabling");
-    u->routing_changes_enabled = enabled;
 }
 
 /* Called from main and IO context */
@@ -598,9 +569,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     u->card = card;
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
-
-    /* Enable routing changes by default. */
-    u->routing_changes_enabled = true;
 
     if (card_data) {
         pa_assert(card);
