@@ -108,10 +108,13 @@ uint32_t conversion_table_default_audio_source[][2] = {
 #if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_RX)
     { AUDIO_DEVICE_IN_FM_RX,                        AUDIO_SOURCE_FM_RX                      },
 #endif
+#if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_TUNER) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_TUNER)
+    { AUDIO_DEVICE_IN_FM_TUNER,                     AUDIO_SOURCE_FM_TUNER                   },
+#endif
 #if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX_A2DP) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_RX_A2DP)
     { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP                 },
 #endif
-    { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
+    { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT                    }
 };
 
 /* Output devices */

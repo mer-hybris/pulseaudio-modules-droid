@@ -76,7 +76,7 @@ PA_MODULE_USAGE(
         "rate=<sample rate> "
         "output_flags=<flags for sink> "
         "module_id=<which droid hw module to load, default primary> "
-        "voice_source_routing=<route source ports during voice call, default false> "
+        "voice_source_routing=<always true, parameter left for compatibility> "
         "deferred_volume=<synchronize software and hardware volume changes to avoid momentary jumps?> "
         "config=<location for droid audio configuration> "
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
@@ -151,9 +151,6 @@ struct userdata {
     pa_droid_card_data card_data;
 
     pa_droid_profile *old_profile;
-    pa_source *voicecall_source;
-
-    bool voice_source_routing;
 
     pa_modargs *modargs;
     pa_card *card;
@@ -445,8 +442,6 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
     /* call mode specialities */
     if (enabling) {
         pa_droid_sink_set_voice_control(am_output->sink, true);
-        if (am_input && !u->voice_source_routing)
-            pa_droid_source_set_routing(am_input->source, false);
         if (am_input && am_input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
             (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
             if (cp->available == PA_AVAILABLE_NO) {
@@ -456,8 +451,6 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
         }
     } else {
         pa_droid_sink_set_voice_control(am_output->sink, false);
-        if (am_input && !u->voice_source_routing)
-            pa_droid_source_set_routing(am_input->source, true);
         if (am_input && am_input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
             (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
             if (cp->available == PA_AVAILABLE_YES) {
@@ -469,105 +462,6 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
 
     return true;
 }
-
-#if (AUDIO_API_VERSION_MAJ == 1) || \
-    (defined(QCOM_HARDWARE) && ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1)
-static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
-    pa_queue *source_outputs = NULL;
-    pa_droid_mapping *am;
-
-    pa_assert_ctl_context();
-    pa_assert(u);
-    pa_assert(p);
-    pa_assert(u->old_profile);
-
-    if (enabling) {
-        /* don't do anything if voicecall source has already been created. */
-        if (u->voicecall_source)
-            return true;
-
-        pa_log_info("Enabling voice call record.");
-
-        am = pa_droid_idxset_get_primary(u->old_profile->input_mappings);
-
-        if (am && am->source) {
-            source_outputs = pa_source_move_all_start(am->source, source_outputs);
-            pa_droid_source_free(am->source);
-            am->source = NULL;
-        }
-
-        u->voicecall_source = pa_droid_source_new(u->module, u->modargs, __FILE__, AUDIO_DEVICE_IN_VOICE_CALL, &u->card_data, am, u->card);
-        if (!u->voicecall_source)
-            pa_log("Failed to enable voice call recording.");
-
-        if (u->voicecall_source && source_outputs) {
-            pa_source_move_all_finish(u->voicecall_source, source_outputs, false);
-            source_outputs = NULL;
-        }
-
-    } else {
-        pa_log_info("Disabling voice call record.");
-
-        if (u->voicecall_source) {
-            source_outputs = pa_source_move_all_start(u->voicecall_source, source_outputs);
-            pa_droid_source_free(u->voicecall_source);
-            u->voicecall_source = NULL;
-        }
-
-        am = pa_droid_idxset_get_primary(u->old_profile->input_mappings);
-
-        if (am && !am->source) {
-            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
-
-            if (source_outputs && am->source) {
-                pa_source_move_all_finish(am->source, source_outputs, false);
-                source_outputs = NULL;
-            }
-        }
-    }
-
-    if (source_outputs)
-        pa_source_move_all_fail(source_outputs);
-
-    return true;
-}
-
-#else
-
-static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
-    pa_droid_mapping *am;
-    pa_device_port *port;
-    const char *port_name;
-
-    pa_assert_ctl_context();
-    pa_assert(u);
-    pa_assert(p);
-    pa_assert(u->old_profile);
-
-    if (!(am = pa_droid_idxset_get_primary(u->old_profile->input_mappings))) {
-        pa_log("Active profile doesn't have primary input device. Cannot enable record profile.");
-        return false;
-    }
-
-    if (!am->source) {
-        pa_log("No active source, refusing to switch source port.");
-        return false;
-    }
-
-    pa_source_assert_ref(am->source);
-
-    pa_assert_se(pa_droid_input_port_name(enabling ? AUDIO_DEVICE_IN_VOICE_CALL : AUDIO_DEVICE_IN_DEFAULT,
-                                          &port_name));
-    pa_assert_se((port = pa_hashmap_get(am->source->ports, port_name)));
-
-    if (pa_droid_source_set_port(am->source, port) != 0)
-        return false;
-
-    pa_hook_fire(&u->core->hooks[PA_CORE_HOOK_SOURCE_PORT_CHANGED], am->source);
-
-    return true;
-}
-#endif
 
 #ifdef DROID_AUDIO_HAL_USE_VSID
 static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsid, bool enabling)
@@ -781,7 +675,6 @@ int pa__init(pa_module *m) {
     pa_droid_config_audio *config = NULL;
     const char *module_id;
     bool namereg_fail = false;
-    bool voice_source_routing = false;
     pa_card_profile *virtual;
     const char *combine;
     const char *quirks;
@@ -802,12 +695,6 @@ int pa__init(pa_module *m) {
     if (!(config = pa_droid_config_load(ma)))
         goto fail;
 
-    if (pa_modargs_get_value_boolean(ma, "voice_source_routing", &voice_source_routing) < 0) {
-        pa_log("Failed to parse voice_source_routing argument.");
-        goto fail;
-    }
-    u->voice_source_routing = voice_source_routing;
-
     module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
     /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
@@ -815,11 +702,13 @@ int pa__init(pa_module *m) {
         goto fail;
 
     if ((quirks = pa_modargs_get_value(ma, "quirks", NULL))) {
-        if (!pa_droid_parse_quirks(u->hw_module, quirks)) {
+        if (!pa_droid_quirk_parse(u->hw_module, quirks)) {
             pa_log("Failed to parse quirks.");
             goto fail;
         }
     }
+
+    pa_droid_quirk_log(u->hw_module);
 
     u->card_data.set_parameters = set_parameters_cb;
     u->card_data.module_id = pa_xstrdup(module_id);
@@ -892,7 +781,7 @@ int pa__init(pa_module *m) {
                         AUDIO_MODE_IN_CALL, voicecall_profile_event_cb,
                         PA_AVAILABLE_YES, NULL, data.profiles);
     add_virtual_profile(u, VOICE_RECORD_PROFILE_NAME, VOICE_RECORD_PROFILE_DESC,
-                        AUDIO_MODE_IN_CALL, voicecall_record_profile_event_cb,
+                        AUDIO_MODE_IN_CALL, NULL,
                         PA_AVAILABLE_NO, virtual, data.profiles);
     add_virtual_profile(u, COMMUNICATION_PROFILE_NAME, COMMUNICATION_PROFILE_DESC,
                         AUDIO_MODE_IN_COMMUNICATION, NULL,

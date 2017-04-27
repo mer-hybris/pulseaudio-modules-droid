@@ -82,6 +82,13 @@ typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
 
 typedef struct pa_droid_quirks pa_droid_quirks;
 
+typedef enum pa_droid_hook {
+    PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED,    /* Call data: pa_droid_stream */
+    PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED,    /* Call data: pa_droid_stream */
+    PA_DROID_HOOK_MAX
+} pa_droid_hook_t;
+
+
 struct pa_droid_hw_module {
     PA_REFCNT_DECLARE;
 
@@ -106,9 +113,9 @@ struct pa_droid_hw_module {
     pa_idxset *inputs;
 
     pa_atomic_t active_outputs;
-    uint32_t output_device;
 
     pa_droid_quirks *quirks;
+    pa_hook hooks[PA_DROID_HOOK_MAX];
 };
 
 struct pa_droid_stream {
@@ -118,7 +125,11 @@ struct pa_droid_stream {
 
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
+    pa_sample_spec input_sample_spec;
+    pa_channel_map input_channel_map;
     uint32_t flags;
+    uint32_t device;
+    size_t buffer_size;
 
     struct audio_stream_out *out;
     struct audio_stream_in *in;
@@ -255,6 +266,7 @@ struct pa_droid_profile_set {
 enum pa_droid_quirk_type {
     QUIRK_INPUT_ATOI,
     QUIRK_SET_PARAMETERS,
+    QUIRK_CLOSE_INPUT,
     QUIRK_COUNT
 };
 
@@ -270,8 +282,9 @@ void pa_droid_hw_module_lock(pa_droid_hw_module *hw);
 bool pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
 
-bool pa_droid_parse_quirks(pa_droid_hw_module *hw, const char *quirks);
+bool pa_droid_quirk_parse(pa_droid_hw_module *hw, const char *quirks);
 bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk);
+void pa_droid_quirk_log(pa_droid_hw_module *hw);
 
 /* Conversion helpers */
 typedef enum {
@@ -340,6 +353,8 @@ bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 /* Pretty audio source names */
 bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
 
+pa_hook *pa_droid_hooks(pa_droid_hw_module *hw);
+
 /* Module operations */
 int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
 
@@ -356,29 +371,44 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              audio_output_flags_t flags,
                                              audio_devices_t devices);
 
-/* Set routing to the output stream, with following side-effects:
+/* Set routing to the input or output stream, with following side-effects:
+ * Output:
  * - if routing is set to primary output stream, set routing to all other
  *   open streams as well
  * - if routing is set to non-primary stream and primary stream exists, do nothing
  * - if routing is set to non-primary stream and primary stream doesn't exist, set routing
+ * Input:
+ * - buffer size or channel count may change
  */
-int pa_droid_stream_set_output_route(pa_droid_stream *s, audio_devices_t device);
+int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 
 /* Input stream operations */
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             const pa_sample_spec *spec,
                                             const pa_channel_map *map,
                                             audio_devices_t devices);
-int pa_droid_stream_set_input_route(pa_droid_stream *s, audio_devices_t device, audio_source_t *new_source);
 
 bool pa_droid_stream_is_primary(pa_droid_stream *s);
 
 int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend);
 
+size_t pa_droid_stream_buffer_size(pa_droid_stream *s);
+
 static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
     return pa_atomic_load(&s->module->active_outputs);
 }
 
+static inline ssize_t pa_droid_stream_write(pa_droid_stream *stream, const void *buffer, size_t bytes) {
+    return stream->out->write(stream->out, buffer, bytes);
+}
+
+static inline ssize_t pa_droid_stream_read(pa_droid_stream *stream, void *buffer, size_t bytes) {
+    return stream->in->read(stream->in, buffer, bytes);
+}
+
 bool pa_sink_is_droid_sink(pa_sink *s);
+
+/* Misc */
+size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size);
 
 #endif

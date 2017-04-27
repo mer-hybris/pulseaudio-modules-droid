@@ -50,6 +50,7 @@
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/time-smoother.h>
+#include <pulsecore/resampler.h>
 
 #include "droid-source.h"
 #include "droid-util.h"
@@ -66,14 +67,22 @@ struct userdata {
 
     pa_memchunk memchunk;
     audio_devices_t primary_devices;
-    bool routing_changes_enabled;
 
+    size_t source_buffer_size;
     size_t buffer_size;
     pa_usec_t timestamp;
+
+    pa_hook_slot *input_buffer_size_changed_slot;
+    pa_hook_slot *input_channel_map_changed_slot;
+    pa_resampler *resampler;
 
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     pa_droid_stream *stream;
+};
+
+enum {
+    SOURCE_MESSAGE_DO_ROUTING = PA_SOURCE_MESSAGE_MAX
 };
 
 #define DEFAULT_MODULE_ID "primary"
@@ -83,46 +92,23 @@ struct userdata {
 
 static void userdata_free(struct userdata *u);
 
-static int do_routing(struct userdata *u, audio_devices_t devices, bool force) {
+static int do_routing(struct userdata *u, audio_devices_t devices) {
     int ret;
-    pa_proplist *p;
-    const char *source_str;
     audio_devices_t old_device;
-    audio_source_t source;
 
     pa_assert(u);
     pa_assert(u->stream);
 
-    if (!force && !u->routing_changes_enabled) {
-        pa_log_debug("Skipping routing change.");
-        return 0;
-    }
-
-    if (u->primary_devices == devices) {
-        if (force)
-            pa_log_debug("Refresh active device routing.");
-        else
-            return 0;
-    }
+    if (u->primary_devices == devices)
+        pa_log_debug("Refresh active device routing.");
 
     old_device = u->primary_devices;
     u->primary_devices = devices;
 
-    ret = pa_droid_stream_set_input_route(u->stream, devices, &source);
+    ret = pa_droid_stream_set_route(u->stream, devices);
 
     if (ret < 0)
         u->primary_devices = old_device;
-    else {
-        if (source != (uint32_t) -1)
-            pa_assert_se(pa_droid_audio_source_name(source, &source_str));
-        else
-            source_str = DROID_AUDIO_SOURCE_UNDEFINED;
-
-        p = pa_proplist_new();
-        pa_proplist_sets(p, DROID_AUDIO_SOURCE, source_str);
-        pa_source_update_proplist(u->source, PA_UPDATE_REPLACE, p);
-        pa_proplist_free(p);
-    }
 
     return ret;
 }
@@ -161,7 +147,7 @@ static int thread_read(struct userdata *u) {
     chunk.memblock = pa_memblock_new(u->core->mempool, (size_t) u->buffer_size);
 
     p = pa_memblock_acquire(chunk.memblock);
-    readd = u->stream->in->read(u->stream->in, (uint8_t*) p, pa_memblock_get_length(chunk.memblock));
+    readd = pa_droid_stream_read(u->stream, p, pa_memblock_get_length(chunk.memblock));
     pa_memblock_release(chunk.memblock);
 
     if (readd < 0) {
@@ -173,6 +159,19 @@ static int thread_read(struct userdata *u) {
 
     chunk.index = 0;
     chunk.length = readd;
+
+    if (u->resampler) {
+        pa_memchunk rchunk;
+
+        pa_resampler_run(u->resampler, &chunk, &rchunk);
+
+        if (rchunk.length > 0)
+            pa_source_post(u->source, &rchunk);
+        if (rchunk.memblock)
+            pa_memblock_unref(rchunk.memblock);
+
+        goto end;
+    }
 
     if (chunk.length > 0)
         pa_source_post(u->source, &chunk);
@@ -197,8 +196,6 @@ static void thread_func(void *userdata) {
     pa_thread_mq_install(&u->thread_mq);
 
     u->timestamp = pa_rtclock_now();
-
-    u->stream->in->common.standby(&u->stream->in->common);
 
     for (;;) {
         int ret;
@@ -262,24 +259,37 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
     struct userdata *u = PA_SOURCE(o)->userdata;
 
     switch (code) {
+        case SOURCE_MESSAGE_DO_ROUTING: {
+            audio_devices_t device = PA_PTR_TO_UINT(data);
+
+            pa_assert(PA_SOURCE_IS_OPENED(u->source->thread_info.state));
+
+            pa_droid_stream_suspend(u->stream, true);
+            do_routing(u, device);
+            pa_droid_stream_suspend(u->stream, false);
+            break;
+        }
+
         case PA_SOURCE_MESSAGE_SET_STATE: {
             switch ((pa_source_state_t) PA_PTR_TO_UINT(data)) {
                 case PA_SOURCE_SUSPENDED: {
                     int r;
 
-                    pa_assert(PA_SOURCE_IS_OPENED(u->source->thread_info.state));
-
-                    if ((r = suspend(u)) < 0)
-                        return r;
+                    if (PA_SOURCE_IS_OPENED(u->source->thread_info.state)) {
+                        if ((r = suspend(u)) < 0)
+                            return r;
+                    }
 
                     break;
                 }
 
                 case PA_SOURCE_IDLE:
-                    break;
+                    /* Fall through */
                 case PA_SOURCE_RUNNING: {
-                    unsuspend(u);
-                    u->timestamp = pa_rtclock_now();
+                    if (u->source->thread_info.state == PA_SOURCE_SUSPENDED) {
+                        unsuspend(u);
+                        u->timestamp = pa_rtclock_now();
+                    }
                     break;
                 }
 
@@ -301,7 +311,7 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
 
-static int droid_source_set_port(pa_source *s, pa_device_port *p, bool force) {
+static int source_set_port_cb(pa_source *s, pa_device_port *p) {
     struct userdata *u = s->userdata;
     pa_droid_port_data *data;
 
@@ -320,33 +330,13 @@ static int droid_source_set_port(pa_source *s, pa_device_port *p, bool force) {
 
     pa_log_debug("Source set port %u", data->device);
 
-    return do_routing(u, data->device, force);
-}
-
-int pa_droid_source_set_port(pa_source *s, pa_device_port *p) {
-    return droid_source_set_port(s, p, true);
-}
-
-static int source_set_port_cb(pa_source *s, pa_device_port *p) {
-    return droid_source_set_port(s, p, false);
-}
-
-static void source_set_voicecall_source_port(struct userdata *u) {
-    pa_device_port *port;
-    pa_droid_port_data *data;
-    void *state;
-
-    pa_assert(u);
-    pa_assert(u->source);
-
-    PA_HASHMAP_FOREACH(port, u->source->ports, state) {
-        data = PA_DEVICE_PORT_DATA(port);
-
-        if (data->device & AUDIO_DEVICE_IN_VOICE_CALL) {
-            pa_source_set_port(u->source, port->name, false);
-            break;
-        }
+    if (!PA_SOURCE_IS_OPENED(pa_source_get_state(u->source)))
+        do_routing(u, data->device);
+    else {
+        pa_asyncmsgq_post(u->source->asyncmsgq, PA_MSGOBJECT(u->source), SOURCE_MESSAGE_DO_ROUTING, PA_UINT_TO_PTR(data->device), 0, NULL, NULL);
     }
+
+    return 0;
 }
 
 static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char *module_id) {
@@ -427,15 +417,71 @@ static void source_set_mute_control(struct userdata *u) {
     }
 }
 
-void pa_droid_source_set_routing(pa_source *s, bool enabled) {
-    struct userdata *u = s->userdata;
+/* Called from main and IO context */
+static void update_latency(struct userdata *u) {
+    pa_assert(u);
+    pa_assert(u->source);
+    pa_assert(u->stream);
 
-    pa_assert(s);
-    pa_assert(s->userdata);
+    u->buffer_size = pa_droid_stream_buffer_size(u->stream);
 
-    if (u->routing_changes_enabled != enabled)
-        pa_log_debug("%s source routing changes.", enabled ? "Enabling" : "Disabling");
-    u->routing_changes_enabled = enabled;
+    if (u->source_buffer_size) {
+        u->buffer_size = pa_droid_buffer_size_round_up(u->source_buffer_size, u->buffer_size);
+        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, u->source_buffer_size);
+    } else
+        pa_log_info("Using buffer size %u.", u->buffer_size);
+
+    if (pa_thread_mq_get())
+        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+    else
+        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+
+    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+}
+
+/* Called from IO context. */
+static pa_hook_result_t input_buffer_size_changed_cb(pa_droid_hw_module *module,
+                                                     pa_droid_stream *stream,
+                                                     struct userdata *u) {
+    pa_assert(module);
+    pa_assert(stream);
+    pa_assert(u);
+
+    if (stream != u->stream)
+        return PA_HOOK_OK;
+
+    update_latency(u);
+
+    return PA_HOOK_OK;
+}
+
+/* Called from IO context. */
+static pa_hook_result_t input_channel_map_changed_cb(pa_droid_hw_module *module,
+                                                     pa_droid_stream *stream,
+                                                     struct userdata *u) {
+    pa_assert(module);
+    pa_assert(stream);
+    pa_assert(u);
+
+    if (stream != u->stream)
+        return PA_HOOK_OK;
+
+    if (u->stream->input_channel_map.channels != u->source->channel_map.channels) {
+        if (u->resampler)
+            pa_resampler_free(u->resampler);
+
+        u->resampler = pa_resampler_new(u->core->mempool,
+                                        &u->stream->input_sample_spec, &u->stream->input_channel_map,
+                                        &u->source->sample_spec, &u->source->channel_map,
+                                        u->core->lfe_crossover_freq,
+                                        PA_RESAMPLER_COPY,
+                                        0);
+    } else if (u->resampler) {
+        pa_resampler_free(u->resampler);
+        u->resampler = NULL;
+    }
+
+    return PA_HOOK_OK;
 }
 
 pa_source *pa_droid_source_new(pa_module *m,
@@ -459,7 +505,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     bool namereg_fail = false;
     pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
-    bool voicecall_source = false;
 
     pa_assert(m);
     pa_assert(ma);
@@ -473,11 +518,6 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     sample_spec = m->core->default_sample_spec;
     channel_map = m->core->default_channel_map;
-
-    if (device & AUDIO_DEVICE_IN_VOICE_CALL) {
-        pa_log_info("Enabling voice call record source. Most module arguments are overridden.");
-        voicecall_source = true;
-    }
 
     /* First parse both sample spec and channel map, then see if source_* override some
      * of the values. */
@@ -530,9 +570,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     u->rtpoll = pa_rtpoll_new();
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
-    /* Enabled routing changes by default, except for voicecall source. */
-    u->routing_changes_enabled = voicecall_source ? false : true;
-
     if (card_data) {
         pa_assert(card);
         u->card_data = card_data;
@@ -577,24 +614,11 @@ pa_source *pa_droid_source_new(pa_module *m,
         goto fail;
     }
 
-    u->buffer_size = u->stream->in->common.get_buffer_size(&u->stream->in->common);
-    if (source_buffer) {
-        if (source_buffer < u->buffer_size)
-            pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", source_buffer, u->buffer_size);
-        else if (source_buffer % u->buffer_size) {
-            uint32_t trunc = (source_buffer / u->buffer_size) * u->buffer_size;
-            pa_log_warn("Requested buffer size %u not multiple of HAL buffer size (%u). Using buffer size %u", source_buffer, u->buffer_size, trunc);
-            u->buffer_size = trunc;
-        } else {
-            pa_log_info("Using requested buffer size %u.", source_buffer);
-            u->buffer_size = source_buffer;
-        }
-    }
-
     pa_source_new_data_init(&data);
     data.driver = driver;
     data.module = m;
     data.card = card;
+    data.suspend_cause = PA_SUSPEND_IDLE;
 
     source_set_name(ma, &data, module_id);
 
@@ -647,14 +671,18 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_xfree(thread_name);
     thread_name = NULL;
 
-    pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
-    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+    update_latency(u);
 
-    if (!voicecall_source && u->source->active_port)
+    if (u->source->active_port)
         source_set_port_cb(u->source, u->source->active_port);
 
-    if (voicecall_source)
-        source_set_voicecall_source_port(u);
+    u->input_buffer_size_changed_slot = pa_hook_connect(&pa_droid_hooks(u->hw_module)[PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED],
+                                                        PA_HOOK_NORMAL,
+                                                        (pa_hook_cb_t) input_buffer_size_changed_cb, u);
+
+    u->input_channel_map_changed_slot = pa_hook_connect(&pa_droid_hooks(u->hw_module)[PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED],
+                                                        PA_HOOK_NORMAL,
+                                                        (pa_hook_cb_t) input_channel_map_changed_cb, u);
 
     pa_source_put(u->source);
 
@@ -682,6 +710,13 @@ void pa_droid_source_free(pa_source *s) {
 }
 
 static void userdata_free(struct userdata *u) {
+    pa_assert(u);
+
+    if (u->input_channel_map_changed_slot)
+        pa_hook_slot_free(u->input_channel_map_changed_slot);
+
+    if (u->input_buffer_size_changed_slot)
+        pa_hook_slot_free(u->input_buffer_size_changed_slot);
 
     if (u->source)
         pa_source_unlink(u->source);

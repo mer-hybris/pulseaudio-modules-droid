@@ -213,7 +213,7 @@ static void do_routing(struct userdata *u) {
 
     routing = u->primary_devices | u->extra_devices;
 
-    pa_droid_stream_set_output_route(u->stream, routing);
+    pa_droid_stream_set_route(u->stream, routing);
 }
 
 static bool parse_device_list(const char *str, audio_devices_t *dst) {
@@ -255,7 +255,7 @@ static int thread_write_silence(struct userdata *u) {
      * here it's okay, as long as mute time isn't configured too strictly. */
 
     p = pa_memblock_acquire(u->silence.memblock);
-    wrote = u->stream->out->write(u->stream->out, (const uint8_t*) p + u->silence.index, u->silence.length);
+    wrote = pa_droid_stream_write(u->stream, (const uint8_t *) p + u->silence.index, u->silence.length);
     pa_memblock_release(u->silence.memblock);
 
     u->write_time = pa_rtclock_now() - u->write_time;
@@ -280,7 +280,7 @@ static int thread_write(struct userdata *u) {
 
     for (;;) {
         p = pa_memblock_acquire(c.memblock);
-        wrote = u->stream->out->write(u->stream->out, (const uint8_t*) p + c.index, c.length);
+        wrote = pa_droid_stream_write(u->stream, (const uint8_t *) p + c.index, c.length);
         pa_memblock_release(c.memblock);
 
         if (wrote < 0) {
@@ -1199,19 +1199,12 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
-    u->buffer_size = u->stream->out->common.get_buffer_size(&u->stream->out->common);
+    u->buffer_size = pa_droid_stream_buffer_size(u->stream);
     if (sink_buffer) {
-        if (sink_buffer < u->buffer_size)
-            pa_log_warn("Requested buffer size %u less than HAL reported buffer size (%u).", sink_buffer, u->buffer_size);
-        else if (sink_buffer % u->buffer_size) {
-            uint32_t trunc = (sink_buffer / u->buffer_size) * u->buffer_size;
-            pa_log_warn("Requested buffer size %u not multiple of HAL buffer size (%u). Using buffer size %u", sink_buffer, u->buffer_size, trunc);
-            u->buffer_size = trunc;
-        } else {
-            pa_log_info("Using requested buffer size %u.", sink_buffer);
-            u->buffer_size = sink_buffer;
-        }
-    }
+        u->buffer_size = pa_droid_buffer_size_round_up(sink_buffer, u->buffer_size);
+        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, sink_buffer);
+    } else
+        pa_log_info("Using buffer size %u.", u->buffer_size);
 
     if ((prewrite_resume = pa_modargs_get_value(ma, "prewrite_on_resume", NULL))) {
         if (!parse_prewrite_on_resume(u, prewrite_resume, am ? am->output->name : module_id)) {
