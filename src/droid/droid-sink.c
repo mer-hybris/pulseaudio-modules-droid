@@ -1177,8 +1177,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
 
     /* Default routing */
-    dev_out = am->output->module->global_config ? am->output->module->global_config->default_output_device
-                                                : u->hw_module->config->global_config->default_output_device;
+    dev_out = (am && am->output->module->global_config) ? am->output->module->global_config->default_output_device
+                                                        : u->hw_module->config->global_config->default_output_device;
 
     if ((tmp = pa_modargs_get_value(ma, "output_devices", NULL))) {
         audio_devices_t tmp_dev;
