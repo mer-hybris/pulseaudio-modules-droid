@@ -393,8 +393,8 @@ static bool parse_formats(const char *fn, const unsigned ln,
     return check_and_log(fn, ln, "formats", count, str, unknown, false);
 }
 
-static int parse_channels(const char *fn, const unsigned ln,
-                          const char *str, bool in_output, audio_channel_mask_t *channels) {
+static bool parse_channels(const char *fn, const unsigned ln,
+                           const char *str, bool in_output, audio_channel_mask_t *channels) {
     int count;
     char *unknown = NULL;
 
