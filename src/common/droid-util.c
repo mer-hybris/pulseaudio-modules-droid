@@ -1934,13 +1934,19 @@ static bool stream_config_fill(audio_devices_t devices,
     audio_format_t hal_audio_format = 0;
     audio_channel_mask_t hal_channel_mask = 0;
     bool voicecall_record = false;
+    bool output = true;
 
     pa_assert(sample_spec);
     pa_assert(channel_map);
     pa_assert(config);
 
 #if AUDIO_API_VERSION_MAJ >= 2
-    devices &= ~AUDIO_DEVICE_BIT_IN;
+    if (devices & AUDIO_DEVICE_BIT_IN) {
+        output = false;
+        devices &= ~AUDIO_DEVICE_BIT_IN;
+    }
+#else
+    output = !(devices & AUDIO_DEVICE_IN_ALL);
 #endif
 
     if (devices & AUDIO_DEVICE_IN_VOICE_CALL)
@@ -1951,24 +1957,19 @@ static bool stream_config_fill(audio_devices_t devices,
         goto fail;
     }
 
-    if (devices & AUDIO_DEVICE_IN_ALL) {
-        for (int i = 0; i < channel_map->channels; i++) {
-            audio_channel_mask_t c;
-            if (!pa_convert_input_channel(channel_map->map[i], CONV_FROM_PA, &c)) {
-                pa_log("Failed to convert channel map.");
-                goto fail;
-            }
-            hal_channel_mask |= c;
+    for (int i = 0; i < channel_map->channels; i++) {
+        bool found;
+        audio_channel_mask_t c;
+
+        found = output ? pa_convert_output_channel(channel_map->map[i], CONV_FROM_PA, &c)
+                       : pa_convert_input_channel(channel_map->map[i], CONV_FROM_PA, &c);
+
+        if (!found) {
+            pa_log("Failed to convert %s channel map.", output ? "output" : "input");
+            goto fail;
         }
-    } else {
-        for (int i = 0; i < channel_map->channels; i++) {
-            audio_channel_mask_t c;
-            if (!pa_convert_output_channel(channel_map->map[i], CONV_FROM_PA, &c)) {
-                pa_log("Failed to convert channel map.");
-                goto fail;
-            }
-            hal_channel_mask |= c;
-        }
+
+        hal_channel_mask |= c;
     }
 
     if (voicecall_record) {
