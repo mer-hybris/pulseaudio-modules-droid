@@ -633,11 +633,11 @@ static void update_volumes(struct userdata *u) {
     pa_droid_hw_module_unlock(u->hw_module);
 
     u->use_hw_volume = (ret == 0);
+    pa_log_debug("Using %s volume control with %s",
+                 u->use_hw_volume ? "hardware" : "software", u->sink->name);
 
-    if (pa_droid_stream_is_primary(u->stream)) {
-        /* Apply callbacks */
-        pa_droid_sink_set_voice_control(u->sink, false);
-    }
+    if (u->use_hw_volume && pa_droid_stream_is_primary(u->stream))
+        pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
 }
 
 static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *module_id) {
@@ -725,7 +725,7 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
     pa_assert(u->sink == sink);
 
     if (!pa_droid_stream_is_primary(u->stream)) {
-        pa_log_debug("skipping voice volume control with non-primary stream");
+        pa_log_debug("Skipping voice volume control with non-primary sink %s", u->sink->name);
         return;
     }
 
@@ -735,8 +735,9 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
     u->use_voice_volume = enable;
 
     if (u->use_voice_volume) {
-        pa_log_debug("Using voice volume control for %s", u->sink->name);
-        pa_sink_set_set_volume_callback(u->sink, NULL);
+        pa_log_debug("Using voice volume control with %s", u->sink->name);
+        if (u->use_hw_volume)
+            pa_sink_set_set_volume_callback(u->sink, NULL);
 
         /* Susbcription tracking voice call volume control sink-input is set up when
          * voice volume control is enabled. In case volume control sink-input has already
@@ -760,13 +761,11 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
             u->voice_control_sink_input = NULL;
         }
 
-        if (u->use_hw_volume) {
-            pa_log_debug("Using hardware volume control for %s", u->sink->name);
+        pa_log_debug("Using %s volume control with %s",
+                     u->use_hw_volume ? "hardware" : "software", u->sink->name);
+
+        if (u->use_hw_volume)
             pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
-        } else {
-            pa_log_debug("Using software volume control for %s", u->sink->name);
-            pa_sink_set_set_volume_callback(u->sink, NULL);
-        }
     }
 }
 
