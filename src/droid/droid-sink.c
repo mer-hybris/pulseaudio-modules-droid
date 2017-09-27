@@ -95,7 +95,7 @@ struct userdata {
     char *voice_property_key;
     char *voice_property_value;
     pa_sink_input *voice_control_sink_input;
-    pa_subscription *sink_input_subscription;
+    pa_hook_slot *sink_input_volume_changed_hook_slot;
 
     pa_hook_slot *sink_input_put_hook_slot;
     pa_hook_slot *sink_input_unlink_hook_slot;
@@ -633,11 +633,11 @@ static void update_volumes(struct userdata *u) {
     pa_droid_hw_module_unlock(u->hw_module);
 
     u->use_hw_volume = (ret == 0);
+    pa_log_debug("Using %s volume control with %s",
+                 u->use_hw_volume ? "hardware" : "software", u->sink->name);
 
-    if (pa_droid_stream_is_primary(u->stream)) {
-        /* Apply callbacks */
-        pa_droid_sink_set_voice_control(u->sink, false);
-    }
+    if (u->use_hw_volume && pa_droid_stream_is_primary(u->stream))
+        pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
 }
 
 static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *module_id) {
@@ -661,9 +661,22 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
     }
 }
 
+static bool sink_input_is_voice_control(struct userdata *u, pa_sink_input *si) {
+    const char *val;
+
+    pa_assert(u);
+    pa_assert(si);
+
+    if ((val = pa_proplist_gets(si->proplist, u->voice_property_key))) {
+        if (pa_streq(val, u->voice_property_value))
+            return true;
+    }
+
+    return false;
+}
+
 /* Called from main thread */
 static pa_sink_input *find_volume_control_sink_input(struct userdata *u) {
-    const char *val;
     uint32_t idx;
     pa_sink_input *i;
 
@@ -672,44 +685,31 @@ static pa_sink_input *find_volume_control_sink_input(struct userdata *u) {
     pa_assert(u->sink);
 
     PA_IDXSET_FOREACH(i, u->sink->inputs, idx) {
-        if ((val = pa_proplist_gets(i->proplist, u->voice_property_key))) {
-            if (pa_streq(val, u->voice_property_value)) {
-                return i;
-            }
-        }
+        if (sink_input_is_voice_control(u, i))
+            return i;
     }
 
     return NULL;
 }
 
 /* Called from main thread */
-static void sink_input_subscription_cb(pa_core *c, pa_subscription_event_type_t t, uint32_t idx, struct userdata *u) {
-    pa_sink_input *i;
+static pa_hook_result_t sink_input_volume_changed_hook_cb(pa_core *c, pa_sink_input *sink_input, struct userdata *u) {
+    pa_assert(c);
+    pa_assert(sink_input);
+    pa_assert(u);
 
-    pa_assert_ctl_context();
+    if (!u->use_voice_volume)
+        return PA_HOOK_OK;
 
-    if (t != (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_NEW) &&
-        t != (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_CHANGE) &&
-        t != (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_REMOVE))
-        return;
+    if (!u->voice_control_sink_input && sink_input_is_voice_control(u, sink_input))
+        u->voice_control_sink_input = sink_input;
 
-    if (!(i = pa_idxset_get_by_index(c->sink_inputs, idx)))
-        return;
+    if (u->voice_control_sink_input != sink_input)
+        return PA_HOOK_OK;
 
-    if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_NEW)) {
-        if (!u->voice_control_sink_input && (i = find_volume_control_sink_input(u))) {
-            u->voice_control_sink_input = i;
-            set_voice_volume(u, i);
-        }
-    }
-    else if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_CHANGE)) {
-        if (u->voice_control_sink_input == i)
-            set_voice_volume(u, i);
-    }
-    else if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_REMOVE)) {
-        if (u->voice_control_sink_input == i)
-            u->voice_control_sink_input = NULL;
-    }
+    set_voice_volume(u, sink_input);
+
+    return PA_HOOK_OK;
 }
 
 /* Called from main thread */
@@ -725,7 +725,7 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
     pa_assert(u->sink == sink);
 
     if (!pa_droid_stream_is_primary(u->stream)) {
-        pa_log_debug("skipping voice volume control with non-primary stream");
+        pa_log_debug("Skipping voice volume control with non-primary sink %s", u->sink->name);
         return;
     }
 
@@ -735,18 +735,15 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
     u->use_voice_volume = enable;
 
     if (u->use_voice_volume) {
-        pa_log_debug("Using voice volume control for %s", u->sink->name);
-        pa_sink_set_set_volume_callback(u->sink, NULL);
+        pa_log_debug("Using voice volume control with %s", u->sink->name);
 
-        /* Susbcription tracking voice call volume control sink-input is set up when
-         * voice volume control is enabled. In case volume control sink-input has already
-         * connected to the sink, check for the sink-input here as well. */
+        pa_assert(!u->sink_input_volume_changed_hook_slot);
 
-        if (!u->sink_input_subscription)
-            u->sink_input_subscription = pa_subscription_new(u->core,
-                                                             PA_SUBSCRIPTION_MASK_SINK_INPUT,
-                                                             (pa_subscription_cb_t) sink_input_subscription_cb,
-                                                             u);
+        if (u->use_hw_volume)
+            pa_sink_set_set_volume_callback(u->sink, NULL);
+
+        u->sink_input_volume_changed_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_INPUT_VOLUME_CHANGED],
+                PA_HOOK_LATE+10, (pa_hook_cb_t) sink_input_volume_changed_hook_cb, u);
 
         if ((i = find_volume_control_sink_input(u))) {
             u->voice_control_sink_input = i;
@@ -754,19 +751,17 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
         }
 
     } else {
-        if (u->sink_input_subscription) {
-            pa_subscription_free(u->sink_input_subscription);
-            u->sink_input_subscription = NULL;
-            u->voice_control_sink_input = NULL;
-        }
+        pa_assert(u->sink_input_volume_changed_hook_slot);
 
-        if (u->use_hw_volume) {
-            pa_log_debug("Using hardware volume control for %s", u->sink->name);
+        u->voice_control_sink_input = NULL;
+        pa_hook_slot_free(u->sink_input_volume_changed_hook_slot);
+        u->sink_input_volume_changed_hook_slot = NULL;
+
+        pa_log_debug("Using %s volume control with %s",
+                     u->use_hw_volume ? "hardware" : "software", u->sink->name);
+
+        if (u->use_hw_volume)
             pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
-        } else {
-            pa_log_debug("Using software volume control for %s", u->sink->name);
-            pa_sink_set_set_volume_callback(u->sink, NULL);
-        }
     }
 }
 
@@ -776,6 +771,11 @@ static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_i
     const char *dev_str;
     const char *media_str;
     audio_devices_t devices;
+
+    if (u->use_voice_volume && !u->voice_control_sink_input && sink_input_is_voice_control(u, sink_input)) {
+        u->voice_control_sink_input = sink_input;
+        set_voice_volume(u, sink_input);
+    }
 
     /* Dynamic routing changes do not apply during active voice call. */
     if (u->use_voice_volume)
@@ -807,6 +807,9 @@ static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sin
     const char *dev_str;
     const char *media_str;
     audio_devices_t devices;
+
+    if (u->voice_control_sink_input == sink_input)
+        u->voice_control_sink_input = NULL;
 
     /* Dynamic routing changes do not apply during active voice call. */
     if (u->use_voice_volume)
@@ -1392,14 +1395,14 @@ static void userdata_free(struct userdata *u) {
 
     pa_thread_mq_done(&u->thread_mq);
 
-    if (u->sink_input_subscription)
-        pa_subscription_free(u->sink_input_subscription);
-
     if (u->sink_input_put_hook_slot)
         pa_hook_slot_free(u->sink_input_put_hook_slot);
 
     if (u->sink_input_unlink_hook_slot)
         pa_hook_slot_free(u->sink_input_unlink_hook_slot);
+
+    if (u->sink_input_volume_changed_hook_slot)
+        pa_hook_slot_free(u->sink_input_volume_changed_hook_slot);
 
     if (u->sink_proplist_changed_hook_slot)
         pa_hook_slot_free(u->sink_proplist_changed_hook_slot);
