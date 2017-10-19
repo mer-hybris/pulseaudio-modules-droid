@@ -67,9 +67,6 @@ struct userdata {
     pa_thread *thread;
     pa_thread_mq thread_mq;
     pa_rtpoll *rtpoll;
-    int32_t routing_counter;
-    int32_t mute_routing_before;
-    int32_t mute_routing_after;
 
     bool deferred_volume; /* TODO */
 
@@ -105,10 +102,6 @@ struct userdata {
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     pa_droid_stream *stream;
-};
-
-enum {
-    SINK_MESSAGE_DO_ROUTING = PA_SINK_MESSAGE_MAX,
 };
 
 #define DEFAULT_MODULE_ID "primary"
@@ -386,15 +379,7 @@ static void thread_func(void *userdata) {
                 pa_usec_t sleept = 0;
 
                 thread_render(u);
-
-                if (u->routing_counter == u->mute_routing_after) {
-                    do_routing(u);
-                    u->routing_counter--;
-                } else if (u->routing_counter > -1) {
-                    thread_write_silence(u);
-                    u->routing_counter--;
-                } else
-                    thread_write(u);
+                thread_write(u);
 
                 if (u->write_time > u->write_threshold)
                     sleept = u->buffer_time;
@@ -478,14 +463,6 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
     struct userdata *u = PA_SINK(o)->userdata;
 
     switch (code) {
-        case SINK_MESSAGE_DO_ROUTING: {
-            /* When mute_routing_before & mute_routing_after are 0, routing change is done
-             * immediately when next round in thread_func. Otherwise write silence until
-             * counter equals mute_routing_after, execute routing, and write silence until
-             * routing_counter is 0. */
-            u->routing_counter = u->mute_routing_before + u->mute_routing_after;
-            return 0;
-        }
 
         case PA_SINK_MESSAGE_GET_LATENCY: {
             pa_usec_t r = 0;
@@ -564,13 +541,7 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_log_debug("Sink set port %u", data->device);
 
     set_primary_devices(u, data->device);
-    /* If we are in voice call, sink is usually in suspended state and routing change can be applied immediately.
-     * When in media use cases, do the routing change in IO thread if we are currently in RUNNING or IDLE state. */
-    if (u->use_voice_volume || !PA_SINK_IS_OPENED(pa_sink_get_state(u->sink)))
-        do_routing(u);
-    else {
-        pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
-    }
+    do_routing(u);
 
     return 0;
 }
@@ -795,7 +766,7 @@ static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_i
 
             /* if this device was not routed to previously post routing change */
             if (add_extra_devices(u, devices))
-                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
+                do_routing(u);
         }
     }
 
@@ -829,7 +800,7 @@ static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sin
 
             /* if this device no longer exists in extra devices map post routing change */
             if (remove_extra_devices(u, devices))
-                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
+                do_routing(u);
         }
     }
 
@@ -1065,8 +1036,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     bool namereg_fail = false;
     pa_usec_t latency;
     pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
-    int32_t mute_routing_before = 0;
-    int32_t mute_routing_after = 0;
     uint32_t sink_buffer = 0;
     const char *prewrite_resume = NULL;
 
@@ -1124,16 +1093,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     alternate_sample_rate = m->core->alternate_sample_rate;
     if (pa_modargs_get_alternate_sample_rate(ma, &alternate_sample_rate) < 0) {
         pa_log("Failed to parse alternate sample rate.");
-        goto fail;
-    }
-
-    if ((pa_modargs_get_value_s32(ma, "mute_routing_before", &mute_routing_before) < 0) || mute_routing_before < 0) {
-        pa_log("Failed to parse mute_routing_before. Needs to be integer >= 0.");
-        goto fail;
-    }
-
-    if ((pa_modargs_get_value_s32(ma, "mute_routing_after", &mute_routing_after) < 0) || mute_routing_after < 0) {
-        pa_log("Failed to parse mute_routing_after. Needs to be integer >= 0.");
         goto fail;
     }
 
@@ -1217,18 +1176,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
 
     u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec);
-
     u->write_threshold = u->buffer_time - u->buffer_time / 6;
-    u->mute_routing_before = mute_routing_before / u->buffer_size;
-    u->mute_routing_after = mute_routing_after / u->buffer_size;
-    if (u->mute_routing_before == 0 && mute_routing_before)
-        u->mute_routing_before = 1;
-    if (u->mute_routing_after == 0 && mute_routing_after)
-        u->mute_routing_after = 1;
-    if (u->mute_routing_before || u->mute_routing_after)
-        pa_log_debug("Mute playback when routing is changing, %u before and %u after.",
-                     u->mute_routing_before * u->buffer_size,
-                     u->mute_routing_after * u->buffer_size);
+
     pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &u->stream->sample_spec, u->buffer_size);
     u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &u->stream->sample_spec, 1, 0, 0, &u->silence);
 
