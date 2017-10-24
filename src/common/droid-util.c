@@ -1973,17 +1973,23 @@ static bool stream_config_fill(audio_devices_t devices,
     }
 
     if (voicecall_record) {
-        pa_channel_map_init_mono(channel_map);
-        sample_spec->channels = 1;
         /* Only allow recording both downlink and uplink. */
 #if defined(QCOM_HARDWARE)
+        pa_channel_map_init_mono(channel_map);
+        sample_spec->channels = 1;
   #if (ANDROID_VERSION_MAJOR <= 4) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_CALL_MONO)
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
   #else
         hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
   #endif
-#else
+#elif defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_UPLINK) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_DNLINK)
+        pa_channel_map_init_stereo(channel_map);
+        sample_spec->channels = 2;
         hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
+#else
+        pa_channel_map_init_mono(channel_map);
+        sample_spec->channels = 1;
+        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
 #endif
     }
 
