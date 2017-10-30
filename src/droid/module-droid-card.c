@@ -97,6 +97,7 @@ static const char* const valid_modargs[] = {
     "sink_rate",
     "sink_format",
     "sink_channel_map",
+    "sink_mix_route",
     "source_rate",
     "source_format",
     "source_channel_map",

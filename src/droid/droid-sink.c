@@ -86,6 +86,7 @@ struct userdata {
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
     pa_hashmap *extra_devices_map;
+    bool mix_route;
 
     bool use_hw_volume;
     bool use_voice_volume;
@@ -204,7 +205,10 @@ static void do_routing(struct userdata *u) {
     if (u->use_voice_volume && u->extra_devices)
         clear_extra_devices(u);
 
-    routing = u->primary_devices | u->extra_devices;
+    if (!u->mix_route && u->extra_devices)
+        routing = u->extra_devices;
+    else
+        routing = u->primary_devices | u->extra_devices;
 
     pa_droid_stream_set_route(u->stream, routing);
 }
@@ -1038,6 +1042,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
     uint32_t sink_buffer = 0;
     const char *prewrite_resume = NULL;
+    bool mix_route = false;
 
     pa_assert(m);
     pa_assert(ma);
@@ -1101,6 +1106,11 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
+    if (pa_modargs_get_value_boolean(ma, "sink_mix_route", &mix_route) < 0) {
+        pa_log("Failed to parse sink_mix_route, expects boolean argument.");
+        goto fail;
+    }
+
     u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->module = m;
@@ -1113,6 +1123,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->voice_property_key   = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_key", DEFAULT_VOICE_CONTROL_PROPERTY_KEY));
     u->voice_property_value = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_value", DEFAULT_VOICE_CONTROL_PROPERTY_VALUE));
     u->extra_devices_map = pa_hashmap_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    u->mix_route = mix_route;
 
     if (card_data) {
         u->card_data = card_data;
