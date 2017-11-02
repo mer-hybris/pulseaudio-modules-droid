@@ -146,7 +146,7 @@ static void pending_req_reply_cb(DBusPendingCall *pending, void *userdata) {
                                        DBUS_TYPE_INT32, &period,
                                        DBUS_TYPE_INVALID));
 
-    k->timeout = PA_USEC_PER_SEC * (period - 5);
+    k->timeout = PA_USEC_PER_SEC * period;
 
     keepalive_start(k);
 
