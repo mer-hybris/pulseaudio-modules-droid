@@ -620,7 +620,10 @@ pa_source *pa_droid_source_new(pa_module *m,
     data.card = card;
     data.suspend_cause = PA_SUSPEND_IDLE;
 
-    source_set_name(ma, &data, module_id);
+    if (am)
+        source_set_name(ma, &data, am->input->name);
+    else
+        source_set_name(ma, &data, module_id);
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because
