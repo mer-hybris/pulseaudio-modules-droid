@@ -53,6 +53,7 @@
 struct pa_droid_keepalive {
     pa_core *core;
     pa_dbus_connection *dbus_connection;
+    DBusPendingCall *pending;
 
     pa_atomic_t started;
     pa_usec_t timeout;
@@ -131,7 +132,9 @@ static void pending_req_reply_cb(DBusPendingCall *pending, void *userdata) {
 
     pa_assert(pending);
     pa_assert(k);
+    pa_assert(pending == k->pending);
 
+    k->pending = NULL;
     pa_assert_se(msg = dbus_pending_call_steal_reply(pending));
 
     if (dbus_message_get_type(msg) == DBUS_MESSAGE_TYPE_ERROR) {
@@ -153,7 +156,6 @@ finish:
 }
 
 void pa_droid_keepalive_start(pa_droid_keepalive *k) {
-    DBusPendingCall *pending = NULL;
     DBusMessage *msg = NULL;
 
     pa_assert(k);
@@ -163,6 +165,7 @@ void pa_droid_keepalive_start(pa_droid_keepalive *k) {
         return;
 
     pa_assert(!k->timer_event);
+    pa_assert(!k->pending);
 
     /* Period time already requested, just start hearbeat. */
     if (k->timeout > 0) {
@@ -179,10 +182,13 @@ void pa_droid_keepalive_start(pa_droid_keepalive *k) {
                                                      MCE_DBUS_IFACE,
                                                      MCE_DBUS_KEEPALIVE_PERIOD_REQ)));
 
-    dbus_connection_send_with_reply(pa_dbus_connection_get(k->dbus_connection), msg, &pending, -1);
+    dbus_connection_send_with_reply(pa_dbus_connection_get(k->dbus_connection), msg, &k->pending, -1);
     dbus_message_unref(msg);
 
-    dbus_pending_call_set_notify(pending, pending_req_reply_cb, k, NULL);
+    if (k->pending)
+        dbus_pending_call_set_notify(k->pending, pending_req_reply_cb, k, NULL);
+    else
+        pa_log("D-Bus method call failed.");
 }
 
 void pa_droid_keepalive_stop(pa_droid_keepalive *k) {
@@ -196,12 +202,18 @@ void pa_droid_keepalive_stop(pa_droid_keepalive *k) {
 
     pa_assert(pa_atomic_load(&k->started) == 0);
 
-    if (!k->timer_event)
-        return;
-
     pa_log_debug("Stopping keepalive.");
-    k->core->mainloop->time_free(k->timer_event);
-    k->timer_event = NULL;
+
+    if (k->pending) {
+        dbus_pending_call_cancel(k->pending);
+        dbus_pending_call_unref(k->pending);
+        k->pending = NULL;
+    }
+
+    if (k->timer_event) {
+        k->core->mainloop->time_free(k->timer_event);
+        k->timer_event = NULL;
+    }
 
     pa_assert_se((msg = dbus_message_new_method_call(MCE_DBUS_NAME,
                                                      MCE_DBUS_PATH,
@@ -217,6 +229,14 @@ void pa_droid_keepalive_free(pa_droid_keepalive *k) {
     pa_assert(k->dbus_connection);
 
     pa_assert(pa_atomic_load(&k->started) == 0);
+
+    if (k->timer_event)
+        k->core->mainloop->time_free(k->timer_event);
+
+    if (k->pending) {
+        dbus_pending_call_cancel(k->pending);
+        dbus_pending_call_unref(k->pending);
+    }
 
     pa_dbus_connection_unref(k->dbus_connection);
     pa_xfree(k);
