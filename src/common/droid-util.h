@@ -267,6 +267,7 @@ enum pa_droid_quirk_type {
     QUIRK_INPUT_ATOI,
     QUIRK_SET_PARAMETERS,
     QUIRK_CLOSE_INPUT,
+    QUIRK_UNLOAD_NO_CLOSE,
     QUIRK_COUNT
 };
 

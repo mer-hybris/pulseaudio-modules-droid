@@ -68,7 +68,8 @@ struct droid_quirk {
 struct droid_quirk valid_quirks[] = {
     { "input_atoi",             QUIRK_INPUT_ATOI            },
     { "set_parameters",         QUIRK_SET_PARAMETERS        },
-    { "close_input",            QUIRK_CLOSE_INPUT           }
+    { "close_input",            QUIRK_CLOSE_INPUT           },
+    { "unload_no_close",        QUIRK_UNLOAD_NO_CLOSE       }
 };
 
 struct pa_droid_quirks {
@@ -1790,7 +1791,7 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     if (hw->config)
         droid_config_free(hw->config);
 
-    if (hw->device)
+    if (hw->device && !pa_droid_quirk(hw, QUIRK_UNLOAD_NO_CLOSE))
         audio_hw_device_close(hw->device);
 
     if (hw->hw_mutex)
