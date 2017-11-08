@@ -607,7 +607,10 @@ pa_source *pa_droid_source_new(pa_module *m,
         }
     }
 
-    u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in);
+    if (am)
+        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, am->input->devices);
+    else
+        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, dev_in);
 
     if (!u->stream) {
         pa_log("Failed to open input stream.");
@@ -624,6 +627,9 @@ pa_source *pa_droid_source_new(pa_module *m,
         source_set_name(ma, &data, am->input->name);
     else
         source_set_name(ma, &data, module_id);
+
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, PROP_DROID_API_STRING);
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because
@@ -687,6 +693,7 @@ pa_source *pa_droid_source_new(pa_module *m,
                                                         PA_HOOK_NORMAL,
                                                         (pa_hook_cb_t) input_channel_map_changed_cb, u);
 
+    pa_droid_stream_set_data(u->stream, u->source);
     pa_source_put(u->source);
 
     return u->source;
