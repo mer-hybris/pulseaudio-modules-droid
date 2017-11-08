@@ -945,7 +945,10 @@ static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
     return p;
 }
 
-pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input) {
+static pa_droid_profile *droid_profile_new(pa_droid_profile_set *ps,
+                                           const pa_droid_config_output *primary_output,
+                                           const pa_droid_config_output *output,
+                                           const pa_droid_config_input *input) {
     pa_droid_profile *p;
     char *name;
     char *description;
@@ -970,6 +973,8 @@ pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_
             p->priority += DEFAULT_PRIORITY;
     }
 
+    if (primary_output && primary_output != output)
+        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, primary_output), NULL);
     if (output)
         pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, output), NULL);
     if (input)
@@ -988,151 +993,19 @@ void pa_droid_profile_add_mapping(pa_droid_profile *p, pa_droid_mapping *am) {
         pa_idxset_put(p->input_mappings, am, NULL);
 }
 
-static pa_droid_profile *add_profile(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input) {
+static pa_droid_profile *add_profile(pa_droid_profile_set *ps,
+                                     const pa_droid_config_output *primary_output,
+                                     const pa_droid_config_output *output,
+                                     const pa_droid_config_input *input) {
     pa_droid_profile *ap;
 
     pa_log_debug("New profile: %s-%s", output->name, input ? input->name : "no input");
 
-    ap = pa_droid_profile_new(ps, output, input);
+    ap = droid_profile_new(ps, primary_output, output, input);
 
     pa_hashmap_put(ps->profiles, ap->name, ap);
 
     return ap;
-}
-
-static bool str_in_strlist(const char *str, pa_strlist *list) {
-    pa_strlist *iter;
-
-    pa_assert(str);
-    pa_assert(list);
-
-    for (iter = list; iter; iter = pa_strlist_next(iter)) {
-        if (pa_streq(str, pa_strlist_data(iter)))
-            return true;
-    }
-
-    return false;
-}
-
-/* If outputs or inputs string list contain string *all* it means all
- * outputs or inputs are added to the combined profile.
- * If outputs or inputs string list contain string *auto* it means
- * all devices that are in module and listed in droid_combined_auto_*
- * are added to the combined profile. */
-static pa_droid_profile *add_combined_profile(pa_droid_profile_set *ps,
-                                              const pa_droid_config_hw_module *module,
-                                              pa_strlist *outputs,
-                                              pa_strlist *inputs) {
-    pa_droid_profile *p;
-    char *description;
-    char *o_str;
-    char *i_str;
-    pa_strlist *to_outputs = NULL;
-    pa_strlist *to_inputs = NULL;
-    pa_droid_mapping *am;
-    pa_droid_config_output *output;
-    pa_droid_config_input *input;
-
-    pa_assert(ps);
-    pa_assert(module);
-
-    if (outputs) {
-        if (str_in_strlist(PA_DROID_COMBINED_AUTO, outputs)) {
-            for (unsigned i = 0; droid_combined_auto_outputs[i]; i++) {
-                SLLIST_FOREACH(output, module->outputs) {
-                    if (pa_streq(droid_combined_auto_outputs[i], output->name)) {
-                        pa_log_debug("Auto add to combined profile output %s", output->name);
-                        to_outputs = pa_strlist_prepend(to_outputs, output->name);
-                    }
-                }
-            }
-        } else {
-            SLLIST_FOREACH(output, module->outputs) {
-                if (!str_in_strlist(PA_DROID_COMBINED_ALL, outputs) &&
-                    !str_in_strlist(output->name, outputs))
-                    continue;
-
-                to_outputs = pa_strlist_prepend(to_outputs, output->name);
-            }
-        }
-
-        to_outputs = pa_strlist_reverse(to_outputs);
-    }
-
-    if (inputs) {
-        if (str_in_strlist(PA_DROID_COMBINED_AUTO, inputs)) {
-            for (unsigned i = 0; droid_combined_auto_inputs[i]; i++) {
-                SLLIST_FOREACH(input, module->inputs) {
-                    if (pa_streq(droid_combined_auto_inputs[i], input->name)) {
-                        pa_log_debug("Auto add to combined profile input %s", input->name);
-                        to_inputs = pa_strlist_prepend(to_inputs, input->name);
-                    }
-                }
-            }
-        } else {
-            SLLIST_FOREACH(input, module->inputs) {
-                if (!str_in_strlist(PA_DROID_COMBINED_ALL, inputs) &&
-                    !str_in_strlist(input->name, inputs))
-                    continue;
-
-                to_inputs = pa_strlist_prepend(to_inputs, input->name);
-            }
-        }
-
-        to_inputs = pa_strlist_reverse(to_inputs);
-    }
-
-#if (PULSEAUDIO_VERSION >= 8)
-    o_str = pa_strlist_to_string(to_outputs);
-    i_str = pa_strlist_to_string(to_inputs);
-#else
-    o_str = pa_strlist_tostring(to_outputs);
-    i_str = pa_strlist_tostring(to_inputs);
-#endif
-
-    pa_log_debug("New combined profile: %s (outputs: %s, inputs: %s)", module->name, o_str, i_str);
-
-    if (!to_outputs && !to_inputs)
-        pa_log("Combined profile doesn't have any outputs or inputs!");
-
-    description = pa_sprintf_malloc("Combined outputs (%s) and inputs (%s) of %s.", o_str,
-                                                                                    i_str,
-                                                                                    module->name);
-    p = profile_new(ps, module, module->name, description);
-    pa_xfree(description);
-    pa_xfree(o_str);
-    pa_xfree(i_str);
-
-    if (to_outputs) {
-        SLLIST_FOREACH(output, module->outputs) {
-            if (!str_in_strlist(output->name, to_outputs))
-                continue;
-
-            am = pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, output);
-            pa_droid_profile_add_mapping(p, am);
-
-            if (pa_streq(output->name, "primary"))
-                p->priority += DEFAULT_PRIORITY;
-        }
-    }
-
-    if (to_inputs) {
-        SLLIST_FOREACH(input, module->inputs) {
-            if (!str_in_strlist(input->name, to_inputs))
-                continue;
-
-            am = pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, input);
-            pa_droid_profile_add_mapping(p, am);
-
-            if (pa_streq(input->name, "primary"))
-                p->priority += DEFAULT_PRIORITY;
-        }
-    }
-
-    pa_strlist_free(to_outputs);
-    pa_strlist_free(to_inputs);
-
-    return p;
 }
 
 static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *module) {
@@ -1154,7 +1027,9 @@ static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *mo
     return ps;
 }
 
-static void add_all_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_module *module) {
+static void add_all_profiles(pa_droid_profile_set *ps,
+                             const pa_droid_config_hw_module *module,
+                             const pa_droid_config_output *primary_output) {
     pa_droid_config_output *output;
     pa_droid_config_input *input;
 
@@ -1170,9 +1045,9 @@ static void add_all_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_
 
         if (module->inputs) {
             SLLIST_FOREACH(input, module->inputs)
-                add_profile(ps, output, input);
+                add_profile(ps, primary_output, output, input);
         } else
-            add_profile(ps, output, NULL);
+            add_profile(ps, primary_output, output, NULL);
     }
 }
 
@@ -1180,19 +1055,98 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
-    add_all_profiles(ps, module);
+    add_all_profiles(ps, module, NULL);
 
     return ps;
 }
 
-pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
-                                                        pa_strlist *outputs,
-                                                        pa_strlist *inputs) {
+static void add_default_profile(pa_droid_profile_set *ps,
+                                const pa_droid_config_hw_module *module,
+                                const pa_droid_config_output *primary_output,
+                                const pa_droid_config_output *low_latency_output,
+                                const pa_droid_config_output *media_latency_output,
+                                const pa_droid_config_input *builtin_input,
+                                const pa_droid_config_input *external_input) {
+
+    pa_droid_profile *p;
+
+    pa_assert(ps);
+    pa_assert(module);
+
+    pa_log_debug("New default profile");
+
+    p = profile_new(ps, module, "default", "Default profile");
+
+    if (primary_output)
+        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, primary_output), NULL);
+    if (low_latency_output && primary_output != low_latency_output)
+        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, low_latency_output), NULL);
+    if (media_latency_output && primary_output != media_latency_output && low_latency_output != media_latency_output)
+        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, media_latency_output), NULL);
+    if (builtin_input)
+        pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, builtin_input), NULL);
+    if (external_input && builtin_input != external_input)
+        pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, external_input), NULL);
+
+    p->priority += DEFAULT_PRIORITY * (pa_idxset_size(p->output_mappings) + pa_idxset_size(p->input_mappings));
+    p->priority += primary_output ? DEFAULT_PRIORITY : 0;
+    pa_hashmap_put(ps->profiles, p->name, p);
+}
+
+static void auto_add_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_module *module) {
+    const pa_droid_config_output *output;
+    const pa_droid_config_input *input;
+
+    const pa_droid_config_output *primary_output        = NULL;
+    const pa_droid_config_output *low_latency_output    = NULL;
+    const pa_droid_config_output *media_latency_output  = NULL;
+
+    const pa_droid_config_input *builtin_input          = NULL;
+    const pa_droid_config_input *external_input         = NULL;
+
+    uint32_t input_devices;
+
+    pa_assert(ps);
+    pa_assert(module);
+
+    /* first find different output types */
+    SLLIST_FOREACH(output, module->outputs) {
+        if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
+            primary_output = output;
+
+#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_RAW)
+        else if (output->flags & AUDIO_OUTPUT_FLAG_RAW)
+            pa_log_debug("Ignore output %s with flag AUDIO_OUTPUT_FLAG_RAW", output->name);
+#endif
+
+        else if (output->flags & AUDIO_OUTPUT_FLAG_FAST)
+            low_latency_output = output;
+
+        else if (output->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+            media_latency_output = output;
+    }
+
+    SLLIST_FOREACH(input, module->inputs) {
+        input_devices = input->devices;
+#if AUDIO_API_VERSION_MAJ >= 2
+        input_devices &= ~AUDIO_DEVICE_BIT_IN;
+#endif
+        if (input_devices & (AUDIO_DEVICE_IN_BUILTIN_MIC | AUDIO_DEVICE_IN_BACK_MIC))
+            builtin_input = input;
+
+        else if (input_devices & AUDIO_DEVICE_IN_WIRED_HEADSET)
+            external_input = input;
+    }
+
+    add_default_profile(ps, module, primary_output, low_latency_output, media_latency_output, builtin_input, external_input);
+    add_all_profiles(ps, module, primary_output);
+}
+
+pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
-    add_combined_profile(ps, module, outputs, inputs);
-    add_all_profiles(ps, module);
+    auto_add_profiles(ps, module);
 
     return ps;
 }
@@ -1667,6 +1621,150 @@ bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk) {
         return false;
 }
 
+static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
+    pa_sink *sink;
+    pa_sink *primary_sink       = NULL;
+    pa_sink *low_latency_sink   = NULL;
+    pa_sink *media_latency_sink = NULL;
+    pa_sink *offload_sink       = NULL;
+
+    pa_droid_stream *s;
+    uint32_t idx;
+
+    /* only update primary hw module types for now. */
+    if (!pa_streq(hw->module_id, PA_DROID_PRIMARY_DEVICE))
+        return;
+
+    PA_IDXSET_FOREACH(s, hw->outputs, idx) {
+        if (!(sink = pa_droid_stream_get_data(s)))
+            continue;
+
+        if (sink == ignore_sink)
+            continue;
+
+        if (s->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
+            primary_sink = sink;
+
+        if (s->flags & AUDIO_OUTPUT_FLAG_FAST)
+            low_latency_sink = sink;
+
+        if (s->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+            media_latency_sink = sink;
+
+#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
+        if (s->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
+            offload_sink = sink;
+#endif
+    }
+
+    if (primary_sink == low_latency_sink)
+        low_latency_sink = NULL;
+
+    if (primary_sink == media_latency_sink)
+        media_latency_sink = NULL;
+
+    if (low_latency_sink)
+        pa_proplist_sets(low_latency_sink->proplist, PROP_DROID_OUTPUT_LOW_LATENCY, "true");
+
+    if (media_latency_sink)
+        pa_proplist_sets(media_latency_sink->proplist, PROP_DROID_OUTPUT_MEDIA_LATENCY, "true");
+
+    if (offload_sink)
+        pa_proplist_sets(offload_sink->proplist, PROP_DROID_OUTPUT_OFFLOAD, "true");
+
+    if (primary_sink) {
+        pa_proplist_sets(primary_sink->proplist, PROP_DROID_OUTPUT_PRIMARY, "true");
+        pa_proplist_sets(primary_sink->proplist, PROP_DROID_OUTPUT_LOW_LATENCY, low_latency_sink ? "false" : "true");
+        pa_proplist_sets(primary_sink->proplist, PROP_DROID_OUTPUT_MEDIA_LATENCY, media_latency_sink ? "false" : "true");
+    }
+}
+
+static pa_hook_result_t sink_put_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_sink *sink           = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_sink_is_droid_sink(sink))
+        return PA_HOOK_OK;
+
+    update_sink_types(hw, NULL);
+
+    return PA_HOOK_OK;
+}
+
+static pa_hook_result_t sink_unlink_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_sink *sink           = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_sink_is_droid_sink(sink))
+        return PA_HOOK_OK;
+
+    update_sink_types(hw, sink);
+
+    return PA_HOOK_OK;
+}
+
+static void update_source_types(pa_droid_hw_module *hw, pa_source *ignore_source) {
+    pa_source *source;
+    pa_source *builtin_source   = NULL;
+    pa_source *external_source  = NULL;
+
+    pa_droid_stream *s;
+    uint32_t idx;
+
+    /* only update primary hw module types for now. */
+    if (!pa_streq(hw->module_id, PA_DROID_PRIMARY_DEVICE))
+        return;
+
+    PA_IDXSET_FOREACH(s, hw->inputs, idx) {
+        if (!(source = pa_droid_stream_get_data(s)))
+            continue;
+
+        if (source == ignore_source)
+            continue;
+
+        if (s->all_devices & (AUDIO_DEVICE_IN_BUILTIN_MIC | AUDIO_DEVICE_IN_BACK_MIC))
+            builtin_source = source;
+
+        if (s->all_devices & AUDIO_DEVICE_IN_WIRED_HEADSET)
+            external_source = source;
+    }
+
+    if (builtin_source)
+        pa_proplist_sets(builtin_source->proplist, PROP_DROID_INPUT_BUILTIN, "true");
+
+    if (external_source)
+        pa_proplist_sets(external_source->proplist, PROP_DROID_INPUT_EXTERNAL, "true");
+
+    if (builtin_source && external_source && builtin_source != external_source) {
+        pa_proplist_sets(builtin_source->proplist, PROP_DROID_INPUT_EXTERNAL, "false");
+        pa_proplist_sets(external_source->proplist, PROP_DROID_INPUT_BUILTIN, "false");
+    }
+}
+
+static pa_hook_result_t source_put_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_source *source       = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_source_is_droid_source(source))
+        return PA_HOOK_OK;
+
+    update_source_types(hw, NULL);
+
+    return PA_HOOK_OK;
+}
+
+static pa_hook_result_t source_unlink_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_source *source       = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_source_is_droid_source(source))
+        return PA_HOOK_OK;
+
+    update_source_types(hw, source);
+
+    return PA_HOOK_OK;
+}
+
 static char *shared_name_get(const char *module_id) {
     pa_assert(module_id);
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
@@ -1736,6 +1834,15 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     hw->inputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
     hw->quirks = set_default_quirks(hw->quirks);
 
+    hw->sink_put_hook_slot      = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_EARLY-10,
+                                                  sink_put_hook_cb, hw);
+    hw->sink_unlink_hook_slot   = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY-10,
+                                                  sink_unlink_hook_cb, hw);
+    hw->source_put_hook_slot    = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_PUT], PA_HOOK_EARLY-10,
+                                                  source_put_hook_cb, hw);
+    hw->source_unlink_hook_slot = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_UNLINK], PA_HOOK_EARLY-10,
+                                                  source_unlink_hook_cb, hw);
+
     for (h = 0; h < PA_DROID_HOOK_MAX; h++)
         pa_hook_init(&hw->hooks[h], hw);
 
@@ -1784,6 +1891,16 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     pa_assert(hw);
 
     pa_log_info("Closing hw module %s.%s (%s)", AUDIO_HARDWARE_MODULE_ID, hw->enabled_module->name, DROID_DEVICE_STRING);
+
+    if (hw->sink_put_hook_slot)
+        pa_hook_slot_free(hw->sink_put_hook_slot);
+    if (hw->sink_unlink_hook_slot)
+        pa_hook_slot_free(hw->sink_unlink_hook_slot);
+
+    if (hw->source_put_hook_slot)
+        pa_hook_slot_free(hw->source_put_hook_slot);
+    if (hw->source_unlink_hook_slot)
+        pa_hook_slot_free(hw->source_unlink_hook_slot);
 
     for (h = 0; h < PA_DROID_HOOK_MAX; h++)
         pa_hook_done(&hw->hooks[h]);
@@ -2184,7 +2301,8 @@ static void input_stream_close(pa_droid_stream *s) {
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             const pa_sample_spec *spec,
                                             const pa_channel_map *map,
-                                            audio_devices_t devices) {
+                                            audio_devices_t devices,
+                                            uint32_t all_devices) {
 
     pa_droid_stream *s = NULL;
     int ret = -1;
@@ -2194,6 +2312,10 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     s->channel_map = *map;
     s->flags = 0;   /* AUDIO_INPUT_FLAG_NONE */
     s->device = devices;
+#if AUDIO_API_VERSION_MAJ >= 2
+    all_devices &= ~AUDIO_DEVICE_BIT_IN;
+#endif
+    s->all_devices = all_devices;
 
     /* We need to open the stream for a while so that we can know
      * what sample rate we get. We need the rate for droid source. */
@@ -2498,15 +2620,37 @@ size_t pa_droid_stream_buffer_size(pa_droid_stream *s) {
     return s->buffer_size;
 }
 
-bool pa_sink_is_droid_sink(pa_sink *s) {
-    const char *api;
-
+void pa_droid_stream_set_data(pa_droid_stream *s, void *data) {
     pa_assert(s);
 
-    if ((api = pa_proplist_gets(s->proplist, PA_PROP_DEVICE_API)))
+    s->data = data;
+}
+
+void *pa_droid_stream_get_data(pa_droid_stream *s) {
+    pa_assert(s);
+
+    return s->data;
+}
+
+static bool proplist_check_api(pa_proplist *proplist) {
+    const char *api;
+
+    pa_assert(proplist);
+
+    if ((api = pa_proplist_gets(proplist, PA_PROP_DEVICE_API)))
         return pa_streq(api, PROP_DROID_API_STRING);
-    else
-        return false;
+
+    return false;
+}
+
+bool pa_source_is_droid_source(pa_source *source) {
+    pa_assert(source);
+    return proplist_check_api(source->proplist);
+}
+
+bool pa_sink_is_droid_sink(pa_sink *sink) {
+    pa_assert(sink);
+    return proplist_check_api(sink->proplist);
 }
 
 size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size) {
