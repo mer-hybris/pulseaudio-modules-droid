@@ -1298,6 +1298,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         setup_track_primary(u);
 
     pa_droid_stream_suspend(u->stream, false);
+    pa_droid_stream_set_data(u->stream, u->sink);
     pa_sink_put(u->sink);
 
     return u->sink;
