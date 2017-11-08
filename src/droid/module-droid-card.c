@@ -81,7 +81,7 @@ PA_MODULE_USAGE(
         "config=<location for droid audio configuration> "
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
         "voice_property_value=<proplist value for the key for voice control sink-input> "
-        "combine=<comma separated list of outputs that should be merged to one profile. defaults to none> "
+        "default_profile=<boolean. create default profile for primary module or not. defaults to true> "
         "quirks=<comma separated list of quirks to enable/disable>"
 );
 
@@ -113,6 +113,7 @@ static const char* const valid_modargs[] = {
     "config",
     "voice_property_key",
     "voice_property_value",
+    "default_profile",
     "combine",
     "quirks",
     NULL,
@@ -671,13 +672,14 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
 
 
 int pa__init(pa_module *m) {
+    struct userdata *u = NULL;
     pa_modargs *ma = NULL;
     pa_card_new_data data;
     pa_droid_config_audio *config = NULL;
     const char *module_id;
     bool namereg_fail = false;
     pa_card_profile *virtual;
-    const char *combine;
+    bool default_profile = true;
     const char *quirks;
 
     pa_assert(m);
@@ -687,9 +689,12 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
-    combine = pa_modargs_get_value(ma, "combine", NULL);
+    if (pa_modargs_get_value_boolean(ma, "default_profile", &default_profile) < 0) {
+        pa_log("Failed to parse default_profile argument. Expects boolean value");
+        goto fail;
+    }
 
-    struct userdata *u = pa_xnew0(struct userdata, 1);
+    u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     m->userdata = u;
 
@@ -715,41 +720,10 @@ int pa__init(pa_module *m) {
     u->card_data.module_id = pa_xstrdup(module_id);
     u->card_data.userdata = u;
 
-    if (combine) {
-        pa_strlist *o = NULL;
-        pa_strlist *i = NULL;
-
-        if (pa_streq(combine, PA_DROID_COMBINED_AUTO)) {
-            o = pa_strlist_parse(PA_DROID_COMBINED_AUTO);
-            i = pa_strlist_parse(PA_DROID_COMBINED_AUTO);
-        } else {
-            char *tmp, *d;
-            const char *inputs = NULL;
-            const char *outputs = NULL;
-
-            tmp = pa_replace(combine, ",", " ");
-
-            outputs = tmp;
-            if ((d = strstr(tmp, ":"))) {
-                d[0] = '\0';
-                inputs = d + 1;
-            }
-
-            if (outputs)
-                o = pa_strlist_parse(outputs);
-
-            if (inputs)
-                i = pa_strlist_parse(inputs);
-
-            pa_xfree(tmp);
-        }
-
-        u->profile_set = pa_droid_profile_set_combined_new(u->hw_module->enabled_module, o, i);
-
-        pa_strlist_free(o);
-        pa_strlist_free(i);
-    } else
+    if (!default_profile || !pa_streq(module_id, DEFAULT_MODULE_ID))
         u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
+    else
+        u->profile_set = pa_droid_profile_set_default_new(u->hw_module->enabled_module);
 
     pa_card_new_data_init(&data);
     data.driver = __FILE__;
