@@ -544,6 +544,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_droid_mapping *am;
     struct profile_data *nd, *od;
     pa_queue *sink_inputs = NULL, *source_outputs = NULL;
+    pa_sink *primary_sink = NULL;
     uint32_t idx;
 
     pa_assert(c);
@@ -612,6 +613,9 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
             if (!am->sink)
                 continue;
 
+            if (pa_droid_mapping_is_primary(am))
+                primary_sink = am->sink;
+
             if (nd->profile &&
                 pa_idxset_get_by_data(nd->profile->output_mappings, am, NULL))
                 continue;
@@ -659,6 +663,13 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
                 source_outputs = NULL;
             }
         }
+    }
+
+    /* if only primary sink is left after profile change and we have detached sink-inputs attach
+     * them to primary sink. */
+    if (sink_inputs && primary_sink) {
+        pa_sink_move_all_finish(primary_sink, sink_inputs, false);
+        sink_inputs = NULL;
     }
 
     if (sink_inputs)
