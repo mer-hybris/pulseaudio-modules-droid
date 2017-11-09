@@ -77,6 +77,8 @@
 
 typedef struct pa_droid_hw_module pa_droid_hw_module;
 typedef struct pa_droid_stream pa_droid_stream;
+typedef struct pa_droid_output_stream pa_droid_output_stream;
+typedef struct pa_droid_input_stream pa_droid_input_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;
 typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
@@ -125,24 +127,34 @@ struct pa_droid_hw_module {
     pa_hook hooks[PA_DROID_HOOK_MAX];
 };
 
-struct pa_droid_stream {
-    PA_REFCNT_DECLARE;
+struct pa_droid_output_stream {
+    struct audio_stream_out *stream;
+    pa_sample_spec sample_spec;
+    pa_channel_map channel_map;
+    uint32_t flags;
+    uint32_t device;
+};
 
-    pa_droid_hw_module *module;
-
+struct pa_droid_input_stream {
+    struct audio_stream_in *stream;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_sample_spec input_sample_spec;
     pa_channel_map input_channel_map;
     uint32_t flags;
     uint32_t device;
-    size_t buffer_size;
-
-    struct audio_stream_out *out;
-    struct audio_stream_in *in;
-
     audio_devices_t all_devices;
+};
+
+struct pa_droid_stream {
+    PA_REFCNT_DECLARE;
+
+    pa_droid_hw_module *module;
+    size_t buffer_size;
     void *data;
+
+    pa_droid_output_stream *output;
+    pa_droid_input_stream *input;
 };
 
 struct pa_droid_card_data {
@@ -413,11 +425,11 @@ static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
 }
 
 static inline ssize_t pa_droid_stream_write(pa_droid_stream *stream, const void *buffer, size_t bytes) {
-    return stream->out->write(stream->out, buffer, bytes);
+    return stream->output->stream->write(stream->output->stream, buffer, bytes);
 }
 
 static inline ssize_t pa_droid_stream_read(pa_droid_stream *stream, void *buffer, size_t bytes) {
-    return stream->in->read(stream->in, buffer, bytes);
+    return stream->input->stream->read(stream->input->stream, buffer, bytes);
 }
 
 void pa_droid_stream_set_data(pa_droid_stream *s, void *data);
