@@ -2368,7 +2368,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             const pa_sample_spec *spec,
                                             const pa_channel_map *map,
                                             audio_devices_t devices,
-                                            uint32_t all_devices) {
+                                            pa_droid_mapping *am) {
 
     pa_droid_stream *s = NULL;
     pa_droid_input_stream *input = NULL;
@@ -2380,10 +2380,16 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     input->channel_map = *map;
     input->flags = 0;   /* AUDIO_INPUT_FLAG_NONE */
     input->device = devices;
+    if (am)
+        input->all_devices = am->input->devices | (am->input2 ? am->input2->devices : 0);
+    else
+        input->all_devices = devices;
 #if AUDIO_API_VERSION_MAJ >= 2
     input->all_devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
-    s->all_devices = all_devices;
+
+    if (am && am->input && am->input2)
+        input->merged = true;
 
     /* We need to open the stream for a while so that we can know
      * what sample rate we get. We need the rate for droid source. */
@@ -2408,7 +2414,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
 
     /* As audio_source_t may not have any effect when opening the input stream
      * set input parameters immediately after opening the stream. */
-    if (!pa_droid_quirk(module, QUIRK_CLOSE_INPUT))
+    if (!s->input->merged && !pa_droid_quirk(module, QUIRK_CLOSE_INPUT))
         input_stream_set_route(s, devices);
 
     /* We start the stream in suspended state. */
@@ -2683,12 +2689,12 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
     } else {
         if (suspend) {
             if (s->input->stream) {
-                if (pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
+                if (s->input->merged || pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
                     input_stream_close(s);
                 else
                     return s->input->stream->common.standby(&s->input->stream->common);
             }
-        } else if (pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
+        } else if (s->input->merged || pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
             return input_stream_open(s);
     }
 

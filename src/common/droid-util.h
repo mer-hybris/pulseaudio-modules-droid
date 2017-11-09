@@ -144,6 +144,7 @@ struct pa_droid_input_stream {
     uint32_t flags;
     uint32_t device;
     audio_devices_t all_devices;
+    bool merged;
 };
 
 struct pa_droid_stream {
@@ -412,7 +413,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             const pa_sample_spec *spec,
                                             const pa_channel_map *map,
                                             audio_devices_t devices,
-                                            uint32_t all_devices);
+                                            pa_droid_mapping *am);
 
 bool pa_droid_stream_is_primary(pa_droid_stream *s);
 
