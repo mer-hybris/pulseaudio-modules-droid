@@ -432,11 +432,11 @@ static void update_latency(struct userdata *u) {
         pa_log_info("Using buffer size %u.", u->buffer_size);
 
     if (pa_thread_mq_get())
-        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
     else
-        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
 
-    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
 }
 
 /* Called from IO context. */
@@ -466,12 +466,12 @@ static pa_hook_result_t input_channel_map_changed_cb(pa_droid_hw_module *module,
     if (stream != u->stream)
         return PA_HOOK_OK;
 
-    if (u->stream->input_channel_map.channels != u->source->channel_map.channels) {
+    if (u->stream->input->input_channel_map.channels != u->source->channel_map.channels) {
         if (u->resampler)
             pa_resampler_free(u->resampler);
 
         u->resampler = pa_resampler_new(u->core->mempool,
-                                        &u->stream->input_sample_spec, &u->stream->input_channel_map,
+                                        &u->stream->input->input_sample_spec, &u->stream->input->input_channel_map,
                                         &u->source->sample_spec, &u->source->channel_map,
                                         u->core->lfe_crossover_freq,
                                         PA_RESAMPLER_COPY,
@@ -643,8 +643,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     }
     data.namereg_fail = namereg_fail;
 
-    pa_source_new_data_set_sample_spec(&data, &u->stream->sample_spec);
-    pa_source_new_data_set_channel_map(&data, &u->stream->channel_map);
+    pa_source_new_data_set_sample_spec(&data, &u->stream->input->sample_spec);
+    pa_source_new_data_set_channel_map(&data, &u->stream->input->channel_map);
     pa_source_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     if (am && card)
