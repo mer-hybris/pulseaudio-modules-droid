@@ -608,9 +608,9 @@ pa_source *pa_droid_source_new(pa_module *m,
     }
 
     if (am)
-        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, am->input->devices);
+        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, am);
     else
-        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, dev_in);
+        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, NULL);
 
     if (!u->stream) {
         pa_log("Failed to open input stream.");
@@ -624,7 +624,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     data.suspend_cause = PA_SUSPEND_IDLE;
 
     if (am)
-        source_set_name(ma, &data, am->input->name);
+        source_set_name(ma, &data, am->name);
     else
         source_set_name(ma, &data, module_id);
 
