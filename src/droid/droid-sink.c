@@ -468,14 +468,7 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
     switch (code) {
 
         case PA_SINK_MESSAGE_GET_LATENCY: {
-            pa_usec_t r = 0;
-
-            /* HAL reports milliseconds */
-            if (u->stream->out)
-                r = u->stream->out->get_latency(u->stream->out) * PA_USEC_PER_MSEC;
-
-            *((pa_usec_t*) data) = r;
-
+            *((pa_usec_t*) data) = pa_droid_stream_get_latency(u->stream);
             return 0;
         }
 
@@ -1274,7 +1267,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     thread_name = NULL;
 
     /* HAL latencies are in milliseconds. */
-    latency = u->stream->out->get_latency(u->stream->out) * PA_USEC_PER_MSEC;
+    latency = pa_droid_stream_get_latency(u->stream);
     pa_sink_set_fixed_latency(u->sink, latency);
     pa_log_debug("Set fixed latency %llu usec", latency);
     pa_sink_set_max_request(u->sink, u->buffer_size);
