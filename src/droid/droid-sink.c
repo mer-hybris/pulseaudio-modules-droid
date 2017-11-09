@@ -422,7 +422,6 @@ static int suspend(struct userdata *u) {
 
     pa_assert(u);
     pa_assert(u->sink);
-    pa_assert(u->stream->out);
 
     ret = pa_droid_stream_suspend(u->stream, true);
 
@@ -561,7 +560,7 @@ static void sink_set_volume_cb(pa_sink *s) {
         float val = pa_sw_volume_to_linear(r.values[0]);
         pa_log_debug("Set hw volume %f", val);
         pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->out->set_volume(u->stream->out, val, val) < 0)
+        if (u->stream->output->stream->set_volume(u->stream->output->stream, val, val) < 0)
             pa_log_warn("Failed to set hw volume.");
         pa_droid_hw_module_unlock(u->hw_module);
     } else if (r.channels == 2) {
@@ -570,7 +569,7 @@ static void sink_set_volume_cb(pa_sink *s) {
             val[i] = pa_sw_volume_to_linear(r.values[i]);
         pa_log_debug("Set hw volume %f : %f", val[0], val[1]);
         pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->out->set_volume(u->stream->out, val[0], val[1]) < 0)
+        if (u->stream->output->stream->set_volume(u->stream->output->stream, val[0], val[1]) < 0)
             pa_log_warn("Failed to set hw volume.");
         pa_droid_hw_module_unlock(u->hw_module);
     }
@@ -601,9 +600,9 @@ static void update_volumes(struct userdata *u) {
 
     /* set_volume returns 0 if hw volume control is implemented, < 0 otherwise. */
     pa_droid_hw_module_lock(u->hw_module);
-    if (u->stream->out->set_volume) {
+    if (u->stream->output->stream->set_volume) {
         pa_log_debug("Probe hw volume support for %s", u->sink->name);
-        ret = u->stream->out->set_volume(u->stream->out, 1.0f, 1.0f);
+        ret = u->stream->output->stream->set_volume(u->stream->output->stream, 1.0f, 1.0f);
     }
     pa_droid_hw_module_unlock(u->hw_module);
 
@@ -1186,11 +1185,11 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
     }
 
-    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec);
+    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->output->sample_spec);
     u->write_threshold = u->buffer_time - u->buffer_time / 6;
 
-    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &u->stream->sample_spec, u->buffer_size);
-    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &u->stream->sample_spec, 1, 0, 0, &u->silence);
+    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &u->stream->output->sample_spec, u->buffer_size);
+    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &u->stream->output->sample_spec, 1, 0, 0, &u->silence);
 
     pa_sink_new_data_init(&data);
     data.driver = driver;
@@ -1216,8 +1215,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
     data.namereg_fail = namereg_fail;
 
-    pa_sink_new_data_set_sample_spec(&data, &u->stream->sample_spec);
-    pa_sink_new_data_set_channel_map(&data, &u->stream->channel_map);
+    pa_sink_new_data_set_sample_spec(&data, &u->stream->output->sample_spec);
+    pa_sink_new_data_set_channel_map(&data, &u->stream->output->channel_map);
     pa_sink_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     /*
