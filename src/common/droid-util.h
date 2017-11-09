@@ -420,6 +420,7 @@ bool pa_droid_stream_is_primary(pa_droid_stream *s);
 int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend);
 
 size_t pa_droid_stream_buffer_size(pa_droid_stream *s);
+pa_usec_t pa_droid_stream_get_latency(pa_droid_stream *s);
 
 static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
     return pa_atomic_load(&s->module->active_outputs);
