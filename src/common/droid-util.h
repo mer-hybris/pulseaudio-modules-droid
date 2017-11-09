@@ -230,6 +230,7 @@ struct pa_droid_mapping {
 
     const pa_droid_config_output *output;
     const pa_droid_config_input *input;
+    const pa_droid_config_input *input2;
 
     char *name;
     char *description;
@@ -334,13 +335,17 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
 
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
-pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module);
+pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module,
+                                                       bool merge_inputs);
 void pa_droid_profile_set_free(pa_droid_profile_set *ps);
 
 void pa_droid_profile_add_mapping(pa_droid_profile *p, pa_droid_mapping *am);
 void pa_droid_profile_free(pa_droid_profile *p);
 
 pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t direction, const void *data);
+pa_droid_mapping *pa_droid_mapping_merged_get(pa_droid_profile_set *ps,
+                                              const pa_droid_config_input *input1,
+                                              const pa_droid_config_input *input2);
 bool pa_droid_mapping_is_primary(pa_droid_mapping *am);
 /* Go through idxset containing pa_droid_mapping objects and if primary output or input
  * mapping is found, return pointer to that mapping. */

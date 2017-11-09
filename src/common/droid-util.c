@@ -1066,7 +1066,8 @@ static void add_default_profile(pa_droid_profile_set *ps,
                                 const pa_droid_config_output *low_latency_output,
                                 const pa_droid_config_output *media_latency_output,
                                 const pa_droid_config_input *builtin_input,
-                                const pa_droid_config_input *external_input) {
+                                const pa_droid_config_input *external_input,
+                                bool merge_inputs) {
 
     pa_droid_profile *p;
 
@@ -1083,17 +1084,24 @@ static void add_default_profile(pa_droid_profile_set *ps,
         pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, low_latency_output), NULL);
     if (media_latency_output && primary_output != media_latency_output && low_latency_output != media_latency_output)
         pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_OUTPUT, media_latency_output), NULL);
-    if (builtin_input)
-        pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, builtin_input), NULL);
-    if (external_input && builtin_input != external_input)
-        pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, external_input), NULL);
+
+    if (builtin_input && external_input && builtin_input != external_input && merge_inputs) {
+        pa_idxset_put(p->input_mappings, pa_droid_mapping_merged_get(ps, builtin_input, external_input), NULL);
+    } else {
+        if (builtin_input)
+            pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, builtin_input), NULL);
+        if (external_input && builtin_input != external_input)
+            pa_idxset_put(p->input_mappings, pa_droid_mapping_get(ps, PA_DIRECTION_INPUT, external_input), NULL);
+    }
 
     p->priority += DEFAULT_PRIORITY * (pa_idxset_size(p->output_mappings) + pa_idxset_size(p->input_mappings));
     p->priority += primary_output ? DEFAULT_PRIORITY : 0;
     pa_hashmap_put(ps->profiles, p->name, p);
 }
 
-static void auto_add_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw_module *module) {
+static void auto_add_profiles(pa_droid_profile_set *ps,
+                              const pa_droid_config_hw_module *module,
+                              bool merge_inputs) {
     const pa_droid_config_output *output;
     const pa_droid_config_input *input;
 
@@ -1138,15 +1146,18 @@ static void auto_add_profiles(pa_droid_profile_set *ps, const pa_droid_config_hw
             external_input = input;
     }
 
-    add_default_profile(ps, module, primary_output, low_latency_output, media_latency_output, builtin_input, external_input);
+    add_default_profile(ps, module,
+                        primary_output, low_latency_output, media_latency_output,
+                        builtin_input, external_input, merge_inputs);
     add_all_profiles(ps, module, primary_output);
 }
 
-pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module) {
+pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module,
+                                                       bool merge_inputs) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
-    auto_add_profiles(ps, module);
+    auto_add_profiles(ps, module, merge_inputs);
 
     return ps;
 }
@@ -1332,6 +1343,9 @@ static void add_i_ports(pa_droid_mapping *am) {
     pa_assert(am);
 
     devices = am->input->devices | AUDIO_DEVICE_IN_DEFAULT;
+    if (am->input2)
+        devices |= am->input2->devices;
+
 #if AUDIO_API_VERSION_MAJ >= 2
     devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
@@ -1411,6 +1425,39 @@ pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t 
         add_o_ports(am);
     else
         add_i_ports(am);
+
+    pa_hashmap_put(map, am->name, am);
+
+    return am;
+}
+
+pa_droid_mapping *pa_droid_mapping_merged_get(pa_droid_profile_set *ps,
+                                              const pa_droid_config_input *input1,
+                                              const pa_droid_config_input *input2) {
+    pa_droid_mapping *am;
+    pa_hashmap *map = ps->input_mappings;
+    char *name;
+
+    name = pa_sprintf_malloc("%s+%s", input1->name, input2->name);
+
+    if ((am = pa_hashmap_get(map, name))) {
+        pa_log_debug("  Input mapping %s from cache", name);
+        pa_xfree(name);
+        return am;
+    }
+    pa_log_debug("  New input mapping %s", name);
+
+    am = pa_xnew0(pa_droid_mapping, 1);
+    am->profile_set = ps;
+    am->name = name;
+    am->proplist = pa_proplist_new();
+    am->direction = PA_DIRECTION_INPUT;
+    am->output = NULL;
+    am->input = input1;
+    am->input2 = input2;
+    am->ports = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+
+    add_i_ports(am);
 
     pa_hashmap_put(map, am->name, am);
 
