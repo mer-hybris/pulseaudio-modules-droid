@@ -66,14 +66,19 @@
 #define PROP_DROID_HW_MODULE  "droid.hw_module"
 #define PROP_DROID_API_STRING "droid-hal"
 
-#define PA_DROID_PRIMARY_DEVICE     "primary"
+#define PROP_DROID_OUTPUT_PRIMARY       "droid.output.primary"
+#define PROP_DROID_OUTPUT_LOW_LATENCY   "droid.output.low_latency"
+#define PROP_DROID_OUTPUT_MEDIA_LATENCY "droid.output.media_latency"
+#define PROP_DROID_OUTPUT_OFFLOAD       "droid.output.offload"
+#define PROP_DROID_INPUT_BUILTIN        "droid.input.builtin"
+#define PROP_DROID_INPUT_EXTERNAL       "droid.input.external"
 
-/* Special keywords for combined profile creation. */
-#define PA_DROID_COMBINED_ALL       "*all*"
-#define PA_DROID_COMBINED_AUTO      "*auto*"
+#define PA_DROID_PRIMARY_DEVICE     "primary"
 
 typedef struct pa_droid_hw_module pa_droid_hw_module;
 typedef struct pa_droid_stream pa_droid_stream;
+typedef struct pa_droid_output_stream pa_droid_output_stream;
+typedef struct pa_droid_input_stream pa_droid_input_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;
 typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
@@ -111,6 +116,10 @@ struct pa_droid_hw_module {
 
     pa_idxset *outputs;
     pa_idxset *inputs;
+    pa_hook_slot *sink_put_hook_slot;
+    pa_hook_slot *sink_unlink_hook_slot;
+    pa_hook_slot *source_put_hook_slot;
+    pa_hook_slot *source_unlink_hook_slot;
 
     pa_atomic_t active_outputs;
 
@@ -118,21 +127,35 @@ struct pa_droid_hw_module {
     pa_hook hooks[PA_DROID_HOOK_MAX];
 };
 
-struct pa_droid_stream {
-    PA_REFCNT_DECLARE;
+struct pa_droid_output_stream {
+    struct audio_stream_out *stream;
+    pa_sample_spec sample_spec;
+    pa_channel_map channel_map;
+    uint32_t flags;
+    uint32_t device;
+};
 
-    pa_droid_hw_module *module;
-
+struct pa_droid_input_stream {
+    struct audio_stream_in *stream;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_sample_spec input_sample_spec;
     pa_channel_map input_channel_map;
     uint32_t flags;
     uint32_t device;
-    size_t buffer_size;
+    audio_devices_t all_devices;
+    bool merged;
+};
 
-    struct audio_stream_out *out;
-    struct audio_stream_in *in;
+struct pa_droid_stream {
+    PA_REFCNT_DECLARE;
+
+    pa_droid_hw_module *module;
+    size_t buffer_size;
+    void *data;
+
+    pa_droid_output_stream *output;
+    pa_droid_input_stream *input;
 };
 
 struct pa_droid_card_data {
@@ -220,6 +243,7 @@ struct pa_droid_mapping {
 
     const pa_droid_config_output *output;
     const pa_droid_config_input *input;
+    const pa_droid_config_input *input2;
 
     char *name;
     char *description;
@@ -267,6 +291,7 @@ enum pa_droid_quirk_type {
     QUIRK_INPUT_ATOI,
     QUIRK_SET_PARAMETERS,
     QUIRK_CLOSE_INPUT,
+    QUIRK_UNLOAD_NO_CLOSE,
     QUIRK_COUNT
 };
 
@@ -323,16 +348,17 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
 
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
-pa_droid_profile_set *pa_droid_profile_set_combined_new(const pa_droid_config_hw_module *module,
-                                                        pa_strlist *outputs,
-                                                        pa_strlist *inputs);
+pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module,
+                                                       bool merge_inputs);
 void pa_droid_profile_set_free(pa_droid_profile_set *ps);
 
-pa_droid_profile *pa_droid_profile_new(pa_droid_profile_set *ps, const pa_droid_config_output *output, const pa_droid_config_input *input);
 void pa_droid_profile_add_mapping(pa_droid_profile *p, pa_droid_mapping *am);
 void pa_droid_profile_free(pa_droid_profile *p);
 
 pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, pa_direction_t direction, const void *data);
+pa_droid_mapping *pa_droid_mapping_merged_get(pa_droid_profile_set *ps,
+                                              const pa_droid_config_input *input1,
+                                              const pa_droid_config_input *input2);
 bool pa_droid_mapping_is_primary(pa_droid_mapping *am);
 /* Go through idxset containing pa_droid_mapping objects and if primary output or input
  * mapping is found, return pointer to that mapping. */
@@ -386,27 +412,32 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
                                             const pa_sample_spec *spec,
                                             const pa_channel_map *map,
-                                            audio_devices_t devices);
+                                            audio_devices_t devices,
+                                            pa_droid_mapping *am);
 
 bool pa_droid_stream_is_primary(pa_droid_stream *s);
 
 int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend);
 
 size_t pa_droid_stream_buffer_size(pa_droid_stream *s);
+pa_usec_t pa_droid_stream_get_latency(pa_droid_stream *s);
 
 static inline int pa_droid_output_stream_any_active(pa_droid_stream *s) {
     return pa_atomic_load(&s->module->active_outputs);
 }
 
 static inline ssize_t pa_droid_stream_write(pa_droid_stream *stream, const void *buffer, size_t bytes) {
-    return stream->out->write(stream->out, buffer, bytes);
+    return stream->output->stream->write(stream->output->stream, buffer, bytes);
 }
 
 static inline ssize_t pa_droid_stream_read(pa_droid_stream *stream, void *buffer, size_t bytes) {
-    return stream->in->read(stream->in, buffer, bytes);
+    return stream->input->stream->read(stream->input->stream, buffer, bytes);
 }
 
-bool pa_sink_is_droid_sink(pa_sink *s);
+void pa_droid_stream_set_data(pa_droid_stream *s, void *data);
+void *pa_droid_stream_get_data(pa_droid_stream *s);
+bool pa_sink_is_droid_sink(pa_sink *sink);
+bool pa_source_is_droid_source(pa_source *source);
 
 /* Misc */
 size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size);

@@ -67,9 +67,6 @@ struct userdata {
     pa_thread *thread;
     pa_thread_mq thread_mq;
     pa_rtpoll *rtpoll;
-    int32_t routing_counter;
-    int32_t mute_routing_before;
-    int32_t mute_routing_after;
 
     bool deferred_volume; /* TODO */
 
@@ -89,6 +86,7 @@ struct userdata {
     audio_devices_t primary_devices;
     audio_devices_t extra_devices;
     pa_hashmap *extra_devices_map;
+    bool mix_route;
 
     bool use_hw_volume;
     bool use_voice_volume;
@@ -105,10 +103,6 @@ struct userdata {
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     pa_droid_stream *stream;
-};
-
-enum {
-    SINK_MESSAGE_DO_ROUTING = PA_SINK_MESSAGE_MAX,
 };
 
 #define DEFAULT_MODULE_ID "primary"
@@ -211,7 +205,10 @@ static void do_routing(struct userdata *u) {
     if (u->use_voice_volume && u->extra_devices)
         clear_extra_devices(u);
 
-    routing = u->primary_devices | u->extra_devices;
+    if (!u->mix_route && u->extra_devices)
+        routing = u->extra_devices;
+    else
+        routing = u->primary_devices | u->extra_devices;
 
     pa_droid_stream_set_route(u->stream, routing);
 }
@@ -386,15 +383,7 @@ static void thread_func(void *userdata) {
                 pa_usec_t sleept = 0;
 
                 thread_render(u);
-
-                if (u->routing_counter == u->mute_routing_after) {
-                    do_routing(u);
-                    u->routing_counter--;
-                } else if (u->routing_counter > -1) {
-                    thread_write_silence(u);
-                    u->routing_counter--;
-                } else
-                    thread_write(u);
+                thread_write(u);
 
                 if (u->write_time > u->write_threshold)
                     sleept = u->buffer_time;
@@ -433,7 +422,6 @@ static int suspend(struct userdata *u) {
 
     pa_assert(u);
     pa_assert(u->sink);
-    pa_assert(u->stream->out);
 
     ret = pa_droid_stream_suspend(u->stream, true);
 
@@ -478,24 +466,9 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
     struct userdata *u = PA_SINK(o)->userdata;
 
     switch (code) {
-        case SINK_MESSAGE_DO_ROUTING: {
-            /* When mute_routing_before & mute_routing_after are 0, routing change is done
-             * immediately when next round in thread_func. Otherwise write silence until
-             * counter equals mute_routing_after, execute routing, and write silence until
-             * routing_counter is 0. */
-            u->routing_counter = u->mute_routing_before + u->mute_routing_after;
-            return 0;
-        }
 
         case PA_SINK_MESSAGE_GET_LATENCY: {
-            pa_usec_t r = 0;
-
-            /* HAL reports milliseconds */
-            if (u->stream->out)
-                r = u->stream->out->get_latency(u->stream->out) * PA_USEC_PER_MSEC;
-
-            *((pa_usec_t*) data) = r;
-
+            *((pa_usec_t*) data) = pa_droid_stream_get_latency(u->stream);
             return 0;
         }
 
@@ -564,13 +537,7 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     pa_log_debug("Sink set port %u", data->device);
 
     set_primary_devices(u, data->device);
-    /* If we are in voice call, sink is usually in suspended state and routing change can be applied immediately.
-     * When in media use cases, do the routing change in IO thread if we are currently in RUNNING or IDLE state. */
-    if (u->use_voice_volume || !PA_SINK_IS_OPENED(pa_sink_get_state(u->sink)))
-        do_routing(u);
-    else {
-        pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
-    }
+    do_routing(u);
 
     return 0;
 }
@@ -586,7 +553,7 @@ static void sink_set_volume_cb(pa_sink *s) {
         float val = pa_sw_volume_to_linear(r.values[0]);
         pa_log_debug("Set hw volume %f", val);
         pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->out->set_volume(u->stream->out, val, val) < 0)
+        if (u->stream->output->stream->set_volume(u->stream->output->stream, val, val) < 0)
             pa_log_warn("Failed to set hw volume.");
         pa_droid_hw_module_unlock(u->hw_module);
     } else if (r.channels == 2) {
@@ -595,7 +562,7 @@ static void sink_set_volume_cb(pa_sink *s) {
             val[i] = pa_sw_volume_to_linear(r.values[i]);
         pa_log_debug("Set hw volume %f : %f", val[0], val[1]);
         pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->out->set_volume(u->stream->out, val[0], val[1]) < 0)
+        if (u->stream->output->stream->set_volume(u->stream->output->stream, val[0], val[1]) < 0)
             pa_log_warn("Failed to set hw volume.");
         pa_droid_hw_module_unlock(u->hw_module);
     }
@@ -626,9 +593,9 @@ static void update_volumes(struct userdata *u) {
 
     /* set_volume returns 0 if hw volume control is implemented, < 0 otherwise. */
     pa_droid_hw_module_lock(u->hw_module);
-    if (u->stream->out->set_volume) {
+    if (u->stream->output->stream->set_volume) {
         pa_log_debug("Probe hw volume support for %s", u->sink->name);
-        ret = u->stream->out->set_volume(u->stream->out, 1.0f, 1.0f);
+        ret = u->stream->output->stream->set_volume(u->stream->output->stream, 1.0f, 1.0f);
     }
     pa_droid_hw_module_unlock(u->hw_module);
 
@@ -795,7 +762,7 @@ static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_i
 
             /* if this device was not routed to previously post routing change */
             if (add_extra_devices(u, devices))
-                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
+                do_routing(u);
         }
     }
 
@@ -829,7 +796,7 @@ static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sin
 
             /* if this device no longer exists in extra devices map post routing change */
             if (remove_extra_devices(u, devices))
-                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
+                do_routing(u);
         }
     }
 
@@ -1065,10 +1032,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     bool namereg_fail = false;
     pa_usec_t latency;
     pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
-    int32_t mute_routing_before = 0;
-    int32_t mute_routing_after = 0;
     uint32_t sink_buffer = 0;
     const char *prewrite_resume = NULL;
+    bool mix_route = false;
 
     pa_assert(m);
     pa_assert(ma);
@@ -1127,18 +1093,13 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
-    if ((pa_modargs_get_value_s32(ma, "mute_routing_before", &mute_routing_before) < 0) || mute_routing_before < 0) {
-        pa_log("Failed to parse mute_routing_before. Needs to be integer >= 0.");
-        goto fail;
-    }
-
-    if ((pa_modargs_get_value_s32(ma, "mute_routing_after", &mute_routing_after) < 0) || mute_routing_after < 0) {
-        pa_log("Failed to parse mute_routing_after. Needs to be integer >= 0.");
-        goto fail;
-    }
-
     if (pa_modargs_get_value_u32(ma, "sink_buffer", &sink_buffer) < 0) {
         pa_log("Failed to parse sink_buffer. Needs to be integer >= 0.");
+        goto fail;
+    }
+
+    if (pa_modargs_get_value_boolean(ma, "sink_mix_route", &mix_route) < 0) {
+        pa_log("Failed to parse sink_mix_route, expects boolean argument.");
         goto fail;
     }
 
@@ -1154,6 +1115,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->voice_property_key   = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_key", DEFAULT_VOICE_CONTROL_PROPERTY_KEY));
     u->voice_property_value = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_value", DEFAULT_VOICE_CONTROL_PROPERTY_VALUE));
     u->extra_devices_map = pa_hashmap_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    u->mix_route = mix_route;
 
     if (card_data) {
         u->card_data = card_data;
@@ -1216,21 +1178,11 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
     }
 
-    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec);
-
+    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->output->sample_spec);
     u->write_threshold = u->buffer_time - u->buffer_time / 6;
-    u->mute_routing_before = mute_routing_before / u->buffer_size;
-    u->mute_routing_after = mute_routing_after / u->buffer_size;
-    if (u->mute_routing_before == 0 && mute_routing_before)
-        u->mute_routing_before = 1;
-    if (u->mute_routing_after == 0 && mute_routing_after)
-        u->mute_routing_after = 1;
-    if (u->mute_routing_before || u->mute_routing_after)
-        pa_log_debug("Mute playback when routing is changing, %u before and %u after.",
-                     u->mute_routing_before * u->buffer_size,
-                     u->mute_routing_after * u->buffer_size);
-    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &u->stream->sample_spec, u->buffer_size);
-    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &u->stream->sample_spec, 1, 0, 0, &u->silence);
+
+    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &u->stream->output->sample_spec, u->buffer_size);
+    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &u->stream->output->sample_spec, 1, 0, 0, &u->silence);
 
     pa_sink_new_data_init(&data);
     data.driver = driver;
@@ -1256,8 +1208,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
     data.namereg_fail = namereg_fail;
 
-    pa_sink_new_data_set_sample_spec(&data, &u->stream->sample_spec);
-    pa_sink_new_data_set_channel_map(&data, &u->stream->channel_map);
+    pa_sink_new_data_set_sample_spec(&data, &u->stream->output->sample_spec);
+    pa_sink_new_data_set_channel_map(&data, &u->stream->output->channel_map);
     pa_sink_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     /*
@@ -1315,7 +1267,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     thread_name = NULL;
 
     /* HAL latencies are in milliseconds. */
-    latency = u->stream->out->get_latency(u->stream->out) * PA_USEC_PER_MSEC;
+    latency = pa_droid_stream_get_latency(u->stream);
     pa_sink_set_fixed_latency(u->sink, latency);
     pa_log_debug("Set fixed latency %llu usec", latency);
     pa_sink_set_max_request(u->sink, u->buffer_size);
@@ -1338,6 +1290,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         setup_track_primary(u);
 
     pa_droid_stream_suspend(u->stream, false);
+    pa_droid_stream_set_data(u->stream, u->sink);
     pa_sink_put(u->sink);
 
     return u->sink;

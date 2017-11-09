@@ -81,7 +81,8 @@ PA_MODULE_USAGE(
         "config=<location for droid audio configuration> "
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
         "voice_property_value=<proplist value for the key for voice control sink-input> "
-        "combine=<comma separated list of outputs that should be merged to one profile. defaults to none> "
+        "default_profile=<boolean. create default profile for primary module or not. defaults to true> "
+        "merge_inputs=<boolean. merge input streams to single source with default profile. defaults to true> "
         "quirks=<comma separated list of quirks to enable/disable>"
 );
 
@@ -97,6 +98,7 @@ static const char* const valid_modargs[] = {
     "sink_rate",
     "sink_format",
     "sink_channel_map",
+    "sink_mix_route",
     "source_rate",
     "source_format",
     "source_channel_map",
@@ -112,6 +114,7 @@ static const char* const valid_modargs[] = {
     "config",
     "voice_property_key",
     "voice_property_value",
+    "default_profile",
     "combine",
     "quirks",
     NULL,
@@ -542,6 +545,7 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     pa_droid_mapping *am;
     struct profile_data *nd, *od;
     pa_queue *sink_inputs = NULL, *source_outputs = NULL;
+    pa_sink *primary_sink = NULL;
     uint32_t idx;
 
     pa_assert(c);
@@ -610,6 +614,9 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
             if (!am->sink)
                 continue;
 
+            if (pa_droid_mapping_is_primary(am))
+                primary_sink = am->sink;
+
             if (nd->profile &&
                 pa_idxset_get_by_data(nd->profile->output_mappings, am, NULL))
                 continue;
@@ -659,6 +666,13 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         }
     }
 
+    /* if only primary sink is left after profile change and we have detached sink-inputs attach
+     * them to primary sink. */
+    if (sink_inputs && primary_sink) {
+        pa_sink_move_all_finish(primary_sink, sink_inputs, false);
+        sink_inputs = NULL;
+    }
+
     if (sink_inputs)
         pa_sink_move_all_fail(sink_inputs);
 
@@ -670,13 +684,15 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
 
 
 int pa__init(pa_module *m) {
+    struct userdata *u = NULL;
     pa_modargs *ma = NULL;
     pa_card_new_data data;
     pa_droid_config_audio *config = NULL;
     const char *module_id;
     bool namereg_fail = false;
     pa_card_profile *virtual;
-    const char *combine;
+    bool default_profile = true;
+    bool merge_inputs = true;
     const char *quirks;
 
     pa_assert(m);
@@ -686,9 +702,17 @@ int pa__init(pa_module *m) {
         goto fail;
     }
 
-    combine = pa_modargs_get_value(ma, "combine", NULL);
+    if (pa_modargs_get_value_boolean(ma, "default_profile", &default_profile) < 0) {
+        pa_log("Failed to parse default_profile argument. Expects boolean value");
+        goto fail;
+    }
 
-    struct userdata *u = pa_xnew0(struct userdata, 1);
+    if (pa_modargs_get_value_boolean(ma, "merge_inputs", &merge_inputs) < 0) {
+        pa_log("Failed to parse merge_inputs argument. Expects boolean value");
+        goto fail;
+    }
+
+    u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     m->userdata = u;
 
@@ -714,41 +738,10 @@ int pa__init(pa_module *m) {
     u->card_data.module_id = pa_xstrdup(module_id);
     u->card_data.userdata = u;
 
-    if (combine) {
-        pa_strlist *o = NULL;
-        pa_strlist *i = NULL;
-
-        if (pa_streq(combine, PA_DROID_COMBINED_AUTO)) {
-            o = pa_strlist_parse(PA_DROID_COMBINED_AUTO);
-            i = pa_strlist_parse(PA_DROID_COMBINED_AUTO);
-        } else {
-            char *tmp, *d;
-            const char *inputs = NULL;
-            const char *outputs = NULL;
-
-            tmp = pa_replace(combine, ",", " ");
-
-            outputs = tmp;
-            if ((d = strstr(tmp, ":"))) {
-                d[0] = '\0';
-                inputs = d + 1;
-            }
-
-            if (outputs)
-                o = pa_strlist_parse(outputs);
-
-            if (inputs)
-                i = pa_strlist_parse(inputs);
-
-            pa_xfree(tmp);
-        }
-
-        u->profile_set = pa_droid_profile_set_combined_new(u->hw_module->enabled_module, o, i);
-
-        pa_strlist_free(o);
-        pa_strlist_free(i);
-    } else
+    if (!default_profile || !pa_streq(module_id, DEFAULT_MODULE_ID))
         u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
+    else
+        u->profile_set = pa_droid_profile_set_default_new(u->hw_module->enabled_module, merge_inputs);
 
     pa_card_new_data_init(&data);
     data.driver = __FILE__;
