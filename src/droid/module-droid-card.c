@@ -82,6 +82,7 @@ PA_MODULE_USAGE(
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
         "voice_property_value=<proplist value for the key for voice control sink-input> "
         "default_profile=<boolean. create default profile for primary module or not. defaults to true> "
+        "merge_inputs=<boolean. merge input streams to single source with default profile. defaults to true> "
         "quirks=<comma separated list of quirks to enable/disable>"
 );
 
@@ -692,6 +693,7 @@ int pa__init(pa_module *m) {
     bool namereg_fail = false;
     pa_card_profile *virtual;
     bool default_profile = true;
+    bool merge_inputs = true;
     const char *quirks;
 
     pa_assert(m);
@@ -703,6 +705,11 @@ int pa__init(pa_module *m) {
 
     if (pa_modargs_get_value_boolean(ma, "default_profile", &default_profile) < 0) {
         pa_log("Failed to parse default_profile argument. Expects boolean value");
+        goto fail;
+    }
+
+    if (pa_modargs_get_value_boolean(ma, "merge_inputs", &merge_inputs) < 0) {
+        pa_log("Failed to parse merge_inputs argument. Expects boolean value");
         goto fail;
     }
 
@@ -735,7 +742,7 @@ int pa__init(pa_module *m) {
     if (!default_profile || !pa_streq(module_id, DEFAULT_MODULE_ID))
         u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
     else
-        u->profile_set = pa_droid_profile_set_default_new(u->hw_module->enabled_module);
+        u->profile_set = pa_droid_profile_set_default_new(u->hw_module->enabled_module, merge_inputs);
 
     pa_card_new_data_init(&data);
     data.driver = __FILE__;
