@@ -2707,6 +2707,15 @@ size_t pa_droid_stream_buffer_size(pa_droid_stream *s) {
     return s->buffer_size;
 }
 
+pa_usec_t pa_droid_stream_get_latency(pa_droid_stream *s) {
+    pa_assert(s);
+
+    if (s->output && s->output->stream)
+        return s->output->stream->get_latency(s->output->stream) * PA_USEC_PER_MSEC;
+
+    return 0;
+}
+
 void pa_droid_stream_set_data(pa_droid_stream *s, void *data) {
     pa_assert(s);
 
