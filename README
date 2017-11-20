@@ -13,6 +13,7 @@ Supported Android versions:
  * 4.4.x
  * 5.x
  * 6.0.x
+ * 7.x
 
 Headers for defining devices and strings for different droid versions are in
 src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
@@ -41,12 +42,9 @@ funny ways to achieve things (notable example is voicecall) which might be
 difficult to do if interfacing directly with ALSA to replace AudioFlinger.
 Also using ALSA directly would mean that the whole HAL adaptation would need to
 be ported for each new device adaptation. With droid-modules this is much more
-simpler, with somewhat stable HAL (HALv2 as of now, also different vendors add
+simpler, with somewhat stable HAL (HALv3 as of now, also different vendors add
 their own incompatible extensions) API. In best scenarios using droid-modules
 with new device is just compiling against target.
-
-Android version and device specific variations should be optimally handled in
-droid-util-XXX.h files, without modifying other parts of the implementation.
 
 Components
 ==========
@@ -63,8 +61,47 @@ Droid-card reads configuration from /vendor/etc/audio_policy.conf or
 config is found, configuration is read from there, otherwise from system
 configuration.
 
-From audio_policy.conf file input and output definitions are translated to
-PulseAudio card profiles. For example configuration with
+default profile
+---------------
+
+When module-droid-card is loaded with default arguments, droid-card will try
+to create a default profile (called surprisingly "default"). The default
+profile will try to merge useful output and input streams to one profile,
+to allow use of possible low latency outputs or multiple inputs if the
+input streams are split to multiple devices.
+
+For example configuration with
+
+    audio_hw_modules {
+        primary {
+            outputs {
+                primary {}
+                deep_buffer {}
+            }
+            inputs {
+                builtin {}
+                external {}
+            }
+        }
+        other {
+            ...
+        }
+    }
+
+The default profile would contain two sinks, sink.primary and sink.deep_buffer
+and one source, source.builtin_external. Then this combined source would use
+either "builtin" or "external" input stream, depending on which one has the
+input route currently in use (for example, input-wired_headset from "external"
+and input-back_mic from "builtin" input stream).
+
+Usually this default profile is everything that is needed in normal use, and
+additional profiles created should be needed only for testing things out etc.
+
+additional profiles
+-------------------
+
+In addition to the default profile all input and output definitions are
+translated to PulseAudio card profiles. For example configuration with
 
     audio_hw_modules {
         primary {
@@ -184,6 +221,43 @@ control sinks and sources. (For example in SailfishOS this entity is OHM with
 accessory-plugin and pulseaudio-policy-enforcement module for actually making
 the port switching)
 
+Classifying sinks and sources
+-----------------------------
+
+Certain property values are set to all active sinks and sources based on their
+functionality to ease device classification.
+
+Currently following properties are set:
+
+ * For droid sinks
+  * droid.output.primary
+  * droid.output.low_latency
+  * droid.output.media_latency
+  * droid.output.offload
+ * For droid sources
+  * droid.input.builtin
+  * droid.input.external
+
+If the property is set and with value "true", the sink or source should be
+used for the property type. If the property is not defined or contains
+value "false" it shouldn't be used for the property type.
+
+For example, we might have sink.primary and sink.low_latency with following
+properties:
+
+ * sink.primary
+  * droid.output.primary "true"
+  * droid.output.media_latency "true"
+ * sink.low_latency
+  * droid.output.low_latency "true"
+
+There also may be just one sink, with all the properties defined as "true"
+and so on.
+
+Similarly if there is only one input device the sole source would have both
+input type properties set as "true", but it also might be that the different
+input type properties are split to two different sources.
+
 Volume control during voicecall
 -------------------------------
 
@@ -200,17 +274,17 @@ Usually droid HAL has 6 volume levels for voicecall.
 Temporary sink audio routing
 ----------------------------
 
-It is possible to add temporary extra route(s) to sink audio routing with
-specific stream property. When stream with property key
-droid.device.additional-route connects to droid-sink, this extra route is added
-(if possible) to the enabled routes for the duration of the stream.
+It is possible to add temporary route to sink audio routing with specific
+stream property. When stream with property key
+droid.device.additional-route connects to droid-sink, this extra route is set
+(if possible) as the enabled route for the duration of the stream.
 
 For example, if droid-sink has active port output-wired_headphone:
 
 paplay --property=droid.device.additional-route=AUDIO_DEVICE_OUT_SPEAKER a.wav
 
 As long as the new stream is connected to droid-sink, output routing is
-SPEAKER+WIRED_HEADPHONE.
+SPEAKER.
 
 module-droid-keepalive
 ----------------------
