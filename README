@@ -258,6 +258,38 @@ Similarly if there is only one input device the sole source would have both
 input type properties set as "true", but it also might be that the different
 input type properties are split to two different sources.
 
+Quirks
+------
+
+There are some adaptations that require hacks to get things working. These
+hacks can be enabled or disabled with module argument "quirks". Some quirks
+are enabled by default with some adaptations etc.
+
+Currently there are following quirks:
+
+ * input_atoi
+  * Enabled by default with Android versions 5 and up.
+  * Due to how atoi works in bionic vs libc we need to pass the input
+    route a bit funny. If input routing doesn't work switch this on or off.
+ * set_parameters
+  * Disabled by default.
+  * Some adaptations need to use hw module's generic set_parameters call
+    to change input routing. If input routing doesn't work switch this
+    on or off. (mostly just older adaptations)
+ * close_input
+  * Enabled by default.
+  * Close input stream when not in use instead of suspending the stream.
+    Cannot be changed when multiple inputs are merged to single source.
+ * unload_no_close
+  * Disabled by default.
+  * Don't call audio_hw_device_close() for the hw module when unloading.
+    Mostly useful for tracking module unload issues.
+
+For example, to disable input_atoi and enable close_input quirks, use module
+argument
+
+    quirks=-input_atoi,+close_input
+
 Volume control during voicecall
 -------------------------------
 
