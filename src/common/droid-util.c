@@ -1595,7 +1595,7 @@ static pa_droid_quirks *get_quirks(pa_droid_quirks *q) {
 static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
     q = NULL;
 
-#if defined(DROID_AUDIO_HAL_ATOI_FIX)
+#if (ANDROID_VERSION_MAJOR >= 5) || defined(DROID_AUDIO_HAL_ATOI_FIX)
     q = get_quirks(q);
     q->enabled[QUIRK_INPUT_ATOI] = true;
 #endif
