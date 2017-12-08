@@ -432,11 +432,11 @@ static void update_latency(struct userdata *u) {
         pa_log_info("Using buffer size %u.", u->buffer_size);
 
     if (pa_thread_mq_get())
-        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
     else
-        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
 
-    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->sample_spec));
+    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
 }
 
 /* Called from IO context. */
@@ -466,12 +466,12 @@ static pa_hook_result_t input_channel_map_changed_cb(pa_droid_hw_module *module,
     if (stream != u->stream)
         return PA_HOOK_OK;
 
-    if (u->stream->input_channel_map.channels != u->source->channel_map.channels) {
+    if (u->stream->input->input_channel_map.channels != u->source->channel_map.channels) {
         if (u->resampler)
             pa_resampler_free(u->resampler);
 
         u->resampler = pa_resampler_new(u->core->mempool,
-                                        &u->stream->input_sample_spec, &u->stream->input_channel_map,
+                                        &u->stream->input->input_sample_spec, &u->stream->input->input_channel_map,
                                         &u->source->sample_spec, &u->source->channel_map,
                                         u->core->lfe_crossover_freq,
                                         PA_RESAMPLER_COPY,
@@ -607,7 +607,10 @@ pa_source *pa_droid_source_new(pa_module *m,
         }
     }
 
-    u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in);
+    if (am)
+        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, am);
+    else
+        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, NULL);
 
     if (!u->stream) {
         pa_log("Failed to open input stream.");
@@ -620,7 +623,13 @@ pa_source *pa_droid_source_new(pa_module *m,
     data.card = card;
     data.suspend_cause = PA_SUSPEND_IDLE;
 
-    source_set_name(ma, &data, module_id);
+    if (am)
+        source_set_name(ma, &data, am->name);
+    else
+        source_set_name(ma, &data, module_id);
+
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, PROP_DROID_API_STRING);
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because
@@ -634,8 +643,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     }
     data.namereg_fail = namereg_fail;
 
-    pa_source_new_data_set_sample_spec(&data, &u->stream->sample_spec);
-    pa_source_new_data_set_channel_map(&data, &u->stream->channel_map);
+    pa_source_new_data_set_sample_spec(&data, &u->stream->input->sample_spec);
+    pa_source_new_data_set_channel_map(&data, &u->stream->input->channel_map);
     pa_source_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     if (am && card)
@@ -684,6 +693,7 @@ pa_source *pa_droid_source_new(pa_module *m,
                                                         PA_HOOK_NORMAL,
                                                         (pa_hook_cb_t) input_channel_map_changed_cb, u);
 
+    pa_droid_stream_set_data(u->stream, u->source);
     pa_source_put(u->source);
 
     return u->source;
