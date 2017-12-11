@@ -284,6 +284,11 @@ Currently there are following quirks:
   * Disabled by default.
   * Don't call audio_hw_device_close() for the hw module when unloading.
     Mostly useful for tracking module unload issues.
+ * no_hw_volume
+  * Disabled by default.
+  * Some broken implementations are incorrectly probed for supporting hw
+    volume control. This is manifested by always full volume with volume
+    control not affecting volume level. To fix this enable this quirk.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument
