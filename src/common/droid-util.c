@@ -2454,8 +2454,10 @@ void pa_droid_stream_unref(pa_droid_stream *s) {
     } else {
         pa_mutex_lock(s->module->input_mutex);
         pa_idxset_remove_by_data(s->module->inputs, s, NULL);
-        if (s->input->stream)
+        if (s->input->stream) {
+            s->input->stream->common.standby(&s->input->stream->common);
             s->module->device->close_input_stream(s->module->device, s->input->stream);
+        }
         pa_mutex_unlock(s->module->input_mutex);
         pa_xfree(s->input);
     }
@@ -2689,9 +2691,10 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
     } else {
         if (suspend) {
             if (s->input->stream) {
-                if (s->input->merged || pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
+                if (s->input->merged || pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT)) {
+                    s->input->stream->common.standby(&s->input->stream->common);
                     input_stream_close(s);
-                else
+                } else
                     return s->input->stream->common.standby(&s->input->stream->common);
             }
         } else if (s->input->merged || pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
