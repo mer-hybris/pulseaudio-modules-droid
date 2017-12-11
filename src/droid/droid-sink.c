@@ -551,7 +551,7 @@ static void sink_set_volume_cb(pa_sink *s) {
 
     if (r.channels == 1) {
         float val = pa_sw_volume_to_linear(r.values[0]);
-        pa_log_debug("Set hw volume %f", val);
+        pa_log_debug("Set %s hw volume %f", s->name, val);
         pa_droid_hw_module_lock(u->hw_module);
         if (u->stream->output->stream->set_volume(u->stream->output->stream, val, val) < 0)
             pa_log_warn("Failed to set hw volume.");
@@ -560,7 +560,7 @@ static void sink_set_volume_cb(pa_sink *s) {
         float val[2];
         for (unsigned i = 0; i < 2; i++)
             val[i] = pa_sw_volume_to_linear(r.values[i]);
-        pa_log_debug("Set hw volume %f : %f", val[0], val[1]);
+        pa_log_debug("Set %s hw volume %f : %f", s->name, val[0], val[1]);
         pa_droid_hw_module_lock(u->hw_module);
         if (u->stream->output->stream->set_volume(u->stream->output->stream, val[0], val[1]) < 0)
             pa_log_warn("Failed to set hw volume.");
@@ -594,16 +594,25 @@ static void update_volumes(struct userdata *u) {
     /* set_volume returns 0 if hw volume control is implemented, < 0 otherwise. */
     pa_droid_hw_module_lock(u->hw_module);
     if (u->stream->output->stream->set_volume) {
-        pa_log_debug("Probe hw volume support for %s", u->sink->name);
         ret = u->stream->output->stream->set_volume(u->stream->output->stream, 1.0f, 1.0f);
+        pa_log_debug("Probe hw volume support for %s (ret %d)", u->sink->name, ret);
     }
     pa_droid_hw_module_unlock(u->hw_module);
 
     u->use_hw_volume = (ret == 0);
-    pa_log_debug("Using %s volume control with %s",
-                 u->use_hw_volume ? "hardware" : "software", u->sink->name);
+    if (u->use_hw_volume &&
+#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
+        !(u->stream->output->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+#endif
+        pa_droid_quirk(u->hw_module, QUIRK_NO_HW_VOLUME)) {
+        pa_log_info("Forcing software volume control with %s", u->sink->name);
+        u->use_hw_volume = false;
+    } else {
+        pa_log_debug("Using %s volume control with %s",
+                     u->use_hw_volume ? "hardware" : "software", u->sink->name);
+    }
 
-    if (u->use_hw_volume && pa_droid_stream_is_primary(u->stream))
+    if (u->use_hw_volume)
         pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
 }
 
