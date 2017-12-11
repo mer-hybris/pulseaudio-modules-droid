@@ -69,7 +69,8 @@ struct droid_quirk valid_quirks[] = {
     { "input_atoi",             QUIRK_INPUT_ATOI            },
     { "set_parameters",         QUIRK_SET_PARAMETERS        },
     { "close_input",            QUIRK_CLOSE_INPUT           },
-    { "unload_no_close",        QUIRK_UNLOAD_NO_CLOSE       }
+    { "unload_no_close",        QUIRK_UNLOAD_NO_CLOSE       },
+    { "no_hw_volume",           QUIRK_NO_HW_VOLUME          },
 };
 
 struct pa_droid_quirks {
