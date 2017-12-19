@@ -251,8 +251,8 @@ static int thread_write_silence(struct userdata *u) {
      * is multiples of buffer_size. Even if we don't write whole buffer size
      * here it's okay, as long as mute time isn't configured too strictly. */
 
-    p = pa_memblock_acquire(u->silence.memblock);
-    wrote = pa_droid_stream_write(u->stream, (const uint8_t *) p + u->silence.index, u->silence.length);
+    p = pa_memblock_acquire_chunk(&u->silence);
+    wrote = pa_droid_stream_write(u->stream, p, u->silence.length);
     pa_memblock_release(u->silence.memblock);
 
     u->write_time = pa_rtclock_now() - u->write_time;
@@ -276,8 +276,8 @@ static int thread_write(struct userdata *u) {
     u->write_time = pa_rtclock_now();
 
     for (;;) {
-        p = pa_memblock_acquire(c.memblock);
-        wrote = pa_droid_stream_write(u->stream, (const uint8_t *) p + c.index, c.length);
+        p = pa_memblock_acquire_chunk(&c);
+        wrote = pa_droid_stream_write(u->stream, p, c.length);
         pa_memblock_release(c.memblock);
 
         if (wrote < 0) {
