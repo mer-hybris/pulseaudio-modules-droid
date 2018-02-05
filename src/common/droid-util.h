@@ -364,6 +364,7 @@ bool pa_droid_mapping_is_primary(pa_droid_mapping *am);
 /* Go through idxset containing pa_droid_mapping objects and if primary output or input
  * mapping is found, return pointer to that mapping. */
 pa_droid_mapping *pa_droid_idxset_get_primary(pa_idxset *i);
+pa_droid_mapping *pa_droid_idxset_mapping_with_device(pa_idxset *i, uint32_t flag);
 void pa_droid_mapping_free(pa_droid_mapping *am);
 
 /* Add ports from sinks/sources.
