@@ -1473,6 +1473,9 @@ bool pa_droid_mapping_is_primary(pa_droid_mapping *am) {
         return pa_streq(am->output->name, PA_DROID_PRIMARY_DEVICE);
     } else {
         pa_assert(am->input);
+        /* merged input mapping is always primary */
+        if (am->input && am->input2)
+            return true;
         return pa_streq(am->input->name, PA_DROID_PRIMARY_DEVICE);
     }
 }
@@ -1486,6 +1489,33 @@ pa_droid_mapping *pa_droid_idxset_get_primary(pa_idxset *i) {
     PA_IDXSET_FOREACH(am, i, idx) {
         if (pa_droid_mapping_is_primary(am))
             return am;
+    }
+
+    return NULL;
+}
+
+pa_droid_mapping *pa_droid_idxset_mapping_with_device(pa_idxset *i, uint32_t device) {
+    pa_droid_mapping *am;
+    uint32_t idx;
+
+    pa_assert(i);
+
+#if AUDIO_API_VERSION_MAJ >= 2
+    device &= ~AUDIO_DEVICE_BIT_IN;
+#endif
+
+    PA_IDXSET_FOREACH(am, i, idx) {
+        if (am->direction == PA_DIRECTION_OUTPUT) {
+            pa_assert(am->output);
+            if (am->output->devices & device)
+                return am;
+        } else {
+            uint32_t all_devices;
+            pa_assert(am->input);
+            all_devices = am->input->devices | (am->input2 ? am->input2->devices : 0);
+            if (all_devices & device)
+                return am;
+        }
     }
 
     return NULL;

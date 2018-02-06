@@ -428,8 +428,8 @@ static void park_profile(pa_droid_profile *dp) {
 }
 
 static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
-    pa_card_profile *cp;
-    pa_droid_mapping *am_output, *am_input;
+    pa_card_profile *cp = NULL;
+    pa_droid_mapping *am_output;
 
     pa_assert(u);
     pa_assert(p);
@@ -440,27 +440,22 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
         return false;
     }
 
-    if (!(am_input = pa_droid_idxset_get_primary(u->old_profile->input_mappings)))
-        pa_log_warn("Active profile doesn't have primary input device.");
+    if (pa_droid_idxset_mapping_with_device(u->old_profile->input_mappings,
+                                            AUDIO_DEVICE_IN_VOICE_CALL))
+        cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME);
 
     /* call mode specialities */
     if (enabling) {
         pa_droid_sink_set_voice_control(am_output->sink, true);
-        if (am_input && am_input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
-            (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
-            if (cp->available == PA_AVAILABLE_NO) {
-                pa_log_debug("Enable %s profile.", VOICE_RECORD_PROFILE_NAME);
-                pa_card_profile_set_available(cp, PA_AVAILABLE_YES);
-            }
+        if (cp && cp->available == PA_AVAILABLE_NO) {
+            pa_log_debug("Enable " VOICE_RECORD_PROFILE_NAME " profile.");
+            pa_card_profile_set_available(cp, PA_AVAILABLE_YES);
         }
     } else {
         pa_droid_sink_set_voice_control(am_output->sink, false);
-        if (am_input && am_input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
-            (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
-            if (cp->available == PA_AVAILABLE_YES) {
-                pa_log_debug("Disable %s profile.", VOICE_RECORD_PROFILE_NAME);
-                pa_card_profile_set_available(cp, PA_AVAILABLE_NO);
-            }
+        if (cp && cp->available == PA_AVAILABLE_YES) {
+            pa_log_debug("Disable " VOICE_RECORD_PROFILE_NAME " profile.");
+            pa_card_profile_set_available(cp, PA_AVAILABLE_NO);
         }
     }
 
