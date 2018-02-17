@@ -816,7 +816,14 @@ int pa__init(pa_module *m) {
     u->modargs = ma;
     u->module = m;
 
+#if (PULSEAUDIO_VERSION >= 10)
+    pa_card_choose_initial_profile(u->card);
+#endif
     init_profile(u);
+
+#if (PULSEAUDIO_VERSION >= 10)
+    pa_card_put(u->card);
+#endif
 
     return 0;
 

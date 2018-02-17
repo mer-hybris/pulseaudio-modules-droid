@@ -2294,7 +2294,7 @@ fail:
     return NULL;
 }
 
-static int input_stream_open(pa_droid_stream *s) {
+static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     pa_droid_input_stream *input;
     audio_stream_in_t *stream;
     audio_source_t audio_source = AUDIO_SOURCE_DEFAULT;
@@ -2338,7 +2338,8 @@ static int input_stream_open(pa_droid_stream *s) {
     pa_droid_hw_module_unlock(s->module);
 
     if (ret < 0 || !stream) {
-        pa_log("Failed to open input stream: %d with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u)",
+        pa_logl(resume_from_suspend ? PA_LOG_DEBUG : PA_LOG_ERROR,
+                "Failed to open input stream: %d with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u)",
                ret,
                input->device,
                0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
@@ -2425,7 +2426,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
     /* We need to open the stream for a while so that we can know
      * what sample rate we get. We need the rate for droid source. */
 
-    if ((ret = input_stream_open(s)) < 0)
+    if ((ret = input_stream_open(s, false)) < 0)
         goto fail;
 
     if ((input->sample_spec.rate = input->stream->common.get_sample_rate(&input->stream->common)) != spec->rate)
@@ -2729,7 +2730,7 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
                     return s->input->stream->common.standby(&s->input->stream->common);
             }
         } else if (s->input->merged || pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
-            return input_stream_open(s);
+            return input_stream_open(s, true);
     }
 
     return 0;

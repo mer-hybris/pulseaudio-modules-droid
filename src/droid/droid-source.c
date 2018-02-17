@@ -79,6 +79,7 @@ struct userdata {
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
     pa_droid_stream *stream;
+    bool stream_valid;
 };
 
 enum {
@@ -91,6 +92,8 @@ enum {
 #define DROID_AUDIO_SOURCE_UNDEFINED "undefined"
 
 static void userdata_free(struct userdata *u);
+static int suspend(struct userdata *u);
+static void unsuspend(struct userdata *u);
 
 static int do_routing(struct userdata *u, audio_devices_t devices) {
     int ret;
@@ -144,7 +147,21 @@ static int thread_read(struct userdata *u) {
     ssize_t readd;
     pa_memchunk chunk;
 
+    chunk.index = 0;
     chunk.memblock = pa_memblock_new(u->core->mempool, (size_t) u->buffer_size);
+
+    if (!u->stream_valid) {
+        /* try to resume or post silence */
+        unsuspend(u);
+        if (!u->stream_valid) {
+            p = pa_memblock_acquire(chunk.memblock);
+            chunk.length = pa_memblock_get_length(chunk.memblock);
+            memset(p, 0, chunk.length);
+            pa_source_post(u->source, &chunk);
+            pa_memblock_release(chunk.memblock);
+            goto end;
+        }
+    }
 
     p = pa_memblock_acquire(chunk.memblock);
     readd = pa_droid_stream_read(u->stream, p, pa_memblock_get_length(chunk.memblock));
@@ -157,7 +174,6 @@ static int thread_read(struct userdata *u) {
 
     u->timestamp += pa_bytes_to_usec(readd, &u->source->sample_spec);
 
-    chunk.index = 0;
     chunk.length = readd;
 
     if (u->resampler) {
@@ -250,8 +266,11 @@ static void unsuspend(struct userdata *u) {
     pa_assert(u);
     pa_assert(u->stream);
 
-    pa_droid_stream_suspend(u->stream, false);
-    pa_log_info("Resuming...");
+    if (pa_droid_stream_suspend(u->stream, false) >= 0) {
+        u->stream_valid = true;
+        pa_log_info("Resuming...");
+    } else
+        u->stream_valid = false;
 }
 
 /* Called from IO context */
@@ -264,9 +283,9 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
 
             pa_assert(PA_SOURCE_IS_OPENED(u->source->thread_info.state));
 
-            pa_droid_stream_suspend(u->stream, true);
+            suspend(u);
             do_routing(u, device);
-            pa_droid_stream_suspend(u->stream, false);
+            unsuspend(u);
             break;
         }
 
@@ -564,6 +583,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     }
 
     u = pa_xnew0(struct userdata, 1);
+    u->stream_valid = true;
     u->core = m->core;
     u->module = m;
     u->card = card;
