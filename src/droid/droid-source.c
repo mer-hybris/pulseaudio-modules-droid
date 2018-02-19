@@ -157,7 +157,7 @@ static int thread_read(struct userdata *u) {
         if (!u->stream_valid) {
             p = pa_memblock_acquire(chunk.memblock);
             chunk.length = pa_memblock_get_length(chunk.memblock);
-            memset(p, 0, chunk.length);
+            pa_silence_memory(p, chunk.length, &u->source->sample_spec);
             pa_source_post(u->source, &chunk);
             pa_memblock_release(chunk.memblock);
             goto end;
