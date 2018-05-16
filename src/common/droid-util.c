@@ -71,6 +71,7 @@ struct droid_quirk valid_quirks[] = {
     { "close_input",            QUIRK_CLOSE_INPUT           },
     { "unload_no_close",        QUIRK_UNLOAD_NO_CLOSE       },
     { "no_hw_volume",           QUIRK_NO_HW_VOLUME          },
+    { "output_make_writable",   QUIRK_OUTPUT_MAKE_WRITABLE  },
 };
 
 struct pa_droid_quirks {
