@@ -276,6 +276,9 @@ static int thread_write(struct userdata *u) {
     u->write_time = pa_rtclock_now();
 
     for (;;) {
+        if (pa_droid_quirk(u->hw_module, QUIRK_OUTPUT_MAKE_WRITABLE))
+            pa_memchunk_make_writable(&c, c.length);
+
         p = pa_memblock_acquire_chunk(&c);
         wrote = pa_droid_stream_write(u->stream, p, c.length);
         pa_memblock_release(c.memblock);
