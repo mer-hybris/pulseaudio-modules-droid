@@ -75,10 +75,6 @@ struct droid_quirk valid_quirks[] = {
     { "realcall",               QUIRK_REALCALL              },
 };
 
-struct pa_droid_quirks {
-    bool enabled[QUIRK_COUNT];
-};
-
 #define SLLIST_APPEND(t, head, item)                                \
     do {                                                            \
         item->next = NULL;                                          \
@@ -1690,15 +1686,6 @@ error:
     pa_xfree(quirk);
 
     return false;
-}
-
-bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk) {
-    pa_assert(hw);
-
-    if (hw->quirks && hw->quirks->enabled[quirk])
-        return true;
-    else
-        return false;
 }
 
 static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {

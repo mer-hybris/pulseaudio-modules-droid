@@ -298,6 +298,10 @@ enum pa_droid_quirk_type {
     QUIRK_COUNT
 };
 
+struct pa_droid_quirks {
+    bool enabled[QUIRK_COUNT];
+};
+
 /* Open hardware module */
 /* 'config' can be NULL if it is assumed that hw module with module_id already is open. */
 /* if opening of hw_module succeeds, config ownership is transferred to hw_module and config
@@ -311,8 +315,11 @@ bool pa_droid_hw_module_try_lock(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
 
 bool pa_droid_quirk_parse(pa_droid_hw_module *hw, const char *quirks);
-bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk);
 void pa_droid_quirk_log(pa_droid_hw_module *hw);
+
+static inline bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk) {
+    return hw->quirks && hw->quirks->enabled[quirk];
+}
 
 /* Conversion helpers */
 typedef enum {
