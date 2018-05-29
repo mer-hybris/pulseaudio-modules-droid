@@ -294,6 +294,7 @@ enum pa_droid_quirk_type {
     QUIRK_UNLOAD_NO_CLOSE,
     QUIRK_NO_HW_VOLUME,
     QUIRK_OUTPUT_MAKE_WRITABLE,
+    QUIRK_REALCALL,
     QUIRK_COUNT
 };
 
