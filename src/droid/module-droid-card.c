@@ -130,6 +130,9 @@ static const char* const valid_modargs[] = {
 #define COMMUNICATION_PROFILE_NAME  "communication"
 #define COMMUNICATION_PROFILE_DESC  "Communication mode"
 
+#define VENDOR_EXT_REALCALL_ON      "realcall=on"
+#define VENDOR_EXT_REALCALL_OFF     "realcall=off"
+
 struct userdata;
 
 typedef bool (*virtual_profile_event_cb)(struct userdata *u, pa_droid_profile *p, bool enabling);
@@ -451,12 +454,16 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
             pa_log_debug("Enable " VOICE_RECORD_PROFILE_NAME " profile.");
             pa_card_profile_set_available(cp, PA_AVAILABLE_YES);
         }
+        if (pa_droid_quirk(u->hw_module, QUIRK_REALCALL))
+            pa_droid_set_parameters(u->hw_module, VENDOR_EXT_REALCALL_ON);
     } else {
         pa_droid_sink_set_voice_control(am_output->sink, false);
         if (cp && cp->available == PA_AVAILABLE_YES) {
             pa_log_debug("Disable " VOICE_RECORD_PROFILE_NAME " profile.");
             pa_card_profile_set_available(cp, PA_AVAILABLE_NO);
         }
+        if (pa_droid_quirk(u->hw_module, QUIRK_REALCALL))
+            pa_droid_set_parameters(u->hw_module, VENDOR_EXT_REALCALL_OFF);
     }
 
     return true;
