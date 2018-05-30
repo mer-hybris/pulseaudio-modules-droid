@@ -295,6 +295,12 @@ Currently there are following quirks:
     not be done. This can result in random segfaults when playing audio.
     As a workaround make the buffer memchunk writable before passing to
     audio HAL.
+ * realcall
+  * Disabled by default.
+  * Some vendors apply custom realcall parameter to HAL device when
+    doing voicecall routing. If there is no voicecall audio you can
+    try enabling this quirk so that the realcall parameter is applied
+    when switching to voicecall profile.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument

@@ -72,10 +72,7 @@ struct droid_quirk valid_quirks[] = {
     { "unload_no_close",        QUIRK_UNLOAD_NO_CLOSE       },
     { "no_hw_volume",           QUIRK_NO_HW_VOLUME          },
     { "output_make_writable",   QUIRK_OUTPUT_MAKE_WRITABLE  },
-};
-
-struct pa_droid_quirks {
-    bool enabled[QUIRK_COUNT];
+    { "realcall",               QUIRK_REALCALL              },
 };
 
 #define SLLIST_APPEND(t, head, item)                                \
@@ -1689,15 +1686,6 @@ error:
     pa_xfree(quirk);
 
     return false;
-}
-
-bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk) {
-    pa_assert(hw);
-
-    if (hw->quirks && hw->quirks->enabled[quirk])
-        return true;
-    else
-        return false;
 }
 
 static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
