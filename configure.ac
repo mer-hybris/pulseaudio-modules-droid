@@ -174,8 +174,6 @@ PKG_CHECK_MODULES([PULSEAUDIO], [libpulse >= 5.0 pulsecore >= 5.0])
 AC_SUBST(PULSEAUDIO_CFLAGS)
 AC_SUBST(PULSEAUDIO_LIBS)
 
-pulseaudiodir=`pkg-config --variable=prefix pulsecore`
-
 #PKG_CHECK_MODULES([DROIDHEADERS], [android-headers >= 0.0.6])
 # android-headers.pc has broken version field
 PKG_CHECK_MODULES([DROIDHEADERS], [android-headers])
@@ -260,9 +258,10 @@ CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_FORMAT_PCM_OFFLOAD])
 CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_FORMAT_FLAC])
 CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_FORMAT_OPUS])
 
-AC_ARG_WITH([module-dir],
-        AS_HELP_STRING([--with-module-dir],[Directory where to install the modules to (defaults to ${pulseaudiodir}/lib/pulse-${PA_MAJORMINOR}/modules/]),
-        [modlibexecdir=$withval], [modlibexecdir="${pulseaudiodir}/lib/pulse-${PA_MAJORMINOR}/modules"])
+AC_ARG_WITH(
+        [module-dir],
+        AS_HELP_STRING([--with-module-dir],[Directory where to install the modules to (defaults to ${libdir}/pulse-${PA_MAJORMINOR}/modules]),
+        [modlibexecdir=$withval], [modlibexecdir="${libdir}/pulse-${PA_MAJORMINOR}/modules"])
 
 AC_SUBST(modlibexecdir)
 
@@ -308,7 +307,6 @@ echo "
     CFLAGS:                 ${CFLAGS}
 
     prefix:                 ${prefix}
-    PulseAudio prefix:      ${pulseaudiodir}
     modules directory:      ${modlibexecdir}
 
     Droid device            ${droiddevice}
