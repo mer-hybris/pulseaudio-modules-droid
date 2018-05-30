@@ -7,5 +7,5 @@ libexecdir=@libexecdir@
 Name: libdroid-util
 Description: Common droid module building interface.
 Version: @PA_MODULE_VERSION@
-Libs: -L${libdir}/pulse-@PA_MAJORMINOR@/modules -ldroid-util
+Libs: -L${prefix}/lib/pulse-@PA_MAJORMINOR@/modules -ldroid-util
 Cflags: -D_REENTRANT -I${includedir}/pulsecore/modules
