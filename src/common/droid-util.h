@@ -31,31 +31,8 @@
 #include <pulsecore/strlist.h>
 #include <pulsecore/atomic.h>
 
-#include <android-config.h>
-
-#if !defined(ANDROID_VERSION_MAJOR) || !defined(ANDROID_VERSION_MINOR) || !defined(ANDROID_VERSION_PATCH)
-#error "ANDROID_VERSION_* not defined. Did you get your headers via extract-headers.sh?"
-#endif
-
-#if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
-#include "droid-util-41qc.h"
-#else
-#include "droid-util-audio.h"
-#endif
-
-/* We currently support API version up-to 3.0 */
-#define DROID_API_VERSION_SUPPORT       HARDWARE_DEVICE_API_VERSION(3, 0)
-
-#if AUDIO_DEVICE_API_VERSION_CURRENT > DROID_API_VERSION_SUPPORT
-#warning Compiling against higher audio device API version than currently supported!
-#warning Compile likely fails or module may malfunction.
-#endif
-
-#define AUDIO_API_VERSION_MAJ           ((AUDIO_DEVICE_API_VERSION_CURRENT >> 8) & 0xff)
-#define AUDIO_API_VERSION_MIN           (AUDIO_DEVICE_API_VERSION_CURRENT & 0xff)
-
-#define AUDIO_API_VERSION_GET_MAJ(x)    ((x >> 8) & 0xff)
-#define AUDIO_API_VERSION_GET_MIN(x)    (x & 0xff)
+#include "version.h"
+#include "droid-config.h"
 
 #if defined(QCOM_BSP) && (AUDIO_API_VERSION_MAJ >= 3)
 #define DROID_AUDIO_HAL_USE_VSID
@@ -81,9 +58,6 @@ typedef struct pa_droid_output_stream pa_droid_output_stream;
 typedef struct pa_droid_input_stream pa_droid_input_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;
 typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
-
-typedef struct pa_droid_config_audio pa_droid_config_audio;
-typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
 
 typedef struct pa_droid_quirks pa_droid_quirks;
 
@@ -163,60 +137,6 @@ struct pa_droid_card_data {
     /* General functions */
     char *module_id;
     common_set_parameters_cb_t set_parameters;
-};
-
-#define AUDIO_MAX_SAMPLING_RATES (32)
-
-typedef struct pa_droid_config_global {
-    uint32_t audio_hal_version;
-    audio_devices_t attached_output_devices;
-    audio_devices_t default_output_device;
-    audio_devices_t attached_input_devices;
-} pa_droid_config_global;
-
-typedef struct pa_droid_config_output {
-    const pa_droid_config_hw_module *module;
-
-    char *name;
-    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
-    audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats; /* 0 -> dynamic */
-    audio_devices_t devices;
-    audio_output_flags_t flags;
-
-    struct pa_droid_config_output *next;
-} pa_droid_config_output;
-
-typedef struct pa_droid_config_input {
-    const pa_droid_config_hw_module *module;
-
-    char *name;
-    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
-    audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats; /* 0 -> dynamic */
-    audio_devices_t devices;
-#if AUDIO_API_VERSION_MAJ >= 3
-    audio_input_flags_t flags;
-#endif
-
-    struct pa_droid_config_input *next;
-} pa_droid_config_input;
-
-struct pa_droid_config_hw_module {
-    const pa_droid_config_audio *config;
-
-    char *name;
-    /* If global config is not defined for module, use root global config. */
-    pa_droid_config_global *global_config;
-    pa_droid_config_output *outputs;
-    pa_droid_config_input *inputs;
-
-    struct pa_droid_config_hw_module *next;
-};
-
-struct pa_droid_config_audio {
-    pa_droid_config_global *global_config;
-    pa_droid_config_hw_module *hw_modules;
 };
 
 
@@ -321,41 +241,6 @@ static inline bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_ty
     return hw->quirks && hw->quirks->enabled[quirk];
 }
 
-/* Conversion helpers */
-typedef enum {
-    CONV_FROM_PA,
-    CONV_FROM_HAL
-} pa_conversion_field_t;
-
-bool pa_convert_output_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
-bool pa_convert_input_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
-bool pa_convert_format(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
-
-bool pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str);
-bool pa_string_convert_output_device_str_to_num(const char *str, audio_devices_t *to_value);
-bool pa_string_convert_input_device_num_to_str(audio_devices_t value, const char **to_str);
-bool pa_string_convert_input_device_str_to_num(const char *str, audio_devices_t *to_value);
-
-bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str);
-bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value);
-
-char *pa_list_string_output_device(audio_devices_t devices);
-char *pa_list_string_input_device(audio_devices_t devices);
-char *pa_list_string_flags(audio_output_flags_t flags);
-
-/* Get default audio source associated with input device.
- * Return true if default source was found, false if not. */
-bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source);
-
-/* Config parser */
-bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config);
-pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma);
-
-const pa_droid_config_output *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name);
-const pa_droid_config_input *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name);
-const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_config_audio *config, const char* module_id);
-
-
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
 pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module,
@@ -382,13 +267,6 @@ void pa_droid_add_ports(pa_hashmap *ports, pa_droid_mapping *am, pa_card *card);
 /* Add ports from card.
  * May be called multiple times for one card profile. */
 void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_core *core);
-
-/* Pretty port names */
-bool pa_droid_output_port_name(audio_devices_t value, const char **to_str);
-bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
-
-/* Pretty audio source names */
-bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
 
 pa_hook *pa_droid_hooks(pa_droid_hw_module *hw);
 
