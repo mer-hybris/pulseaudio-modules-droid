@@ -346,7 +346,14 @@ bool pa_conversion_parse_formats(const char *fn, const unsigned ln,
 
     count = pa_conversion_parse_list(CONV_STRING_FORMAT, value_separator(legacy), str, formats, &unknown);
 
-    return check_and_log(fn, ln, "formats", count, str, unknown, false);
+    if (legacy)
+        return check_and_log(fn, ln, "formats", count, str, unknown, false);
+
+    /* As the new XML configuration lists formats as one per profile, unknown
+     * formats will cause the parser to quit. As a workaround for non-legacy
+     * conversions with no recognized formats log only info level and return false. */
+    check_and_log(fn, ln, "format", count == 0 ? 1 : count, str, unknown, false);
+    return count > 0;
 }
 
 static bool parse_channels(const char *fn, const unsigned ln,
@@ -398,8 +405,16 @@ static bool parse_devices(const char *fn, const unsigned ln,
     count = pa_conversion_parse_list(in_output ? CONV_STRING_OUTPUT_DEVICE : CONV_STRING_INPUT_DEVICE,
                                      value_separator(legacy), str, devices, &unknown);
 
-    return check_and_log(fn, ln, in_output ? "output devices" : "input devices",
-                         count, str, unknown, must_recognize_all);
+    if (legacy)
+        return check_and_log(fn, ln, in_output ? "output devices" : "input devices",
+                             count, str, unknown, must_recognize_all);
+
+    /* As the new XML configuration lists devices as one per devicePort, unknown
+     * devices will cause the parser to quit. As a workaround for non-legacy
+     * conversions with no recognized devices log only info level and return false. */
+    check_and_log(fn, ln, in_output ? "output device" : "input device",
+                  count == 0 ? 1 : count, str, unknown, must_recognize_all);
+    return count > 0;
 }
 
 bool pa_conversion_parse_output_devices(const char *fn, const unsigned ln,
