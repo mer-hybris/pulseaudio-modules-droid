@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#include "version.h"
 #include "droid-config.h"
 
 #include <signal.h>
@@ -69,8 +70,7 @@
 
 
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
-    pa_droid_config_audio *config;
-    bool parsed = false;
+    pa_droid_config_audio *config = NULL;
     const char *manual_config;
     const char *config_location[5] = {
         VENDOR_AUDIO_POLICY_CONFIG_XML_FILE,
@@ -81,49 +81,39 @@ pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
 
     pa_assert(ma);
 
-    config = pa_xnew0(pa_droid_config_audio, 1);
-
     if ((manual_config = pa_modargs_get_value(ma, "config", NULL))) {
-        if (!pa_parse_droid_audio_config(manual_config, config)) {
+        if (!(config = pa_parse_droid_audio_config(manual_config)))
             pa_log("Failed to parse configuration from %s", manual_config);
-            goto fail;
-        }
     } else {
         int i;
         for (i = 0; config_location[i]; i++) {
-            if ((parsed = pa_parse_droid_audio_config(config_location[i], config)))
+            if ((config = pa_parse_droid_audio_config(config_location[i])))
                 break;
             else
                 pa_log_debug("Failed to parse configuration from %s", config_location[i]);
         }
 
-        if (!parsed) {
-            pa_log("Failed to parse any configuration");
-            goto fail;
-        }
     }
 
-    return config;
+    if (!config)
+        pa_log("Failed to parse any configuration.");
 
-fail:
-    pa_droid_config_free(config);
-    return NULL;
+    return config;
 }
 
-bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
+pa_droid_config_audio *pa_parse_droid_audio_config(const char *filename) {
     const char *suffix;
 
     pa_assert(filename);
-    pa_assert(config);
 
     if ((suffix = rindex(filename, '.'))) {
         if (strlen(suffix) == 4 && pa_streq(suffix, ".xml"))
-            return pa_parse_droid_audio_config_xml(filename, config);
+            return pa_parse_droid_audio_config_xml(filename);
         else if (strlen(suffix) == 5 && pa_streq(suffix, ".conf"))
-            return pa_parse_droid_audio_config_legacy(filename, config);
+            return pa_parse_droid_audio_config_legacy(filename);
     }
 
-    return false;
+    return NULL;
 }
 
 void pa_droid_config_free(pa_droid_config_audio *config) {
@@ -131,7 +121,8 @@ void pa_droid_config_free(pa_droid_config_audio *config) {
     pa_droid_config_output *output;
     pa_droid_config_input *input;
 
-    pa_assert(config);
+    if (!config)
+        return;
 
     while (config->hw_modules) {
         SLLIST_STEAL_FIRST(module, config->hw_modules);

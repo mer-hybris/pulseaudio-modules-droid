@@ -92,9 +92,10 @@ struct pa_droid_config_audio {
 /* Config parser */
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma);
 void pa_droid_config_free(pa_droid_config_audio *config);
-bool pa_parse_droid_audio_config_legacy(const char *filename, pa_droid_config_audio *config);
+pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename);
+pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename);
 /* autodetect config type from filename and parse */
-bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config);
+pa_droid_config_audio *pa_parse_droid_audio_config(const char *filename);
 
 const pa_droid_config_output *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name);
 const pa_droid_config_input *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name);
