@@ -47,7 +47,8 @@ static void log_parse_error(const char *fn, const unsigned ln, const char *secti
     pa_log("[%s:%u] failed to parse line in section %s: unknown section (%s)", fn, ln, section, v);
 }
 
-bool pa_parse_droid_audio_config_legacy(const char *filename, pa_droid_config_audio *config) {
+pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) {
+    pa_droid_config_audio *config = NULL;
     FILE *f;
     unsigned n = 0;
     bool ret = true;
@@ -76,10 +77,6 @@ bool pa_parse_droid_audio_config_legacy(const char *filename, pa_droid_config_au
     pa_droid_config_input *input = NULL;
 
     pa_assert(filename);
-    pa_assert(config);
-
-    memset(config, 0, sizeof(pa_droid_config_audio));
-    config->global_config = pa_xnew0(pa_droid_config_global, 1);
 
     f = fopen(filename, "r");
 
@@ -88,6 +85,9 @@ bool pa_parse_droid_audio_config_legacy(const char *filename, pa_droid_config_au
         ret = false;
         goto finish;
     }
+
+    config = pa_xnew0(pa_droid_config_audio, 1);
+    config->global_config = pa_xnew0(pa_droid_config_global, 1);
 
     pa_lock_fd(fileno(f), 1);
 
@@ -434,5 +434,8 @@ finish:
 
     pa_xfree(full_line);
 
-    return ret;
+    if (!ret)
+        pa_droid_config_free(config), config = NULL;
+
+    return config;
 }
