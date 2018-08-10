@@ -54,6 +54,7 @@
 
 #include "droid-source.h"
 #include "droid-util.h"
+#include "conversion.h"
 
 struct userdata {
     pa_core *core;
