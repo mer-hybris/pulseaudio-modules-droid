@@ -57,6 +57,7 @@
 
 #include "droid-sink.h"
 #include "droid-util.h"
+#include "conversion.h"
 
 struct userdata {
     pa_core *core;
