@@ -2,9 +2,9 @@
 #define foodroidutilfoo
 
 /*
- * Copyright (C) 2013 Jolla Ltd.
+ * Copyright (C) 2013-2018 Jolla Ltd.
  *
- * Contact: Juho Hämäläinen <juho.hamalainen@tieto.com>
+ * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
  * These PulseAudio Modules are free software; you can redistribute
  * it and/or modify it under the terms of the GNU Lesser General Public
