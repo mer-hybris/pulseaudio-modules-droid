@@ -715,6 +715,13 @@ static bool parse_profile(struct parser_data *data, const char *element_name, co
     /* some devicePorts do not have channel masks */
     get_element_attr(data, attributes, false, ATTRIBUTE_channelMasks, &channelMasks);
 
+    /* Hard-coded workaround for incorrect audio policy configuration. */
+    if (channelMasks && data->current_device_port && output && pa_streq(channelMasks, "AUDIO_CHANNEL_IN_MONO")) {
+        pa_log_info("[%s:%u] Output has wrong direction channel mask (AUDIO_CHANNEL_IN_MONO).", data->fn, data->lineno);
+        pa_xfree(channelMasks);
+        channelMasks = pa_xstrdup("AUDIO_CHANNEL_OUT_MONO");
+    }
+
     if (!pa_conversion_parse_sampling_rates(data->fn, data->lineno, samplingRates, false, p->sampling_rates))
         goto done;
 
