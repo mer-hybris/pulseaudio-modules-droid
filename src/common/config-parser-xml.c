@@ -69,7 +69,6 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 /*                ELEMENT_profile */
 #define       ELEMENT_routes                "routes"
 #define         ELEMENT_route               "route"
-#define ELEMENT_xi_include                  "xi:include"
 
 #define ATTRIBUTE_version                   "version"
 #define ATTRIBUTE_name                      "name"
@@ -83,7 +82,6 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 #define ATTRIBUTE_sink                      "sink"
 #define ATTRIBUTE_sources                   "sources"
 #define ATTRIBUTE_type                      "type"
-#define ATTRIBUTE_href                      "href"
 
 #define PORT_TYPE_sink                      "sink"
 #define PORT_TYPE_source                    "source"
@@ -126,7 +124,6 @@ struct element_parser_stack {
     } while(0)
 
 static bool parse_audio_policy_configuration(struct parser_data *data, const char *element_name, const XML_Char **attributes);
-static bool parse_xi_include(struct parser_data *data, const char *element_name, const XML_Char **attributes);
 static bool parse_route(struct parser_data *data, const char *element_name, const XML_Char **attributes);
 static bool parse_profile(struct parser_data *data, const char *element_name, const XML_Char **attributes);
 static bool parse_device_port(struct parser_data *data, const char *element_name, const XML_Char **attributes);
@@ -135,14 +132,6 @@ static void parse_default_output_device(struct parser_data *data, const char *st
 static void parse_item(struct parser_data *data, const char *str);
 static bool parse_module(struct parser_data *data, const char *element_name, const XML_Char **attributes);
 static bool parse_global_configuration(struct parser_data *data, const char *element_name, const XML_Char **attributes);
-
-static const struct element_parser element_parse_xi_include = {
-    ELEMENT_xi_include,
-    parse_xi_include,
-    NULL,
-    NULL,
-    NULL
-};
 
 static const struct element_parser element_parse_route = {
     ELEMENT_route,
@@ -228,7 +217,7 @@ static const struct element_parser element_parse_module = {
     ELEMENT_module,
     parse_module,
     NULL,
-    &element_parse_xi_include,
+    NULL,
     &element_parse_attached_devices
 };
 
@@ -324,11 +313,6 @@ struct audio_policy_configuration {
     struct module *modules;
 };
 
-struct xi_include {
-    char *href;
-    struct xi_include *next;
-};
-
 struct parser_data {
     XML_Parser parser;
     const char *fn;
@@ -342,8 +326,6 @@ struct parser_data {
     struct module *current_module;
     struct mix_port *current_mix_port;
     struct device_port *current_device_port;
-
-    struct xi_include *module_includes;
 };
 
 
@@ -843,20 +825,6 @@ done:
     return parsed;
 }
 
-static bool parse_xi_include(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
-    struct xi_include *xi;
-
-    xi = pa_xmalloc0(sizeof(*xi));
-    SLLIST_APPEND(struct xi_include, data->module_includes, xi);
-
-    if (!get_element_attr(data, attributes, true, ATTRIBUTE_href, &xi->href)) {
-        pa_log("[%s:%u] Failed to parse element <" ELEMENT_xi_include ">", data->fn, data->lineno);
-        return false;
-    }
-
-    return true;
-}
-
 static bool parse_file(struct parser_data *data, const char *filename) {
     char buf[BUFSIZ];
     FILE *f = NULL;
@@ -1054,7 +1022,6 @@ static pa_droid_config_audio *convert_config(struct audio_policy_configuration *
 pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
     pa_droid_config_audio *config = NULL;
     struct parser_data data;
-    struct xi_include *xi;
     bool ret = true;
 
     pa_assert(filename);
@@ -1066,14 +1033,6 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 
     if (!(ret = parse_file(&data, filename)))
         goto done;
-
-    SLLIST_FOREACH(xi, data.module_includes) {
-        data.root = &element_parse_modules;
-        data.current = data.root;
-
-        if (!(ret = parse_file(&data, xi->href)))
-            goto done;
-    }
 
     config = convert_config(data.conf);
 
