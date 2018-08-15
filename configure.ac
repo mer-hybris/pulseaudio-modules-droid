@@ -187,6 +187,25 @@ PKG_CHECK_MODULES([DBUS], [dbus-1 >= 1.2])
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
+#### expat (for xml config format parsing) (optional) ####
+
+AC_ARG_ENABLE([xml],
+    AS_HELP_STRING([--disable-xml],[Disable optional xml config support]))
+
+AS_IF([test "x$enable_xml" != "xno"],
+    [PKG_CHECK_MODULES(EXPAT, [ expat >= 2.1 ], HAVE_EXPAT=1, HAVE_EXPAT=0)],
+    HAVE_EXPAT=0)
+
+AS_IF([test "x$enable_xml" = "xyes" && test "x$HAVE_EXPAT" = "x0"],
+    [AC_MSG_ERROR([*** expat not found])])
+
+AC_SUBST(HAVE_EXPAT)
+AC_SUBST(EXPAT_CFLAGS)
+AC_SUBST(EXPAT_LIBS)
+AM_CONDITIONAL([HAVE_EXPAT], [test "x$HAVE_EXPAT" = x1])
+AS_IF([test "x$HAVE_EXPAT" = "x1"], AC_DEFINE([HAVE_EXPAT], 1, [Have expat?]))
+AS_IF([test "x$HAVE_EXPAT" = "x1"], ENABLE_XML="yes (expat)", ENABLE_XML=no)
+
 # Output devices
 CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_HDMI])
 CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_HDMI_ARC])
@@ -309,5 +328,6 @@ echo "
     prefix:                 ${prefix}
     modules directory:      ${modlibexecdir}
 
-    Droid device            ${droiddevice}
+    Droid device:           ${droiddevice}
+    XML config support:     ${ENABLE_XML}
     "

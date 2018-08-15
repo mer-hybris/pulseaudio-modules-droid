@@ -29,6 +29,8 @@
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
 
+#include <pulse/channelmap.h>
+
 #ifdef SPEAKER_DRC_ENABLED_TAG
 #define DROID_HAVE_DRC
 #endif
