@@ -29,6 +29,8 @@
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
 
+#include <pulse/channelmap.h>
+
 // PulseAudio value    -    Android value
 
 uint32_t conversion_table_output_channel[][2] = {

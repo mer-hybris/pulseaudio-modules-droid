@@ -296,6 +296,12 @@ if test "x$droiddevice" != x ; then
     AC_SUBST([DROID_DEVICE_CFLAGS])
 fi
 
+# Workaround for SBJ HAL headers
+if test "x$droiddevice" = xsbj ; then
+    SBJ_DEVICE_LDFLAGS="-Wl,--allow-multiple-definition"
+    AC_SUBST([SBJ_DEVICE_LDFLAGS])
+fi
+
 AC_MSG_CHECKING([If we are using hardfp tool chain])
 case `echo | gcc -v -xc -o - - 2>&1 | grep COLLECT_GCC_OPTIONS | tail -1` in
      *float-abi=hard*) hardfp=yes; AC_MSG_RESULT([yes]) ;;

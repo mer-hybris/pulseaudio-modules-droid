@@ -6,7 +6,7 @@
 Name:       pulseaudio-modules-droid-%{device}
 
 Summary:    PulseAudio Droid HAL modules
-Version:    %{pulsemajorminor}.69
+Version:    %{pulsemajorminor}.70
 Release:    1
 Group:      Multimedia/PulseAudio
 License:    LGPLv2.1+
@@ -48,7 +48,7 @@ This contains development files for PulseAudio droid modules.
 
 %build
 echo "%{moduleversion}" > .tarball-version
-%reconfigure --disable-static --with-droid-device=%{device}
+%reconfigure --disable-static --with-droid-device=%{device} --disable-xml
 make %{?jobs:-j%jobs}
 
 %install
