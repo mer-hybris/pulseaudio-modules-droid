@@ -39,6 +39,7 @@
 
 #include "droid-util.h"
 #include "droid-sink.h"
+#include "conversion.h"
 
 #include "module-droid-sink-symdef.h"
 
