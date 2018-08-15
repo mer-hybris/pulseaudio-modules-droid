@@ -957,9 +957,7 @@ static void add_input(struct module *module, struct mix_port *mix_port, pa_droid
 
     input->module = hw_module;
     input->name = pa_replace(mix_port->name, " ", "_");
-#if AUDIO_API_VERSION_MAJ >= 3
     input->flags = mix_port->flags;
-#endif
     SLLIST_FOREACH(profile, mix_port->profiles) {
         memcpy(input->sampling_rates, profile->sampling_rates, sizeof(input->sampling_rates));
         input->channel_masks |= profile->channel_masks;
