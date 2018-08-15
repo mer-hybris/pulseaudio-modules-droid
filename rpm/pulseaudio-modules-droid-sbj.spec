@@ -48,7 +48,7 @@ This contains development files for PulseAudio droid modules.
 
 %build
 echo "%{moduleversion}" > .tarball-version
-%reconfigure --disable-static --with-droid-device=%{device}
+%reconfigure --disable-static --with-droid-device=%{device} --disable-xml
 make %{?jobs:-j%jobs}
 
 %install
