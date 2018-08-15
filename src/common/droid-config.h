@@ -65,9 +65,10 @@ typedef struct pa_droid_config_input {
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
     audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
-#if AUDIO_API_VERSION_MAJ >= 3
-    audio_input_flags_t flags;
-#endif
+    /* audio_input_flags_t exists in API 2 & 3, depending on adaptation,
+     * so we'll keep the input flags as uint32_t for better compatibility
+     * and less ifdefs. */
+    uint32_t flags;
 
     struct pa_droid_config_input *next;
 } pa_droid_config_input;

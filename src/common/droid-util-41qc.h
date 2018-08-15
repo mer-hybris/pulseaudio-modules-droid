@@ -216,6 +216,10 @@ struct string_conversion string_conversion_table_output_flag[] = {
     { 0, NULL }
 };
 
+struct string_conversion string_conversion_table_input_flag[] = {
+    { 0, NULL }
+};
+
 /* Channels */
 struct string_conversion string_conversion_table_output_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_LEFT),

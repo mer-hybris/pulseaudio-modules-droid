@@ -40,10 +40,6 @@
 #include "version.h"
 #include "droid-config.h"
 
-#if AUDIO_API_VERSION_MAJ < 3
-typedef uint32_t audio_input_flags_t;
-#endif
-
 typedef enum {
     CONV_FROM_PA,
     CONV_FROM_HAL
@@ -110,7 +106,7 @@ bool pa_conversion_parse_input_devices(const char *fn, const unsigned ln,
 bool pa_conversion_parse_output_flags(const char *fn, const unsigned ln,
                                       const char *str, audio_output_flags_t *flags);
 bool pa_conversion_parse_input_flags(const char *fn, const unsigned ln,
-                                     const char *str, audio_input_flags_t *flags);
+                                     const char *str, uint32_t *flags);
 bool pa_conversion_parse_version(const char *fn, const unsigned ln, const char *str, uint32_t *version);
 
 #endif
