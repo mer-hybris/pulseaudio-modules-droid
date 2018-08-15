@@ -251,7 +251,11 @@ int pa_conversion_parse_list(pa_conversion_string_t type, const char *separator,
             return parse_list(string_conversion_table_output_flag, separator, str, dst, unknown_entries);
 
         case CONV_STRING_INPUT_FLAG:
+#if AUDIO_API_VERSION_MAJ >= 3
             return parse_list(string_conversion_table_input_flag, separator, str, dst, unknown_entries);
+#else
+            return 0;
+#endif
     }
 
     pa_assert_not_reached();

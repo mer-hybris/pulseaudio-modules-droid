@@ -37,7 +37,12 @@
 #define GAINS_TAG "gains"
 #endif
 
+#include "version.h"
 #include "droid-config.h"
+
+#if AUDIO_API_VERSION_MAJ < 3
+typedef uint32_t audio_input_flags_t;
+#endif
 
 typedef enum {
     CONV_FROM_PA,
