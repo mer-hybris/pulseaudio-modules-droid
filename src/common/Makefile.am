@@ -15,6 +15,6 @@ AM_CFLAGS = \
 modlibexec_LTLIBRARIES = libdroid-util.la
 
 libdroid_util_la_SOURCES = droid-util.c droid-config.c conversion.c config-parser-legacy.c config-parser-xml.c
-libdroid_util_la_LDFLAGS = -avoid-version -Wl,-z,noexecstack -lhybris-common
+libdroid_util_la_LDFLAGS = -avoid-version -Wl,-z,noexecstack -lhybris-common $(SBJ_DEVICE_LDFLAGS)
 libdroid_util_la_LIBADD = $(AM_LIBADD)
 libdroid_util_la_CFLAGS = $(AM_CFLAGS)
