@@ -145,34 +145,6 @@ void pa_droid_config_free(pa_droid_config_audio *config) {
     pa_xfree(config);
 }
 
-const pa_droid_config_device *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name) {
-    pa_droid_config_device *device;
-
-    pa_assert(module);
-    pa_assert(name);
-
-    SLLIST_FOREACH(device, module->outputs) {
-        if (pa_streq(name, device->name))
-            return device;
-    }
-
-    return NULL;
-}
-
-const pa_droid_config_device *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name) {
-    pa_droid_config_device *device;
-
-    pa_assert(module);
-    pa_assert(name);
-
-    SLLIST_FOREACH(device, module->inputs) {
-        if (pa_streq(name, device->name))
-            return device;
-    }
-
-    return NULL;
-}
-
 const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_config_audio *config, const char* module_id) {
     pa_droid_config_hw_module *module;
 
