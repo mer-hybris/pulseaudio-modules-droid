@@ -341,7 +341,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
                 else if (pa_streq(v, AUDIO_HAL_VERSION_TAG))
                     success = pa_conversion_parse_version(filename, n, value,
                                                           &global_config->audio_hal_version);
-#ifdef DROID_HAVE_DRC
+#ifdef SPEAKER_DRC_ENABLED_TAG
                 // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
                 else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
                     /* TODO - Add support for dynamic range control */
