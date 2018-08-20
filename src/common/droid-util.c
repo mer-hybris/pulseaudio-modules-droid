@@ -640,13 +640,13 @@ bool pa_droid_mapping_is_primary(pa_droid_mapping *am) {
 
     if (am->direction == PA_DIRECTION_OUTPUT) {
         pa_assert(am->output);
-        return pa_streq(am->output->name, PA_DROID_PRIMARY_DEVICE);
+        return am->output->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
     } else {
         pa_assert(am->input);
         /* merged input mapping is always primary */
         if (am->input && am->input2)
             return true;
-        return pa_streq(am->input->name, PA_DROID_PRIMARY_DEVICE);
+        return pa_startswith(am->input->name, PA_DROID_PRIMARY_DEVICE);
     }
 }
 
