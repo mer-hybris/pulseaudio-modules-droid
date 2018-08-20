@@ -910,15 +910,12 @@ static bool device_in_list(struct device *list, const char *name) {
 }
 
 static void add_output(struct module *module, struct mix_port *mix_port, pa_droid_config_hw_module *hw_module) {
-    pa_droid_config_output *output;
+    pa_droid_config_device *output;
     struct profile *profile;
     struct route *route;
     struct device_port *device_port;
 
-    output = pa_xnew0(pa_droid_config_output, 1);
-
-    output->module = hw_module;
-    output->name = pa_replace(mix_port->name, " ", "_");
+    output = pa_droid_config_device_new(hw_module, PA_DIRECTION_OUTPUT, mix_port->name);
     output->flags = mix_port->flags;
     SLLIST_FOREACH(profile, mix_port->profiles) {
         memcpy(output->sampling_rates, profile->sampling_rates, sizeof(output->sampling_rates));
@@ -944,19 +941,17 @@ static void add_output(struct module *module, struct mix_port *mix_port, pa_droi
         }
     }
 
-    SLLIST_APPEND(pa_droid_config_output, hw_module->outputs, output);
+    pa_log_debug("config: %s: New output: %s", hw_module->name, output->name);
+    SLLIST_APPEND(pa_droid_config_device, hw_module->outputs, output);
 }
 
 static void add_input(struct module *module, struct mix_port *mix_port, pa_droid_config_hw_module *hw_module) {
-    pa_droid_config_input *input;
+    pa_droid_config_device *input;
     struct profile *profile;
     struct route *route;
     struct device_port *device_port;
 
-    input = pa_xnew0(pa_droid_config_input, 1);
-
-    input->module = hw_module;
-    input->name = pa_replace(mix_port->name, " ", "_");
+    input = pa_droid_config_device_new(hw_module, PA_DIRECTION_INPUT, mix_port->name);
     input->flags = mix_port->flags;
     SLLIST_FOREACH(profile, mix_port->profiles) {
         memcpy(input->sampling_rates, profile->sampling_rates, sizeof(input->sampling_rates));
@@ -980,7 +975,8 @@ static void add_input(struct module *module, struct mix_port *mix_port, pa_droid
         }
     }
 
-    SLLIST_APPEND(pa_droid_config_input, hw_module->inputs, input);
+    pa_log_debug("config: %s: New input: %s", hw_module->name, input->name);
+    SLLIST_APPEND(pa_droid_config_device, hw_module->inputs, input);
 }
 
 static void generate_config_for_module(struct module *module, pa_droid_config_audio *config) {

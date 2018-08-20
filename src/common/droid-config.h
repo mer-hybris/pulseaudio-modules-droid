@@ -44,7 +44,7 @@ typedef struct pa_droid_config_global {
     audio_devices_t attached_input_devices;
 } pa_droid_config_global;
 
-typedef struct pa_droid_config_output {
+typedef struct pa_droid_config_device {
     const pa_droid_config_hw_module *module;
 
     char *name;
@@ -52,26 +52,17 @@ typedef struct pa_droid_config_output {
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
     audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
-    audio_output_flags_t flags;
-
-    struct pa_droid_config_output *next;
-} pa_droid_config_output;
-
-typedef struct pa_droid_config_input {
-    const pa_droid_config_hw_module *module;
-
-    char *name;
-    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
-    audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats; /* 0 -> dynamic */
-    audio_devices_t devices;
-    /* audio_input_flags_t exists in API 2 & 3, depending on adaptation,
-     * so we'll keep the input flags as uint32_t for better compatibility
-     * and less ifdefs. */
+    /* Instead of using audio_output_flags_t and audio_input_flags_t
+     * unify the flags as uint32_t so that we can have single struct for both
+     * output and input configurations.
+     * audio_input_flags_t was introduced in APIs 2 & 3, depending on adaptation,
+     * so having input flags as uint32_t is simpler from input implementation
+     * point of view as well. */
     uint32_t flags;
+    pa_direction_t direction;
 
-    struct pa_droid_config_input *next;
-} pa_droid_config_input;
+    struct pa_droid_config_device *next;
+} pa_droid_config_device;
 
 struct pa_droid_config_hw_module {
     const pa_droid_config_audio *config;
@@ -79,8 +70,8 @@ struct pa_droid_config_hw_module {
     char *name;
     /* If global config is not defined for module, use root global config. */
     pa_droid_config_global *global_config;
-    pa_droid_config_output *outputs;
-    pa_droid_config_input *inputs;
+    pa_droid_config_device *outputs;
+    pa_droid_config_device *inputs;
 
     struct pa_droid_config_hw_module *next;
 };
@@ -98,9 +89,14 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename);
 /* autodetect config type from filename and parse */
 pa_droid_config_audio *pa_parse_droid_audio_config(const char *filename);
 
-const pa_droid_config_output *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name);
-const pa_droid_config_input *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name);
+const pa_droid_config_device *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name);
+const pa_droid_config_device *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name);
 const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_config_audio *config, const char* module_id);
+
+pa_droid_config_device *pa_droid_config_device_new(const pa_droid_config_hw_module *module,
+                                                   pa_direction_t direction,
+                                                   const char *name);
+void pa_droid_config_device_free(pa_droid_config_device *device);
 
 #define SLLIST_APPEND(t, head, item)                                \
     do {                                                            \

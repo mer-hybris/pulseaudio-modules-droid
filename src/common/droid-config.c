@@ -118,8 +118,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config(const char *filename) {
 
 void pa_droid_config_free(pa_droid_config_audio *config) {
     pa_droid_config_hw_module *module;
-    pa_droid_config_output *output;
-    pa_droid_config_input *input;
+    pa_droid_config_device *device;
 
     if (!config)
         return;
@@ -128,15 +127,13 @@ void pa_droid_config_free(pa_droid_config_audio *config) {
         SLLIST_STEAL_FIRST(module, config->hw_modules);
 
         while (module->outputs) {
-            SLLIST_STEAL_FIRST(output, module->outputs);
-            pa_xfree(output->name);
-            pa_xfree(output);
+            SLLIST_STEAL_FIRST(device, module->outputs);
+            pa_droid_config_device_free(device);
         }
 
         while (module->inputs) {
-            SLLIST_STEAL_FIRST(input, module->inputs);
-            pa_xfree(input->name);
-            pa_xfree(input);
+            SLLIST_STEAL_FIRST(device, module->inputs);
+            pa_droid_config_device_free(device);
         }
 
         pa_xfree(module->global_config);
@@ -148,29 +145,29 @@ void pa_droid_config_free(pa_droid_config_audio *config) {
     pa_xfree(config);
 }
 
-const pa_droid_config_output *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name) {
-    pa_droid_config_output *output;
+const pa_droid_config_device *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name) {
+    pa_droid_config_device *device;
 
     pa_assert(module);
     pa_assert(name);
 
-    SLLIST_FOREACH(output, module->outputs) {
-        if (pa_streq(name, output->name))
-            return output;
+    SLLIST_FOREACH(device, module->outputs) {
+        if (pa_streq(name, device->name))
+            return device;
     }
 
     return NULL;
 }
 
-const pa_droid_config_input *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name) {
-    pa_droid_config_input *input;
+const pa_droid_config_device *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name) {
+    pa_droid_config_device *device;
 
     pa_assert(module);
     pa_assert(name);
 
-    SLLIST_FOREACH(input, module->inputs) {
-        if (pa_streq(name, input->name))
-            return input;
+    SLLIST_FOREACH(device, module->inputs) {
+        if (pa_streq(name, device->name))
+            return device;
     }
 
     return NULL;
@@ -188,4 +185,29 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
     }
 
     return NULL;
+}
+
+pa_droid_config_device *pa_droid_config_device_new(const pa_droid_config_hw_module *module,
+                                                   pa_direction_t direction,
+                                                   const char *name) {
+    pa_droid_config_device *device;
+
+    pa_assert(module);
+    pa_assert(direction == PA_DIRECTION_OUTPUT || direction == PA_DIRECTION_INPUT);
+    pa_assert(name);
+
+    device = pa_xnew0(pa_droid_config_device, 1);
+    device->module = module;
+    device->direction = direction;
+    device->name = pa_replace(name, " ", "_");
+
+    return device;
+}
+
+void pa_droid_config_device_free(pa_droid_config_device *device) {
+    if (!device)
+        return;
+
+    pa_xfree(device->name);
+    pa_xfree(device);
 }

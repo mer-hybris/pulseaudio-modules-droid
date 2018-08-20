@@ -73,8 +73,8 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
     bool in_output = true;
 
     pa_droid_config_hw_module *module = NULL;
-    pa_droid_config_output *output = NULL;
-    pa_droid_config_input *input = NULL;
+    pa_droid_config_device *output = NULL;
+    pa_droid_config_device *input = NULL;
 
     pa_assert(filename);
 
@@ -187,17 +187,13 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
                     pa_assert(module);
 
                     if (in_output) {
-                        output = pa_xnew0(pa_droid_config_output, 1);
-                        SLLIST_APPEND(pa_droid_config_output, module->outputs, output);
-                        output->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
-                        output->module = module;
+                        output = pa_droid_config_device_new(module, PA_DIRECTION_OUTPUT, v);
+                        SLLIST_APPEND(pa_droid_config_device, module->outputs, output);
                         loc = IN_CONFIG;
                         pa_log_debug("config: %s: New output: %s", module->name, output->name);
                     } else {
-                        input = pa_xnew0(pa_droid_config_input, 1);
-                        SLLIST_APPEND(pa_droid_config_input, module->inputs, input);
-                        input->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
-                        input->module = module;
+                        input = pa_droid_config_device_new(module, PA_DIRECTION_INPUT, v);
+                        SLLIST_APPEND(pa_droid_config_device, module->inputs, input);
                         loc = IN_CONFIG;
                         pa_log_debug("config: %s: New input: %s", module->name, input->name);
                     }
