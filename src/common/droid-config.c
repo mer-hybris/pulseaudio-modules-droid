@@ -72,10 +72,10 @@
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
     pa_droid_config_audio *config = NULL;
     const char *manual_config;
-    const char *config_location[5] = {
+    const char *config_location[] = {
         VENDOR_AUDIO_POLICY_CONFIG_XML_FILE,
-        SYSTEM_AUDIO_POLICY_CONFIG_XML_FILE,
         AUDIO_POLICY_VENDOR_CONFIG_FILE,
+        SYSTEM_AUDIO_POLICY_CONFIG_XML_FILE,
         AUDIO_POLICY_CONFIG_FILE,
         NULL};
 
