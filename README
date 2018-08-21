@@ -14,6 +14,7 @@ Supported Android versions:
  * 5.x
  * 6.0.x
  * 7.x
+ * 8.x
 
 Headers for defining devices and strings for different droid versions are in
 src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
@@ -49,17 +50,41 @@ with new device is just compiling against target.
 Components
 ==========
 
+common
+------
+
+The common part of PulseAudio Droid modules contains library for handling
+most operations towards audio HAL.
+
+### Audio policy configuration parsing
+
+To populate our configuration structs there exists two parsers, legacy parser
+for old .conf format present in Android versions 7.0 and older and new xml
+format present from version 7.0 upwards. The legacy format is obsoleted in
+version 7.0 but by default still in use and most 7.0 adaptations probably
+contain the legacy format. But 8.0 adaptations and up start to include only
+the new style xml format configuration files.
+
+### Configuration files
+
+By default new style xml format is tried first and if it is not found old
+config is read next. If the configuration is in non-default location for
+some reason "config" module argument (available for all modules, card, sink,
+and source) can be used to point to the configuration file location.
+
+By default files are tried in following order,
+
+    /vendor/etc/audio_policy_configuration.xml  (new xml format)
+    /vendor/etc/audio_policy.conf               (legacy format)
+    /system/etc/audio_policy_configuration.xml  (new xml format)
+    /system/etc/audio_policy.conf               (legacy format)
+
 module-droid-card
 -----------------
 
 Ideally only module-droid-card is loaded and then droid-card loads
 configuration, creates profiles and loads sinks and sources based on the
 selected profile.
-
-Droid-card reads configuration from /vendor/etc/audio_policy.conf or
-/system/etc/audio_policy.conf, depending on which is found first. If vendor
-config is found, configuration is read from there, otherwise from system
-configuration.
 
 default profile
 ---------------
