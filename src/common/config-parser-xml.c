@@ -686,6 +686,18 @@ done:
     return parsed;
 }
 
+static void replace_in_place(char **string, const char *a, const char *b) {
+    char *tmp;
+
+    pa_assert(*string);
+    pa_assert(a);
+    pa_assert(b);
+
+    tmp = pa_replace(*string, a, b);
+    pa_xfree(*string);
+    *string = tmp;
+}
+
 static bool parse_profile(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
     struct profile *p;
     bool parsed = false, unknown_format = false, output = true;
@@ -716,10 +728,17 @@ static bool parse_profile(struct parser_data *data, const char *element_name, co
     get_element_attr(data, attributes, false, ATTRIBUTE_channelMasks, &channelMasks);
 
     /* Hard-coded workaround for incorrect audio policy configuration. */
-    if (channelMasks && data->current_device_port && output && pa_streq(channelMasks, "AUDIO_CHANNEL_IN_MONO")) {
-        pa_log_info("[%s:%u] Output has wrong direction channel mask (AUDIO_CHANNEL_IN_MONO).", data->fn, data->lineno);
-        pa_xfree(channelMasks);
-        channelMasks = pa_xstrdup("AUDIO_CHANNEL_OUT_MONO");
+    if (channelMasks && data->current_device_port) {
+        if (output && pa_startswith(channelMasks, "AUDIO_CHANNEL_IN_")) {
+            pa_log_info("[%s:%u] Output has wrong direction channel mask (%s), reversing.",
+                        data->fn, data->lineno, channelMasks);
+            replace_in_place(&channelMasks, "AUDIO_CHANNEL_IN_", "AUDIO_CHANNEL_OUT_");
+        }
+        else if (!output && pa_startswith(channelMasks, "AUDIO_CHANNEL_OUT_")) {
+            pa_log_info("[%s:%u] Input has wrong direction channel mask (%s), reversing.",
+                        data->fn, data->lineno, channelMasks);
+            replace_in_place(&channelMasks, "AUDIO_CHANNEL_OUT_", "AUDIO_CHANNEL_IN_");
+        }
     }
 
     if (!pa_conversion_parse_sampling_rates(data->fn, data->lineno, samplingRates, false, p->sampling_rates))
