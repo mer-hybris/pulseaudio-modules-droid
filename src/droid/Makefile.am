@@ -9,7 +9,7 @@ AM_CFLAGS = \
 	$(HYBRIS_CFLAGS) \
 	-DPULSEAUDIO_VERSION=@PA_MAJOR@ \
 	-I$(top_srcdir)/src/droid \
-	-I$(top_srcdir)/src/common
+	-I$(top_srcdir)/src/common/include
 
 
 modlibexec_LTLIBRARIES = \

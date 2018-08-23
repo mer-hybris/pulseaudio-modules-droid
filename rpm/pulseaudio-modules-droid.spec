@@ -56,11 +56,6 @@ make %{?jobs:-j%jobs}
 rm -rf %{buildroot}
 %make_install
 
-install -d %{buildroot}/%{_prefix}/include/pulsecore/modules/droid
-install -m 644 src/common/*.h %{buildroot}/%{_prefix}/include/pulsecore/modules/droid
-install -d %{buildroot}/%{_libdir}/pkgconfig
-install -m 644 src/common/*.pc %{buildroot}/%{_libdir}/pkgconfig
-
 %files
 %defattr(-,root,root,-)
 %{_libdir}/pulse-%{pulsemajorminor}/modules/libdroid-sink.so
@@ -76,5 +71,9 @@ install -m 644 src/common/*.pc %{buildroot}/%{_libdir}/pkgconfig
 
 %files devel
 %defattr(-,root,root,-)
-%{_prefix}/include/pulsecore/modules/droid/*.h
+%dir %{_prefix}/include/pulsecore/modules/droid
+%{_prefix}/include/pulsecore/modules/droid/version.h
+%{_prefix}/include/pulsecore/modules/droid/conversion.h
+%{_prefix}/include/pulsecore/modules/droid/droid-config.h
+%{_prefix}/include/pulsecore/modules/droid/droid-util.h
 %{_libdir}/pkgconfig/*.pc

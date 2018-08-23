@@ -24,7 +24,7 @@
 #endif
 #include <pulsecore/log.h>
 
-#include "droid-config.h"
+#include "droid/droid-config.h"
 
 #ifndef HAVE_EXPAT
 #include <unistd.h>
@@ -43,7 +43,8 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 #include <pulsecore/core-util.h>
 #include <pulsecore/core-error.h>
 
-#include "conversion.h"
+#include "droid/conversion.h"
+#include "droid/sllist.h"
 
 #ifdef XML_UNICODE_WCHAR_T
 # include <wchar.h>
@@ -686,6 +687,18 @@ done:
     return parsed;
 }
 
+static void replace_in_place(char **string, const char *a, const char *b) {
+    char *tmp;
+
+    pa_assert(*string);
+    pa_assert(a);
+    pa_assert(b);
+
+    tmp = pa_replace(*string, a, b);
+    pa_xfree(*string);
+    *string = tmp;
+}
+
 static bool parse_profile(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
     struct profile *p;
     bool parsed = false, unknown_format = false, output = true;
@@ -716,10 +729,17 @@ static bool parse_profile(struct parser_data *data, const char *element_name, co
     get_element_attr(data, attributes, false, ATTRIBUTE_channelMasks, &channelMasks);
 
     /* Hard-coded workaround for incorrect audio policy configuration. */
-    if (channelMasks && data->current_device_port && output && pa_streq(channelMasks, "AUDIO_CHANNEL_IN_MONO")) {
-        pa_log_info("[%s:%u] Output has wrong direction channel mask (AUDIO_CHANNEL_IN_MONO).", data->fn, data->lineno);
-        pa_xfree(channelMasks);
-        channelMasks = pa_xstrdup("AUDIO_CHANNEL_OUT_MONO");
+    if (channelMasks && data->current_device_port) {
+        if (output && pa_startswith(channelMasks, "AUDIO_CHANNEL_IN_")) {
+            pa_log_info("[%s:%u] Output has wrong direction channel mask (%s), reversing.",
+                        data->fn, data->lineno, channelMasks);
+            replace_in_place(&channelMasks, "AUDIO_CHANNEL_IN_", "AUDIO_CHANNEL_OUT_");
+        }
+        else if (!output && pa_startswith(channelMasks, "AUDIO_CHANNEL_OUT_")) {
+            pa_log_info("[%s:%u] Input has wrong direction channel mask (%s), reversing.",
+                        data->fn, data->lineno, channelMasks);
+            replace_in_place(&channelMasks, "AUDIO_CHANNEL_OUT_", "AUDIO_CHANNEL_IN_");
+        }
     }
 
     if (!pa_conversion_parse_sampling_rates(data->fn, data->lineno, samplingRates, false, p->sampling_rates))
@@ -910,15 +930,12 @@ static bool device_in_list(struct device *list, const char *name) {
 }
 
 static void add_output(struct module *module, struct mix_port *mix_port, pa_droid_config_hw_module *hw_module) {
-    pa_droid_config_output *output;
+    pa_droid_config_device *output;
     struct profile *profile;
     struct route *route;
     struct device_port *device_port;
 
-    output = pa_xnew0(pa_droid_config_output, 1);
-
-    output->module = hw_module;
-    output->name = pa_replace(mix_port->name, " ", "_");
+    output = pa_droid_config_device_new(hw_module, PA_DIRECTION_OUTPUT, mix_port->name);
     output->flags = mix_port->flags;
     SLLIST_FOREACH(profile, mix_port->profiles) {
         memcpy(output->sampling_rates, profile->sampling_rates, sizeof(output->sampling_rates));
@@ -944,19 +961,17 @@ static void add_output(struct module *module, struct mix_port *mix_port, pa_droi
         }
     }
 
-    SLLIST_APPEND(pa_droid_config_output, hw_module->outputs, output);
+    pa_log_debug("config: %s: New output: %s", hw_module->name, output->name);
+    SLLIST_APPEND(pa_droid_config_device, hw_module->outputs, output);
 }
 
 static void add_input(struct module *module, struct mix_port *mix_port, pa_droid_config_hw_module *hw_module) {
-    pa_droid_config_input *input;
+    pa_droid_config_device *input;
     struct profile *profile;
     struct route *route;
     struct device_port *device_port;
 
-    input = pa_xnew0(pa_droid_config_input, 1);
-
-    input->module = hw_module;
-    input->name = pa_replace(mix_port->name, " ", "_");
+    input = pa_droid_config_device_new(hw_module, PA_DIRECTION_INPUT, mix_port->name);
     input->flags = mix_port->flags;
     SLLIST_FOREACH(profile, mix_port->profiles) {
         memcpy(input->sampling_rates, profile->sampling_rates, sizeof(input->sampling_rates));
@@ -980,7 +995,8 @@ static void add_input(struct module *module, struct mix_port *mix_port, pa_droid
         }
     }
 
-    SLLIST_APPEND(pa_droid_config_input, hw_module->inputs, input);
+    pa_log_debug("config: %s: New input: %s", hw_module->name, input->name);
+    SLLIST_APPEND(pa_droid_config_device, hw_module->inputs, input);
 }
 
 static void generate_config_for_module(struct module *module, pa_droid_config_audio *config) {
@@ -991,9 +1007,7 @@ static void generate_config_for_module(struct module *module, pa_droid_config_au
     pa_assert(config);
     pa_assert(config->global_config);
 
-    hw_module = pa_xnew0(pa_droid_config_hw_module, 1);
-    hw_module->config = config;
-    hw_module->name = pa_xstrdup(module->name);
+    hw_module = pa_droid_config_hw_module_new(config, module->name);
     if (module->attached_devices || module->default_output)
         hw_module->global_config = pa_xnew0(pa_droid_config_global, 1);
     SLLIST_APPEND(pa_droid_config_hw_module, config->hw_modules, hw_module);

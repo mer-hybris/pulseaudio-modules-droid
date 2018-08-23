@@ -31,10 +31,6 @@
 
 #include <pulse/channelmap.h>
 
-#ifdef SPEAKER_DRC_ENABLED_TAG
-#define DROID_HAVE_DRC
-#endif
-
 
 #ifdef STRING_ENTRY
 #error Macro clashing with our helper macro already defined somewhere, fix this droid lib.

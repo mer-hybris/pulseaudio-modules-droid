@@ -37,9 +37,9 @@
 #include <pulsecore/log.h>
 #include <pulsecore/macro.h>
 
-#include "droid-util.h"
+#include <droid/droid-util.h>
+#include <droid/conversion.h>
 #include "droid-sink.h"
-#include "conversion.h"
 
 #include "module-droid-sink-symdef.h"
 

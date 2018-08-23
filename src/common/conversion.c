@@ -23,7 +23,7 @@
 #include <config.h>
 #endif
 
-#include "version.h"
+#include "droid/version.h"
 #if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
 #include "droid-util-41qc.h"
 #else
@@ -34,8 +34,8 @@
 
 #include <hardware/audio.h>
 
-#include "conversion.h"
-#include "droid-config.h"
+#include "droid/conversion.h"
+#include "droid/droid-config.h"
 
 #define CONVERT_FUNC(TABL) \
 bool pa_convert_ ## TABL (uint32_t value, pa_conversion_field_t field, uint32_t *to_value) {                    \

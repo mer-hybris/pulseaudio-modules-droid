@@ -37,7 +37,7 @@
 #include <pulsecore/log.h>
 #include <pulsecore/macro.h>
 
-#include "droid-util.h"
+#include <droid/droid-util.h>
 #include "droid-source.h"
 
 #include "module-droid-source-symdef.h"

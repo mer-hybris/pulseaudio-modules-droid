@@ -31,9 +31,10 @@
 
 #include <hardware_legacy/audio_policy_conf.h>
 
-#include "version.h"
-#include "droid-config.h"
-#include "conversion.h"
+#include "droid/version.h"
+#include "droid/droid-config.h"
+#include "droid/conversion.h"
+#include "droid/sllist.h"
 
 /* Section defining custom global configuration variables. */
 #define GLOBAL_CONFIG_EXT_TAG   "custom_properties"
@@ -73,8 +74,8 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
     bool in_output = true;
 
     pa_droid_config_hw_module *module = NULL;
-    pa_droid_config_output *output = NULL;
-    pa_droid_config_input *input = NULL;
+    pa_droid_config_device *output = NULL;
+    pa_droid_config_device *input = NULL;
 
     pa_assert(filename);
 
@@ -154,11 +155,9 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
                 case IN_HW_MODULES:
                     pa_assert(!module);
 
-                    module = pa_xnew0(pa_droid_config_hw_module, 1);
+                    module = pa_droid_config_hw_module_new(config, v);
                     SLLIST_APPEND(pa_droid_config_hw_module, config->hw_modules, module);
                     hw_module_count++;
-                    module->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
-                    module->config = config;
                     loc = IN_MODULE;
                     pa_log_debug("config: New module: %s", module->name);
                     break;
@@ -187,17 +186,13 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
                     pa_assert(module);
 
                     if (in_output) {
-                        output = pa_xnew0(pa_droid_config_output, 1);
-                        SLLIST_APPEND(pa_droid_config_output, module->outputs, output);
-                        output->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
-                        output->module = module;
+                        output = pa_droid_config_device_new(module, PA_DIRECTION_OUTPUT, v);
+                        SLLIST_APPEND(pa_droid_config_device, module->outputs, output);
                         loc = IN_CONFIG;
                         pa_log_debug("config: %s: New output: %s", module->name, output->name);
                     } else {
-                        input = pa_xnew0(pa_droid_config_input, 1);
-                        SLLIST_APPEND(pa_droid_config_input, module->inputs, input);
-                        input->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
-                        input->module = module;
+                        input = pa_droid_config_device_new(module, PA_DIRECTION_INPUT, v);
+                        SLLIST_APPEND(pa_droid_config_device, module->inputs, input);
                         loc = IN_CONFIG;
                         pa_log_debug("config: %s: New input: %s", module->name, input->name);
                     }
@@ -341,7 +336,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
                 else if (pa_streq(v, AUDIO_HAL_VERSION_TAG))
                     success = pa_conversion_parse_version(filename, n, value,
                                                           &global_config->audio_hal_version);
-#ifdef DROID_HAVE_DRC
+#ifdef SPEAKER_DRC_ENABLED_TAG
                 // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
                 else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
                     /* TODO - Add support for dynamic range control */

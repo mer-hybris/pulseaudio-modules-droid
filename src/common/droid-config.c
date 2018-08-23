@@ -23,8 +23,9 @@
 #include <config.h>
 #endif
 
-#include "version.h"
-#include "droid-config.h"
+#include "droid/version.h"
+#include "droid/droid-config.h"
+#include "droid/sllist.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -72,10 +73,10 @@
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
     pa_droid_config_audio *config = NULL;
     const char *manual_config;
-    const char *config_location[5] = {
+    const char *config_location[] = {
         VENDOR_AUDIO_POLICY_CONFIG_XML_FILE,
-        SYSTEM_AUDIO_POLICY_CONFIG_XML_FILE,
         AUDIO_POLICY_VENDOR_CONFIG_FILE,
+        SYSTEM_AUDIO_POLICY_CONFIG_XML_FILE,
         AUDIO_POLICY_CONFIG_FILE,
         NULL};
 
@@ -118,8 +119,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config(const char *filename) {
 
 void pa_droid_config_free(pa_droid_config_audio *config) {
     pa_droid_config_hw_module *module;
-    pa_droid_config_output *output;
-    pa_droid_config_input *input;
+    pa_droid_config_device *device;
 
     if (!config)
         return;
@@ -128,52 +128,20 @@ void pa_droid_config_free(pa_droid_config_audio *config) {
         SLLIST_STEAL_FIRST(module, config->hw_modules);
 
         while (module->outputs) {
-            SLLIST_STEAL_FIRST(output, module->outputs);
-            pa_xfree(output->name);
-            pa_xfree(output);
+            SLLIST_STEAL_FIRST(device, module->outputs);
+            pa_droid_config_device_free(device);
         }
 
         while (module->inputs) {
-            SLLIST_STEAL_FIRST(input, module->inputs);
-            pa_xfree(input->name);
-            pa_xfree(input);
+            SLLIST_STEAL_FIRST(device, module->inputs);
+            pa_droid_config_device_free(device);
         }
 
-        pa_xfree(module->global_config);
-        pa_xfree(module->name);
-        pa_xfree(module);
+        pa_droid_config_hw_module_free(module);
     }
 
     pa_xfree(config->global_config);
     pa_xfree(config);
-}
-
-const pa_droid_config_output *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char *name) {
-    pa_droid_config_output *output;
-
-    pa_assert(module);
-    pa_assert(name);
-
-    SLLIST_FOREACH(output, module->outputs) {
-        if (pa_streq(name, output->name))
-            return output;
-    }
-
-    return NULL;
-}
-
-const pa_droid_config_input *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char *name) {
-    pa_droid_config_input *input;
-
-    pa_assert(module);
-    pa_assert(name);
-
-    SLLIST_FOREACH(input, module->inputs) {
-        if (pa_streq(name, input->name))
-            return input;
-    }
-
-    return NULL;
 }
 
 const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_config_audio *config, const char* module_id) {
@@ -188,4 +156,51 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
     }
 
     return NULL;
+}
+
+pa_droid_config_hw_module *pa_droid_config_hw_module_new(const pa_droid_config_audio *config, const char *name) {
+    pa_droid_config_hw_module *hw_module;
+
+    pa_assert(config);
+    pa_assert(name);
+
+    hw_module = pa_xnew0(pa_droid_config_hw_module, 1);
+    hw_module->config = config;
+    hw_module->name = pa_xstrndup(name, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
+
+    return hw_module;
+}
+
+void pa_droid_config_hw_module_free(pa_droid_config_hw_module *hw_module) {
+    if (!hw_module)
+        return;
+
+    pa_xfree(hw_module->name);
+    pa_xfree(hw_module->global_config);
+    pa_xfree(hw_module);
+}
+
+pa_droid_config_device *pa_droid_config_device_new(const pa_droid_config_hw_module *module,
+                                                   pa_direction_t direction,
+                                                   const char *name) {
+    pa_droid_config_device *device;
+
+    pa_assert(module);
+    pa_assert(direction == PA_DIRECTION_OUTPUT || direction == PA_DIRECTION_INPUT);
+    pa_assert(name);
+
+    device = pa_xnew0(pa_droid_config_device, 1);
+    device->module = module;
+    device->direction = direction;
+    device->name = pa_replace(name, " ", "_");
+
+    return device;
+}
+
+void pa_droid_config_device_free(pa_droid_config_device *device) {
+    if (!device)
+        return;
+
+    pa_xfree(device->name);
+    pa_xfree(device);
 }
