@@ -34,6 +34,7 @@
 #include "version.h"
 #include "droid-config.h"
 #include "conversion.h"
+#include "sllist.h"
 
 /* Section defining custom global configuration variables. */
 #define GLOBAL_CONFIG_EXT_TAG   "custom_properties"

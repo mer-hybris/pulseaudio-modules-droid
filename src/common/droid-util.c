@@ -63,6 +63,7 @@
 #include "droid-util.h"
 #include "droid-config.h"
 #include "conversion.h"
+#include "sllist.h"
 
 struct droid_quirk {
     const char *name;

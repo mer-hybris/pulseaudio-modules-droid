@@ -98,28 +98,4 @@ pa_droid_config_device *pa_droid_config_device_new(const pa_droid_config_hw_modu
                                                    const char *name);
 void pa_droid_config_device_free(pa_droid_config_device *device);
 
-#define SLLIST_APPEND(t, head, item)                                \
-    do {                                                            \
-        item->next = NULL;                                          \
-        if (!head) {                                                \
-            head = item;                                            \
-        } else {                                                    \
-            t *_list;                                               \
-            for (_list = head; _list->next; _list = _list->next);   \
-            _list->next = item;                                     \
-        }                                                           \
-    } while (0)
-
-#define SLLIST_FOREACH(i, head)                                     \
-    for (i = (head); i; i = i->next)
-
-#define SLLIST_STEAL_FIRST(i, head)                                 \
-    do {                                                            \
-        if (head) {                                                 \
-            i = head;                                               \
-            head = head->next;                                      \
-        } else                                                      \
-            i = NULL;                                               \
-    } while (0)
-
 #endif

@@ -44,6 +44,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 #include <pulsecore/core-error.h>
 
 #include "conversion.h"
+#include "sllist.h"
 
 #ifdef XML_UNICODE_WCHAR_T
 # include <wchar.h>

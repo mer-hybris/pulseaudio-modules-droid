@@ -25,6 +25,7 @@
 
 #include "version.h"
 #include "droid-config.h"
+#include "sllist.h"
 
 #include <signal.h>
 #include <stdio.h>
