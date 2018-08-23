@@ -136,9 +136,7 @@ void pa_droid_config_free(pa_droid_config_audio *config) {
             pa_droid_config_device_free(device);
         }
 
-        pa_xfree(module->global_config);
-        pa_xfree(module->name);
-        pa_xfree(module);
+        pa_droid_config_hw_module_free(module);
     }
 
     pa_xfree(config->global_config);
@@ -157,6 +155,28 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
     }
 
     return NULL;
+}
+
+pa_droid_config_hw_module *pa_droid_config_hw_module_new(const pa_droid_config_audio *config, const char *name) {
+    pa_droid_config_hw_module *hw_module;
+
+    pa_assert(config);
+    pa_assert(name);
+
+    hw_module = pa_xnew0(pa_droid_config_hw_module, 1);
+    hw_module->config = config;
+    hw_module->name = pa_xstrndup(name, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
+
+    return hw_module;
+}
+
+void pa_droid_config_hw_module_free(pa_droid_config_hw_module *hw_module) {
+    if (!hw_module)
+        return;
+
+    pa_xfree(hw_module->name);
+    pa_xfree(hw_module->global_config);
+    pa_xfree(hw_module);
 }
 
 pa_droid_config_device *pa_droid_config_device_new(const pa_droid_config_hw_module *module,

@@ -1006,9 +1006,7 @@ static void generate_config_for_module(struct module *module, pa_droid_config_au
     pa_assert(config);
     pa_assert(config->global_config);
 
-    hw_module = pa_xnew0(pa_droid_config_hw_module, 1);
-    hw_module->config = config;
-    hw_module->name = pa_xstrdup(module->name);
+    hw_module = pa_droid_config_hw_module_new(config, module->name);
     if (module->attached_devices || module->default_output)
         hw_module->global_config = pa_xnew0(pa_droid_config_global, 1);
     SLLIST_APPEND(pa_droid_config_hw_module, config->hw_modules, hw_module);

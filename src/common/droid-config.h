@@ -91,6 +91,8 @@ pa_droid_config_audio *pa_parse_droid_audio_config(const char *filename);
 
 const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_config_audio *config, const char* module_id);
 
+pa_droid_config_hw_module *pa_droid_config_hw_module_new(const pa_droid_config_audio *config, const char *name);
+void pa_droid_config_hw_module_free(pa_droid_config_hw_module *hw_module);
 pa_droid_config_device *pa_droid_config_device_new(const pa_droid_config_hw_module *module,
                                                    pa_direction_t direction,
                                                    const char *name);

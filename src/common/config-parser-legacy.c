@@ -154,11 +154,9 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
                 case IN_HW_MODULES:
                     pa_assert(!module);
 
-                    module = pa_xnew0(pa_droid_config_hw_module, 1);
+                    module = pa_droid_config_hw_module_new(config, v);
                     SLLIST_APPEND(pa_droid_config_hw_module, config->hw_modules, module);
                     hw_module_count++;
-                    module->name = pa_xstrndup(v, AUDIO_HARDWARE_MODULE_ID_MAX_LEN);
-                    module->config = config;
                     loc = IN_MODULE;
                     pa_log_debug("config: New module: %s", module->name);
                     break;
