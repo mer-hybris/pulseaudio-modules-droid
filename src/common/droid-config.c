@@ -23,9 +23,9 @@
 #include <config.h>
 #endif
 
-#include "version.h"
-#include "droid-config.h"
-#include "sllist.h"
+#include "droid/version.h"
+#include "droid/droid-config.h"
+#include "droid/sllist.h"
 
 #include <signal.h>
 #include <stdio.h>

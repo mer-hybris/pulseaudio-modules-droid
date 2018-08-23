@@ -31,10 +31,10 @@
 
 #include <hardware_legacy/audio_policy_conf.h>
 
-#include "version.h"
-#include "droid-config.h"
-#include "conversion.h"
-#include "sllist.h"
+#include "droid/version.h"
+#include "droid/droid-config.h"
+#include "droid/conversion.h"
+#include "droid/sllist.h"
 
 /* Section defining custom global configuration variables. */
 #define GLOBAL_CONFIG_EXT_TAG   "custom_properties"

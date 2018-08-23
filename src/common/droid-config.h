@@ -30,7 +30,7 @@
 #include <android-config.h>
 #include <hardware/audio.h>
 
-#include "version.h"
+#include <droid/version.h>
 
 typedef struct pa_droid_config_audio pa_droid_config_audio;
 typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;

@@ -59,11 +59,11 @@
 #include <pulsecore/strlist.h>
 #include <pulsecore/atomic.h>
 
-#include "version.h"
-#include "droid-util.h"
-#include "droid-config.h"
-#include "conversion.h"
-#include "sllist.h"
+#include "droid/version.h"
+#include "droid/droid-util.h"
+#include "droid/droid-config.h"
+#include "droid/conversion.h"
+#include "droid/sllist.h"
 
 struct droid_quirk {
     const char *name;

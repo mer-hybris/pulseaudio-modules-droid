@@ -24,7 +24,7 @@
 #endif
 #include <pulsecore/log.h>
 
-#include "droid-config.h"
+#include "droid/droid-config.h"
 
 #ifndef HAVE_EXPAT
 #include <unistd.h>
@@ -43,8 +43,8 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 #include <pulsecore/core-util.h>
 #include <pulsecore/core-error.h>
 
-#include "conversion.h"
-#include "sllist.h"
+#include "droid/conversion.h"
+#include "droid/sllist.h"
 
 #ifdef XML_UNICODE_WCHAR_T
 # include <wchar.h>
