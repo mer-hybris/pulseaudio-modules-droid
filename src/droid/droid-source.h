@@ -41,7 +41,7 @@
 #include <pulsecore/macro.h>
 #include <pulsecore/card.h>
 
-#include "droid-util.h"
+#include <droid/droid-util.h>
 
 /* If device is non-zero, it will override whatever is set in modargs for input device. */
 pa_source *pa_droid_source_new(pa_module *m,

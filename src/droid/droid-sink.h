@@ -41,7 +41,7 @@
 #include <pulsecore/macro.h>
 #include <pulsecore/card.h>
 
-#include "droid-util.h"
+#include <droid/droid-util.h>
 
 pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_modargs *ma,

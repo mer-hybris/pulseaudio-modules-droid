@@ -53,8 +53,8 @@
 #include <pulsecore/resampler.h>
 
 #include "droid-source.h"
-#include "droid-util.h"
-#include "conversion.h"
+#include <droid/droid-util.h>
+#include <droid/conversion.h>
 
 struct userdata {
     pa_core *core;

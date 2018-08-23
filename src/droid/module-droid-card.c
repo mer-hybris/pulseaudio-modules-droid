@@ -59,7 +59,7 @@
 //#include <droid/hardware/audio_policy.h>
 //#include <droid/system/audio_policy.h>
 
-#include "droid-util.h"
+#include <droid/droid-util.h>
 #include "droid-sink.h"
 #include "droid-source.h"
 
