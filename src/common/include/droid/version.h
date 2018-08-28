@@ -24,6 +24,10 @@
 
 
 #include <android-config.h>
+#ifdef QCOM_BSP
+#define QCOM_HARDWARE
+#endif
+
 #include <hardware/audio.h>
 
 #if !defined(ANDROID_VERSION_MAJOR) || !defined(ANDROID_VERSION_MINOR) || !defined(ANDROID_VERSION_PATCH)
