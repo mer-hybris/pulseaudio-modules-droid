@@ -1021,12 +1021,12 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     pa_assert(core);
     pa_assert(module_id);
 
-    pa_log_info("Droid hw module %s", VERSION);
-
     if (!config) {
-        pa_log("No configuration provided for opening module with id %s", module_id);
+        pa_log_debug("No configuration provided for opening module with id %s", module_id);
         goto fail;
     }
+
+    pa_log_info("Droid hw module %s", VERSION);
 
     if (!(module = pa_droid_config_find_module(config, module_id))) {
         pa_log("Couldn't find module with id %s", module_id);
