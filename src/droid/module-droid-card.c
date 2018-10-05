@@ -729,9 +729,11 @@ int pa__init(pa_module *m) {
         if (!(config = pa_droid_config_load(ma)))
             goto fail;
 
-        /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
         if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
             goto fail;
+
+        pa_droid_config_free(config);
+        config = NULL;
     }
 
     if ((quirks = pa_modargs_get_value(ma, "quirks", NULL))) {
@@ -840,6 +842,8 @@ int pa__init(pa_module *m) {
     return 0;
 
 fail:
+    pa_droid_config_free(config);
+
     if (ma)
         pa_modargs_free(ma);
 
