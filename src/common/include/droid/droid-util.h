@@ -225,9 +225,7 @@ struct pa_droid_quirks {
 
 /* Open hardware module */
 /* 'config' can be NULL if it is assumed that hw module with module_id already is open. */
-/* if opening of hw_module succeeds, config ownership is transferred to hw_module and config
- * shouldn't be freed. */
-pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, pa_droid_config_audio *config, const char *module_id);
+pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, const pa_droid_config_audio *config, const char *module_id);
 pa_droid_hw_module *pa_droid_hw_module_ref(pa_droid_hw_module *hw);
 void pa_droid_hw_module_unref(pa_droid_hw_module *hw);
 
