@@ -1010,7 +1010,7 @@ static char *shared_name_get(const char *module_id) {
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
 }
 
-static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_audio *config, const char *module_id) {
+static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
     const pa_droid_config_hw_module *module;
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
@@ -1066,7 +1066,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     hw->output_mutex = pa_mutex_new(true, false);
     hw->input_mutex = pa_mutex_new(true, false);
     hw->device = device;
-    hw->config = config; /* We take ownership of config struct. */
+    hw->config = pa_droid_config_dup(config);
     hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
     hw->module_id = hw->enabled_module->name;
     hw->shared_name = shared_name_get(hw->module_id);
@@ -1100,7 +1100,7 @@ fail:
     return NULL;
 }
 
-pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, pa_droid_config_audio *config, const char *module_id) {
+pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
     pa_droid_hw_module *hw;
     char *shared_name;
 
