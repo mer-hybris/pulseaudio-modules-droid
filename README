@@ -326,6 +326,11 @@ Currently there are following quirks:
     doing voicecall routing. If there is no voicecall audio you can
     try enabling this quirk so that the realcall parameter is applied
     when switching to voicecall profile.
+ * unload_call_exit
+  * Disabled by default.
+  * Some HAL module implementations get stuck in mutex or segfault when
+    trying to unload the module. To avoid confusing segfaults call
+    exit(0) instead of calling unload for the module.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument

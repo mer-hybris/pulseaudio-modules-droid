@@ -83,6 +83,7 @@ struct pa_droid_config_audio {
 
 /* Config parser */
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma);
+pa_droid_config_audio *pa_droid_config_dup(const pa_droid_config_audio *config);
 void pa_droid_config_free(pa_droid_config_audio *config);
 pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename);
 pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename);
