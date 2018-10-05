@@ -103,42 +103,52 @@ static void stop(struct userdata *u) {
     u->active = false;
 }
 
+static void update_sink(pa_sink *sink, struct userdata *u) {
+    pa_assert(sink);
+    pa_assert(u);
+
+    if (pa_sink_get_state(sink) != PA_SINK_SUSPENDED)
+        start(u);
+    else
+        stop(u);
+}
+
+static void update_source(pa_source *source, struct userdata *u) {
+    pa_assert(source);
+    pa_assert(u);
+
+    /* Don't react on monitor state changes. */
+    if (!source->monitor_of) {
+        if (pa_source_get_state(source) != PA_SOURCE_SUSPENDED)
+            start(u);
+        else
+            stop(u);
+    }
+}
+
 static pa_hook_result_t device_state_changed_hook_cb(pa_core *c, pa_object *o, struct userdata *u) {
     pa_assert(c);
     pa_object_assert_ref(o);
     pa_assert(u);
 
-    if (pa_source_isinstance(o)) {
-        pa_source *s = PA_SOURCE(o);
-
-        /* Don't react on monitor state changes. */
-        if (!s->monitor_of) {
-            pa_source_state_t state = pa_source_get_state(s);
-
-            if (state != PA_SOURCE_SUSPENDED)
-                start(u);
-            else
-                stop(u);
-        }
-    } else if (pa_sink_isinstance(o)) {
-        pa_sink *s = PA_SINK(o);
-        pa_sink_state_t state = pa_sink_get_state(s);
-
-        if (state != PA_SINK_SUSPENDED)
-            start(u);
-        else
-            stop(u);
-    }
+    if (pa_source_isinstance(o))
+        update_source(PA_SOURCE(o), u);
+    else if (pa_sink_isinstance(o))
+        update_sink(PA_SINK(o), u);
 
     return PA_HOOK_OK;
 }
 
 
 int pa__init(pa_module *m) {
+    uint32_t idx = 0;
+    pa_sink *sink;
+    pa_source *source;
+    struct userdata *u;
 
     pa_assert(m);
 
-    struct userdata *u = pa_xnew0(struct userdata, 1);
+    u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->active = false;
     u->module = m;
@@ -151,6 +161,12 @@ int pa__init(pa_module *m) {
 
     u->sink_state_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_STATE_CHANGED], PA_HOOK_NORMAL, (pa_hook_cb_t) device_state_changed_hook_cb, u);
     u->source_state_changed_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SOURCE_STATE_CHANGED], PA_HOOK_NORMAL, (pa_hook_cb_t) device_state_changed_hook_cb, u);
+
+    PA_IDXSET_FOREACH(source, u->core->sources, idx)
+        update_source(source, u);
+
+    PA_IDXSET_FOREACH(sink, u->core->sinks, idx)
+        update_sink(sink, u);
 
     return 0;
 
@@ -173,7 +189,7 @@ void pa__done(pa_module *m) {
             pa_hook_slot_free(u->source_state_changed_slot);
 
         if (u->keepalive) {
-            stop(u);
+            pa_droid_keepalive_stop(u->keepalive);
             pa_droid_keepalive_free(u->keepalive);
         }
 

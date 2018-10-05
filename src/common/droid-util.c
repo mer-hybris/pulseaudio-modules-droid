@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#include <stdlib.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -78,6 +79,7 @@ struct droid_quirk valid_quirks[] = {
     { "no_hw_volume",           QUIRK_NO_HW_VOLUME          },
     { "output_make_writable",   QUIRK_OUTPUT_MAKE_WRITABLE  },
     { "realcall",               QUIRK_REALCALL              },
+    { "unload_call_exit",       QUIRK_UNLOAD_CALL_EXIT      },
 };
 
 
@@ -1008,7 +1010,7 @@ static char *shared_name_get(const char *module_id) {
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
 }
 
-static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_audio *config, const char *module_id) {
+static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
     const pa_droid_config_hw_module *module;
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
@@ -1019,12 +1021,12 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     pa_assert(core);
     pa_assert(module_id);
 
-    pa_log_info("Droid hw module %s", VERSION);
-
     if (!config) {
-        pa_log("No configuration provided for opening module with id %s", module_id);
+        pa_log_debug("No configuration provided for opening module with id %s", module_id);
         goto fail;
     }
+
+    pa_log_info("Droid hw module %s", VERSION);
 
     if (!(module = pa_droid_config_find_module(config, module_id))) {
         pa_log("Couldn't find module with id %s", module_id);
@@ -1064,7 +1066,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
     hw->output_mutex = pa_mutex_new(true, false);
     hw->input_mutex = pa_mutex_new(true, false);
     hw->device = device;
-    hw->config = config; /* We take ownership of config struct. */
+    hw->config = pa_droid_config_dup(config);
     hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
     hw->module_id = hw->enabled_module->name;
     hw->shared_name = shared_name_get(hw->module_id);
@@ -1098,7 +1100,7 @@ fail:
     return NULL;
 }
 
-pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, pa_droid_config_audio *config, const char *module_id) {
+pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
     pa_droid_hw_module *hw;
     char *shared_name;
 
@@ -1146,8 +1148,12 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     if (hw->config)
         pa_droid_config_free(hw->config);
 
-    if (hw->device && !pa_droid_quirk(hw, QUIRK_UNLOAD_NO_CLOSE))
-        audio_hw_device_close(hw->device);
+    if (hw->device) {
+        if (pa_droid_quirk(hw, QUIRK_UNLOAD_CALL_EXIT))
+            exit(EXIT_SUCCESS);
+        else if (!pa_droid_quirk(hw, QUIRK_UNLOAD_NO_CLOSE))
+            audio_hw_device_close(hw->device);
+    }
 
     if (hw->hw_mutex)
         pa_mutex_free(hw->hw_mutex);
