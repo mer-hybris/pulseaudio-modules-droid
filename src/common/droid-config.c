@@ -102,6 +102,43 @@ pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
     return config;
 }
 
+pa_droid_config_audio *pa_droid_config_dup(const pa_droid_config_audio *config) {
+    pa_droid_config_audio *config_copy;
+    pa_droid_config_hw_module *module, *module_copy;
+    pa_droid_config_device *device, *device_copy;
+
+    pa_assert(config);
+
+    config_copy = pa_xnew0(pa_droid_config_audio, 1);
+
+    if (config->global_config)
+        config_copy->global_config = pa_xmemdup(config->global_config, sizeof(*config->global_config));
+
+    SLLIST_FOREACH(module, config->hw_modules) {
+        module_copy = pa_droid_config_hw_module_new(config_copy, module->name);
+        if (module->global_config)
+            module_copy->global_config = pa_xmemdup(module->global_config, sizeof(*module->global_config));
+
+        SLLIST_FOREACH(device, module->outputs) {
+            device_copy = pa_xmemdup(device, sizeof(*device));
+            device_copy->module = module_copy;
+            device_copy->name = pa_xstrdup(device->name);
+            SLLIST_APPEND(pa_droid_config_device, module_copy->outputs, device_copy);
+        }
+
+        SLLIST_FOREACH(device, module->inputs) {
+            device_copy = pa_xmemdup(device, sizeof(*device));
+            device_copy->module = module_copy;
+            device_copy->name = pa_xstrdup(device->name);
+            SLLIST_APPEND(pa_droid_config_device, module_copy->inputs, device_copy);
+        }
+
+        SLLIST_APPEND(pa_droid_config_hw_module, config_copy->hw_modules, module_copy);
+    }
+
+    return config_copy;
+}
+
 pa_droid_config_audio *pa_parse_droid_audio_config(const char *filename) {
     const char *suffix;
 
