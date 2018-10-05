@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#include <stdlib.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -78,6 +79,7 @@ struct droid_quirk valid_quirks[] = {
     { "no_hw_volume",           QUIRK_NO_HW_VOLUME          },
     { "output_make_writable",   QUIRK_OUTPUT_MAKE_WRITABLE  },
     { "realcall",               QUIRK_REALCALL              },
+    { "unload_call_exit",       QUIRK_UNLOAD_CALL_EXIT      },
 };
 
 
@@ -1146,8 +1148,12 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     if (hw->config)
         pa_droid_config_free(hw->config);
 
-    if (hw->device && !pa_droid_quirk(hw, QUIRK_UNLOAD_NO_CLOSE))
-        audio_hw_device_close(hw->device);
+    if (hw->device) {
+        if (pa_droid_quirk(hw, QUIRK_UNLOAD_CALL_EXIT))
+            exit(EXIT_SUCCESS);
+        else if (!pa_droid_quirk(hw, QUIRK_UNLOAD_NO_CLOSE))
+            audio_hw_device_close(hw->device);
+    }
 
     if (hw->hw_mutex)
         pa_mutex_free(hw->hw_mutex);
