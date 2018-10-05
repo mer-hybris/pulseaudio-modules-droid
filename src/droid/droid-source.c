@@ -596,15 +596,20 @@ pa_source *pa_droid_source_new(pa_module *m,
         u->card_data = card_data;
         pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
-        /* Stand-alone source */
-
+        /* Source wasn't created from inside card module, so we'll need to open
+         * hw module ourself.
+         *
+         * First let's find out if hw module has already been opened, or if we need to
+         * do it ourself. */
         if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
             if (!(config = pa_droid_config_load(ma)))
                 goto fail;
 
-            /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
             if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
                 goto fail;
+
+            pa_droid_config_free(config);
+            config = NULL;
         }
     }
 
@@ -720,10 +725,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     return u->source;
 
 fail:
+    pa_droid_config_free(config);
     pa_xfree(thread_name);
-
-    if (config)
-        pa_xfree(config);
 
     if (u)
         userdata_free(u);
