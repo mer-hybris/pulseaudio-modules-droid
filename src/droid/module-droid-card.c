@@ -720,14 +720,19 @@ int pa__init(pa_module *m) {
     u->core = m->core;
     m->userdata = u;
 
-    if (!(config = pa_droid_config_load(ma)))
-        goto fail;
-
     module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
-    /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
-    if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-        goto fail;
+    /* First let's find out if hw module has already been opened, or if we need to
+     * do it ourself. */
+    if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
+        /* No hw module object in shared object db, let's open the module now. */
+        if (!(config = pa_droid_config_load(ma)))
+            goto fail;
+
+        /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
+            goto fail;
+    }
 
     if ((quirks = pa_modargs_get_value(ma, "quirks", NULL))) {
         if (!pa_droid_quirk_parse(u->hw_module, quirks)) {
