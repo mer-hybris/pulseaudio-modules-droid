@@ -6,7 +6,7 @@
 Name:       pulseaudio-modules-droid-%{device}
 
 Summary:    PulseAudio Droid HAL modules
-Version:    %{pulsemajorminor}.73
+Version:    %{pulsemajorminor}.75
 Release:    1
 Group:      Multimedia/PulseAudio
 License:    LGPLv2.1+
