@@ -591,34 +591,33 @@ static bool parse_audio_policy_configuration(struct parser_data *data,
 
 static bool parse_module(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
     struct module *m;
-    bool parsed = false;
     char *halVersion = NULL;
 
     m = pa_xmalloc0(sizeof(*m));
 
-    if (!get_element_attrs(data, attributes,
-                           ATTRIBUTE_name, &m->name,
-                           ATTRIBUTE_halVersion, &halVersion,
-                           NULL))
-        goto done;
+    get_element_attr(data, attributes, false, ATTRIBUTE_name, &m->name);
 
-    if (!pa_conversion_parse_version(data->fn, data->lineno, halVersion, &m->version))
-        goto done;
+    if (get_element_attr(data, attributes, false, ATTRIBUTE_halVersion, &halVersion))
+        pa_conversion_parse_version(data->fn, data->lineno, halVersion, &m->version);
+    else if (get_element_attr(data, attributes, false, ATTRIBUTE_version, &halVersion))
+        pa_conversion_parse_version(data->fn, data->lineno, halVersion, &m->version);
 
-    parsed = true;
-done:
-    pa_xfree(halVersion);
-
-    if (parsed) {
-        SLLIST_APPEND(struct module, data->conf->modules, m);
-        data->current_module = m;
-        pa_log_debug("New " ELEMENT_module ": \"%s\"", m->name);
-    } else {
-        pa_log("[%s:%u] Failed to parse element <" ELEMENT_module ">", data->fn, data->lineno);
-        module_free(m);
+    if (!m->version) {
+        pa_log_debug("[%s:%u] Could not find valid <" ELEMENT_module "> attribute " ATTRIBUTE_halVersion " or "
+                    ATTRIBUTE_version ". Guessing version is 2.0.", data->fn, data->lineno);
+        m->version = HARDWARE_DEVICE_API_VERSION(2, 0);
     }
 
-    return parsed;
+    if (!m->name)
+        m->name = pa_sprintf_malloc("module_at_line_%u", data->lineno);
+
+    SLLIST_APPEND(struct module, data->conf->modules, m);
+    data->current_module = m;
+    pa_log_debug("New " ELEMENT_module ": \"%s\"", m->name);
+
+    pa_xfree(halVersion);
+
+    return true;
 }
 
 static bool parse_global_configuration(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
