@@ -174,14 +174,23 @@ PKG_CHECK_MODULES([PULSEAUDIO], [libpulse >= 5.0 pulsecore >= 5.0])
 AC_SUBST(PULSEAUDIO_CFLAGS)
 AC_SUBST(PULSEAUDIO_LIBS)
 
-#PKG_CHECK_MODULES([DROIDHEADERS], [android-headers >= 0.0.6])
-# android-headers.pc has broken version field
-PKG_CHECK_MODULES([DROIDHEADERS], [android-headers])
-AC_SUBST(DROIDHEADERS_CFLAGS)
+# Check if building droid parts
+AC_ARG_ENABLE([droid],
+    AS_HELP_STRING([--disable-droid], [Disable droid specific plugins]))
 
-PKG_CHECK_MODULES([HYBRIS], [libhardware >= 0.1.0])
-AC_SUBST(HYBRIS_CFLAGS)
-AC_SUBST(HYBRIS_LIBS)
+AM_CONDITIONAL([ENABLE_DROID], [test "ENABLE_DROID" = x1])
+AS_IF([test "ENABLE_DROID" = "x1"], AC_DEFINE([ENABLE_DROID], 1, [Enable droid modules?]))
+    
+if test "x$enable_droid" != "xno" ; then    
+    #PKG_CHECK_MODULES([DROIDHEADERS], [android-headers >= 0.0.6])
+    # android-headers.pc has broken version field
+    PKG_CHECK_MODULES([DROIDHEADERS], [android-headers])
+    AC_SUBST(DROIDHEADERS_CFLAGS)
+
+    PKG_CHECK_MODULES([HYBRIS], [libhardware >= 0.1.0])
+    AC_SUBST(HYBRIS_CFLAGS)
+    AC_SUBST(HYBRIS_LIBS)
+fi
 
 PKG_CHECK_MODULES([DBUS], [dbus-1 >= 1.2])
 AC_SUBST(DBUS_CFLAGS)
@@ -336,4 +345,5 @@ echo "
 
     Droid device:           ${droiddevice}
     XML config support:     ${ENABLE_XML}
+    Android module support: ${ENABLE_DROID}
     "
