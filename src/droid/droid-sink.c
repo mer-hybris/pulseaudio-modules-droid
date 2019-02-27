@@ -442,6 +442,7 @@ static int suspend(struct userdata *u) {
     return ret;
 }
 
+/* Called from IO context */
 static int unsuspend(struct userdata *u) {
     uint32_t i;
 
@@ -466,56 +467,67 @@ static int unsuspend(struct userdata *u) {
 }
 
 /* Called from IO context */
+static int sink_set_state_in_io_thread_cb(pa_sink *s, pa_sink_state_t new_state, pa_suspend_cause_t new_suspend_cause) {
+    struct userdata *u;
+    int r;
+
+    pa_assert(s);
+    pa_assert_se(u = s->userdata);
+
+    /* It may be that only the suspend cause is changing, in which case there's
+     * nothing more to do. */
+    if (new_state == s->thread_info.state)
+        return 0;
+
+    switch (new_state) {
+        case PA_SINK_SUSPENDED:
+            pa_assert(PA_SINK_IS_OPENED(u->sink->thread_info.state));
+
+            if ((r = suspend(u)) < 0)
+                return r;
+
+            break;
+
+        case PA_SINK_IDLE:
+            /* Fall through */
+        case PA_SINK_RUNNING:
+            if (u->sink->thread_info.state == PA_SINK_SUSPENDED) {
+                if ((r = unsuspend(u)) < 0)
+                    return r;
+            }
+
+            pa_rtpoll_set_timer_absolute(u->rtpoll, pa_rtclock_now());
+            break;
+
+        case PA_SINK_UNLINKED:
+            /* Suspending since some implementations do not want to free running stream. */
+            suspend(u);
+            break;
+
+        /* not needed */
+        case PA_SINK_INIT:
+        case PA_SINK_INVALID_STATE:
+            break;
+    }
+
+    return 0;
+}
+
+/* Called from IO context */
 static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     struct userdata *u = PA_SINK(o)->userdata;
 
     switch (code) {
-
         case PA_SINK_MESSAGE_GET_LATENCY: {
             *((pa_usec_t*) data) = pa_droid_stream_get_latency(u->stream);
             return 0;
         }
 
+#if PULSEAUDIO_VERSION < 12
         case PA_SINK_MESSAGE_SET_STATE: {
-            switch ((pa_sink_state_t) PA_PTR_TO_UINT(data)) {
-                case PA_SINK_SUSPENDED: {
-                    int r;
-
-                    pa_assert(PA_SINK_IS_OPENED(u->sink->thread_info.state));
-
-                    if ((r = suspend(u)) < 0)
-                        return r;
-
-                    break;
-                }
-
-                case PA_SINK_IDLE:
-                    /* Fall through */
-                case PA_SINK_RUNNING: {
-                    int r;
-
-                    if (u->sink->thread_info.state == PA_SINK_SUSPENDED) {
-                        if ((r = unsuspend(u)) < 0)
-                            return r;
-                    }
-
-                    pa_rtpoll_set_timer_absolute(u->rtpoll, pa_rtclock_now());
-                    break;
-                }
-
-                case PA_SINK_UNLINKED: {
-                    /* Suspending since some implementations do not want to free running stream. */
-                    suspend(u);
-                    break;
-                }
-
-                /* not needed */
-                case PA_SINK_INIT:
-                case PA_SINK_INVALID_STATE:
-                    ;
-            }
-            break;
+            return sink_set_state_in_io_thread_cb(u->sink, PA_PTR_TO_UINT(data), 0);
         }
+#endif
     }
 
     return pa_sink_process_msg(o, code, data, offset, chunk);
@@ -1258,6 +1270,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->sink->userdata = u;
 
     u->sink->parent.process_msg = sink_process_msg;
+#if PULSEAUDIO_VERSION >= 12
+    u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
+#endif
 
     u->sink->set_port = sink_set_port_cb;
 
