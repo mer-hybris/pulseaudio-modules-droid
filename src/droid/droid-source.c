@@ -275,6 +275,51 @@ static void unsuspend(struct userdata *u) {
 }
 
 /* Called from IO context */
+static int source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_state, pa_suspend_cause_t new_suspend_cause) {
+    struct userdata *u;
+    int r;
+
+    pa_assert(s);
+    pa_assert_se(u = s->userdata);
+
+    /* It may be that only the suspend cause is changing, in which case there's
+     * nothing more to do. */
+    if (new_state == s->thread_info.state)
+        return 0;
+
+    switch (new_state) {
+        case PA_SOURCE_SUSPENDED:
+            if (PA_SOURCE_IS_OPENED(u->source->thread_info.state)) {
+                if ((r = suspend(u)) < 0)
+                    return r;
+            }
+
+            break;
+
+        case PA_SOURCE_IDLE:
+            /* Fall through */
+        case PA_SOURCE_RUNNING:
+            if (u->source->thread_info.state == PA_SOURCE_SUSPENDED) {
+                unsuspend(u);
+                u->timestamp = pa_rtclock_now();
+            }
+            break;
+
+        case PA_SOURCE_UNLINKED:
+            /* Suspending since some implementations do not want to free running stream. */
+            suspend(u);
+            break;
+
+        /* not needed */
+        case PA_SOURCE_INIT:
+        case PA_SOURCE_INVALID_STATE:
+            break;
+    }
+
+    return 0;
+}
+
+/* Called from IO context */
 static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
     struct userdata *u = PA_SOURCE(o)->userdata;
 
@@ -290,42 +335,11 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
             break;
         }
 
+#if PULSEAUDIO_VERSION < 12
         case PA_SOURCE_MESSAGE_SET_STATE: {
-            switch ((pa_source_state_t) PA_PTR_TO_UINT(data)) {
-                case PA_SOURCE_SUSPENDED: {
-                    int r;
-
-                    if (PA_SOURCE_IS_OPENED(u->source->thread_info.state)) {
-                        if ((r = suspend(u)) < 0)
-                            return r;
-                    }
-
-                    break;
-                }
-
-                case PA_SOURCE_IDLE:
-                    /* Fall through */
-                case PA_SOURCE_RUNNING: {
-                    if (u->source->thread_info.state == PA_SOURCE_SUSPENDED) {
-                        unsuspend(u);
-                        u->timestamp = pa_rtclock_now();
-                    }
-                    break;
-                }
-
-                case PA_SOURCE_UNLINKED: {
-                    /* Suspending since some implementations do not want to free running stream. */
-                    suspend(u);
-                    break;
-                }
-
-                /* not needed */
-                case PA_SOURCE_INIT:
-                case PA_SOURCE_INVALID_STATE:
-                    ;
-            }
-            break;
+            return source_set_state_in_io_thread_cb(u->source, PA_PTR_TO_UINT(data), 0);
         }
+#endif
     }
 
     return pa_source_process_msg(o, code, data, offset, chunk);
@@ -687,6 +701,9 @@ pa_source *pa_droid_source_new(pa_module *m,
     u->source->userdata = u;
 
     u->source->parent.process_msg = source_process_msg;
+#if PULSEAUDIO_VERSION >= 12
+    u->source->set_state_in_io_thread = source_set_state_in_io_thread_cb;
+#endif
 
     source_set_mute_control(u);
 
