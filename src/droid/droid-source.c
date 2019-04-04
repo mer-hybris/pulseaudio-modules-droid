@@ -337,7 +337,9 @@ static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t off
 
 #if PULSEAUDIO_VERSION < 12
         case PA_SOURCE_MESSAGE_SET_STATE: {
-            return source_set_state_in_io_thread_cb(u->source, PA_PTR_TO_UINT(data), 0);
+            int r;
+            if ((r = source_set_state_in_io_thread_cb(u->source, PA_PTR_TO_UINT(data), 0)) < 0)
+                return r;
         }
 #endif
     }

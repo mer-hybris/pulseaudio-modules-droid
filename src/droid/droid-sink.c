@@ -525,7 +525,9 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
 
 #if PULSEAUDIO_VERSION < 12
         case PA_SINK_MESSAGE_SET_STATE: {
-            return sink_set_state_in_io_thread_cb(u->sink, PA_PTR_TO_UINT(data), 0);
+            int r;
+            if ((r = sink_set_state_in_io_thread_cb(u->sink, PA_PTR_TO_UINT(data), 0)) < 0)
+                return r;
         }
 #endif
     }
