@@ -1328,9 +1328,6 @@ fail:
     pa_droid_config_free(config);
     pa_xfree(thread_name);
 
-    if (config)
-        pa_xfree(config);
-
     if (u)
         userdata_free(u);
 
