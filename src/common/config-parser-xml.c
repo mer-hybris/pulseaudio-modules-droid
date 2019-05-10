@@ -535,7 +535,7 @@ static void XMLCALL xml_end_element(void *userdata, const XML_Char *element_name
 
     element = xml_string_dup(element_name, -1);
 
-    if (pa_streq(data->current->name, element)) {
+    if (pa_safe_streq(data->current->name, element)) {
         ELEMENT_STACK_POP(data->stack, data->current);
 
         if (pa_streq(element, ELEMENT_mixPort))
