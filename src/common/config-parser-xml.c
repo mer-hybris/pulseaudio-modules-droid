@@ -554,7 +554,7 @@ static void XMLCALL xml_character_data_handler(void *userdata, const XML_Char *s
     int whitespace = 0;
     char *str = NULL;
 
-    if (len <= 0)
+    if (len <= 0 || !data->current->char_data)
         goto done;
 
     str = xml_string_dup(s, len);
@@ -563,8 +563,7 @@ static void XMLCALL xml_character_data_handler(void *userdata, const XML_Char *s
     if (whitespace == len)
         goto done;
 
-    if (data->current->char_data)
-        data->current->char_data(data, str);
+    data->current->char_data(data, str);
 
 done:
     pa_xfree(str);
