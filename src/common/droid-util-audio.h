@@ -140,45 +140,19 @@ struct string_conversion string_conversion_table_output_device[] = {
 
     /* Devices which may or may not be defined for all devices,
      * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_HDMI
-    STRING_ENTRY( AUDIO_DEVICE_OUT_HDMI                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_HDMI_ARC
-    STRING_ENTRY( AUDIO_DEVICE_OUT_HDMI_ARC                         ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_TELEPHONY_TX
-    STRING_ENTRY( AUDIO_DEVICE_OUT_TELEPHONY_TX                     ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_LINE
-    STRING_ENTRY( AUDIO_DEVICE_OUT_LINE                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_SPDIF
-    STRING_ENTRY( AUDIO_DEVICE_OUT_SPDIF                            ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_AUX_LINE
-    STRING_ENTRY( AUDIO_DEVICE_OUT_AUX_LINE                         ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_SPEAKER_SAFE
-    STRING_ENTRY( AUDIO_DEVICE_OUT_SPEAKER_SAFE                     ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_FM
-    STRING_ENTRY( AUDIO_DEVICE_OUT_FM                               ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_FM_TX
-    STRING_ENTRY( AUDIO_DEVICE_OUT_FM_TX                            ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_ANC_HEADSET
-    STRING_ENTRY( AUDIO_DEVICE_OUT_ANC_HEADSET                      ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_ANC_HEADPHONE
-    STRING_ENTRY( AUDIO_DEVICE_OUT_ANC_HEADPHONE                    ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_PROXY
-    STRING_ENTRY( AUDIO_DEVICE_OUT_PROXY                            ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_IP
-    STRING_ENTRY( AUDIO_DEVICE_OUT_IP                               ),
-#endif
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI_ARC
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_TELEPHONY_TX
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_LINE
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_SPDIF
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_AUX_LINE
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_SPEAKER_SAFE
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_FM
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_FM_TX
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADSET
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADPHONE
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_PROXY
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_IP
 
     /* Combination entries consisting of multiple devices defined above.
      * These don't require counterpart in string_conversion_table_output_device_fancy. */
@@ -212,45 +186,19 @@ struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_DEFAULT,                         "output-default"                    },
 
     /* Devices which may or may not be defined for all devices, */
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_HDMI
-    { AUDIO_DEVICE_OUT_HDMI,                            "output-hdmi"                       },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_HDMI_ARC
-    { AUDIO_DEVICE_OUT_HDMI_ARC,                        "output-hdmi_arc"                   },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_TELEPHONY_TX
-    { AUDIO_DEVICE_OUT_TELEPHONY_TX,                    "output-telephony_tx"               },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_LINE
-    { AUDIO_DEVICE_OUT_LINE,                            "output-line"                       },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_SPDIF
-    { AUDIO_DEVICE_OUT_SPDIF,                           "output-spdif"                      },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_AUX_LINE
-    { AUDIO_DEVICE_OUT_AUX_LINE,                        "output-aux_line"                   },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_SPEAKER_SAFE
-    { AUDIO_DEVICE_OUT_SPEAKER_SAFE,                    "output-speaker_safe"               },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_FM
-    { AUDIO_DEVICE_OUT_FM,                              "output-fm"                         },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_FM_TX
-    { AUDIO_DEVICE_OUT_FM_TX,                           "output-fm_tx"                      },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_ANC_HEADSET
-    { AUDIO_DEVICE_OUT_ANC_HEADSET,                     "output-anc_headset"                },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_ANC_HEADPHONE
-    { AUDIO_DEVICE_OUT_ANC_HEADPHONE,                   "output-anc_headphone"              },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_PROXY
-    { AUDIO_DEVICE_OUT_PROXY,                           "output-proxy"                      },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_IP
-    { AUDIO_DEVICE_OUT_IP,                              "output-ip"                         },
-#endif
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI              ( "output-hdmi"                       )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI_ARC          ( "output-hdmi_arc"                   )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_TELEPHONY_TX      ( "output-telephony_tx"               )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_LINE              ( "output-line"                       )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_SPDIF             ( "output-spdif"                      )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_AUX_LINE          ( "output-aux_line"                   )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_SPEAKER_SAFE      ( "output-speaker_safe"               )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_FM                ( "output-fm"                         )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_FM_TX             ( "output-fm_tx"                      )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADSET       ( "output-and_headset"                )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADPHONE     ( "output-anc_headphone"              )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_PROXY             ( "output-proxy"                      )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_IP                ( "output-ip"                         )
 
     { 0, NULL }
 };
@@ -276,42 +224,18 @@ struct string_conversion string_conversion_table_input_device[] = {
 
     /* Devices which may or may not be defined for all devices,
      * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_HDMI
-    STRING_ENTRY( AUDIO_DEVICE_IN_HDMI                              ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_TELEPHONY_RX
-    STRING_ENTRY( AUDIO_DEVICE_IN_TELEPHONY_RX                      ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_FM_TUNER
-    STRING_ENTRY( AUDIO_DEVICE_IN_FM_TUNER                          ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_TV_TUNER
-    STRING_ENTRY( AUDIO_DEVICE_IN_TV_TUNER                          ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_LINE
-    STRING_ENTRY( AUDIO_DEVICE_IN_LINE                              ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_SPDIF
-    STRING_ENTRY( AUDIO_DEVICE_IN_SPDIF                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_BLUETOOTH_A2DP
-    STRING_ENTRY( AUDIO_DEVICE_IN_BLUETOOTH_A2DP                    ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_LOOPBACK
-    STRING_ENTRY( AUDIO_DEVICE_IN_LOOPBACK                          ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_PROXY
-    STRING_ENTRY( AUDIO_DEVICE_IN_PROXY                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX
-    STRING_ENTRY( AUDIO_DEVICE_IN_FM_RX                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX_A2DP
-    STRING_ENTRY( AUDIO_DEVICE_IN_FM_RX_A2DP                        ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_IP
-    STRING_ENTRY( AUDIO_DEVICE_IN_IP                                ),
-#endif
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_HDMI
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_TELEPHONY_RX
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_TUNER
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_TV_TUNER
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_LINE
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_SPDIF
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_BLUETOOTH_A2DP
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_LOOPBACK
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_PROXY
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX_A2DP
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_IP
 
 #ifdef DROID_AUDIO_HAL_SECONDARY_MIC
     STRING_ENTRY( AUDIO_DEVICE_IN_SECONDARY_MIC                     ),
@@ -321,9 +245,7 @@ struct string_conversion string_conversion_table_input_device[] = {
      * These don't require counterpart in string_conversion_table_input_device_fancy. */
     STRING_ENTRY( AUDIO_DEVICE_IN_ALL                               ),
     STRING_ENTRY( AUDIO_DEVICE_IN_ALL_SCO                           ),
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_ALL_USB
-    STRING_ENTRY( AUDIO_DEVICE_IN_ALL_USB                           ),
-#endif
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_ALL_USB
 
     { 0, NULL }
 };
@@ -345,42 +267,18 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_DEFAULT,                          "input-default"                     },
 
     /* Devices which may or may not be defined for all devices, */
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_HDMI
-    { AUDIO_DEVICE_IN_HDMI,                             "input-hdmi"                        },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_TELEPHONY_RX
-    { AUDIO_DEVICE_IN_TELEPHONY_RX,                     "input-telephony_rx"                },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_FM_TUNER
-    { AUDIO_DEVICE_IN_FM_TUNER,                         "input-fm_tuner"                    },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_TV_TUNER
-    { AUDIO_DEVICE_IN_TV_TUNER,                         "input-tv_tuner"                    },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_LINE
-    { AUDIO_DEVICE_IN_LINE,                             "input-line"                        },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_SPDIF
-    { AUDIO_DEVICE_IN_SPDIF,                            "input-spdif"                       },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_BLUETOOTH_A2DP
-    { AUDIO_DEVICE_IN_BLUETOOTH_A2DP,                   "input-bluetooth_a2dp"              },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_LOOPBACK
-    { AUDIO_DEVICE_IN_LOOPBACK,                         "input-loopback"                    },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_PROXY
-    { AUDIO_DEVICE_IN_PROXY,                            "input-proxy"                       },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX
-    { AUDIO_DEVICE_IN_FM_RX,                            "input-fm_rx"                       },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX_A2DP
-    { AUDIO_DEVICE_IN_FM_RX_A2DP,                       "input-fm_rx_a2dp"                  },
-#endif
-#ifdef HAVE_ENUM_AUDIO_DEVICE_IN_IP
-    { AUDIO_DEVICE_IN_IP,                               "input-ip"                          },
-#endif
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_HDMI               ( "input-hdmi"                        )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_TELEPHONY_RX       ( "input-telephony_rx"                )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_TUNER           ( "input-fm_tuner"                    )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_TV_TUNER           ( "input-tv_tuner"                    )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_LINE               ( "input-line"                        )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_SPDIF              ( "input-spdif"                       )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_BLUETOOTH_A2DP     ( "input-bluetooth_a2dp"              )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_LOOPBACK           ( "input-loopback"                    )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_PROXY              ( "input-proxy"                       )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX              ( "input-fm_rx"                       )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX_A2DP         ( "input-fm_rx_a2dp"                  )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_IP                 ( "input-ip"                          )
 
 #ifdef DROID_AUDIO_HAL_SECONDARY_MIC
     { AUDIO_DEVICE_IN_SECONDARY_MIC,                    "input-secondary_mic"               },
@@ -402,15 +300,9 @@ struct string_conversion string_conversion_table_audio_source_fancy[] = {
     { AUDIO_SOURCE_REMOTE_SUBMIX,                       "remote submix"                     },
 
     /* Audio sources which may or may not be defined for all devices, */
-#ifdef HAVE_ENUM_AUDIO_SOURCE_FM_TUNER
-    { AUDIO_SOURCE_FM_TUNER,                            "fm tuner"                          },
-#endif
-#ifdef HAVE_ENUM_AUDIO_SOURCE_FM_RX
-    { AUDIO_SOURCE_FM_RX,                               "fm rx"                             },
-#endif
-#ifdef HAVE_ENUM_AUDIO_SOURCE_FM_RX_A2DP
-    { AUDIO_SOURCE_FM_RX_A2DP,                          "fm rx a2dp"                        },
-#endif
+    FANCY_ENTRY_IF_AUDIO_SOURCE_FM_TUNER              ( "fm tuner"                          )
+    FANCY_ENTRY_IF_AUDIO_SOURCE_FM_RX                 ( "fm rx"                             )
+    FANCY_ENTRY_IF_AUDIO_SOURCE_FM_RX_A2DP            ( "fm rx a2dp"                        )
 
     { (uint32_t)-1, NULL }
 };
@@ -425,36 +317,16 @@ struct string_conversion string_conversion_table_output_flag[] = {
 
     /* Audio output flags which may or may not be defined for all devices,
      * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD                ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_NON_BLOCKING
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_NON_BLOCKING                    ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_HW_AV_SYNC
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_HW_AV_SYNC                      ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_VOIP_RX
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_VOIP_RX                         ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_INCALL_MUSIC
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_INCALL_MUSIC                    ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH            ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_TTS
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_TTS                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_RAW
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_RAW                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_SYNC
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_SYNC                            ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO
-    STRING_ENTRY( AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO                 ),
-#endif
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_NON_BLOCKING
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_HW_AV_SYNC
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_VOIP_RX
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_INCALL_MUSIC
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_TTS
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_RAW
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_SYNC
+    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO
 
     { 0, NULL }
 };
@@ -462,21 +334,11 @@ struct string_conversion string_conversion_table_output_flag[] = {
 struct string_conversion string_conversion_table_input_flag[] = {
     /* Audio output flags which may or may not be defined for all devices,
      * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-#ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_NONE
-    STRING_ENTRY( AUDIO_INPUT_FLAG_NONE                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_FAST
-    STRING_ENTRY( AUDIO_INPUT_FLAG_FAST                             ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_HW_HOTWORD
-    STRING_ENTRY( AUDIO_INPUT_FLAG_HW_HOTWORD                       ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_RAW
-    STRING_ENTRY( AUDIO_INPUT_FLAG_RAW                              ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_INPUT_FLAG_SYNC
-    STRING_ENTRY( AUDIO_INPUT_FLAG_SYNC                             ),
-#endif
+    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_NONE
+    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_FAST
+    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_HW_HOTWORD
+    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_RAW
+    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_SYNC
 
     { 0, NULL }
 };
@@ -504,16 +366,11 @@ struct string_conversion string_conversion_table_output_channels[] = {
     STRING_ENTRY( AUDIO_CHANNEL_OUT_MONO                            ),
     STRING_ENTRY( AUDIO_CHANNEL_OUT_STEREO                          ),
     STRING_ENTRY( AUDIO_CHANNEL_OUT_QUAD                            ),
-#ifdef HAVE_ENUM_AUDIO_CHANNEL_OUT_SURROUND
-    STRING_ENTRY( AUDIO_CHANNEL_OUT_SURROUND                        ),
-#endif
+
+    STRING_ENTRY_IF_AUDIO_CHANNEL_OUT_SURROUND
     STRING_ENTRY( AUDIO_CHANNEL_OUT_5POINT1                         ),
-#ifdef HAVE_ENUM_AUDIO_CHANNEL_OUT_5POINT1_BACK
-    STRING_ENTRY( AUDIO_CHANNEL_OUT_5POINT1_BACK                    ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_CHANNEL_OUT_5POINT1_SIDE
-    STRING_ENTRY( AUDIO_CHANNEL_OUT_5POINT1_SIDE                    ),
-#endif
+    STRING_ENTRY_IF_AUDIO_CHANNEL_OUT_5POINT1_BACK
+    STRING_ENTRY_IF_AUDIO_CHANNEL_OUT_5POINT1_SIDE
     STRING_ENTRY(AUDIO_CHANNEL_OUT_7POINT1                          ),
     STRING_ENTRY(AUDIO_CHANNEL_OUT_ALL                              ),
 
@@ -539,15 +396,9 @@ struct string_conversion string_conversion_table_input_channels[] = {
     STRING_ENTRY( AUDIO_CHANNEL_IN_STEREO                           ),
     STRING_ENTRY( AUDIO_CHANNEL_IN_FRONT_BACK                       ),
     STRING_ENTRY( AUDIO_CHANNEL_IN_ALL                              ),
-#ifdef HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_UPLINK_MONO
-    STRING_ENTRY( AUDIO_CHANNEL_IN_VOICE_UPLINK_MONO                ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO
-    STRING_ENTRY( AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO                ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_CALL_MONO
-    STRING_ENTRY( AUDIO_CHANNEL_IN_VOICE_CALL_MONO                  ),
-#endif
+    STRING_ENTRY_IF_AUDIO_CHANNEL_IN_VOICE_UPLINK_MONO
+    STRING_ENTRY_IF_AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO
+    STRING_ENTRY_IF_AUDIO_CHANNEL_IN_VOICE_CALL_MONO
 
     { 0, NULL }
 };
@@ -573,15 +424,9 @@ struct string_conversion string_conversion_table_format[] = {
 
     /* Audio formats which may or may not be defined for all devices,
      * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-#ifdef HAVE_ENUM_AUDIO_FORMAT_PCM_OFFLOAD
-    STRING_ENTRY( AUDIO_FORMAT_PCM_OFFLOAD                          ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_FORMAT_FLAC
-    STRING_ENTRY( AUDIO_FORMAT_FLAC                                 ),
-#endif
-#ifdef HAVE_ENUM_AUDIO_FORMAT_OPUS
-    STRING_ENTRY( AUDIO_FORMAT_OPUS                                 ),
-#endif
+    STRING_ENTRY_IF_AUDIO_FORMAT_PCM_OFFLOAD
+    STRING_ENTRY_IF_AUDIO_FORMAT_FLAC
+    STRING_ENTRY_IF_AUDIO_FORMAT_OPUS
 
     { 0, NULL }
 };

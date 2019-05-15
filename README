@@ -19,21 +19,27 @@ Supported Android versions:
 Headers for defining devices and strings for different droid versions are in
 src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
 
-When new devices with relevant new enums appear, add enum check to configure.ac,
-for example: (the CC_CHECK_DROID_ENUM m4 macro will create define HAVE_ENUM_FOO
-if the enum FOO exists in HAL audio.h)
-    CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_IP])
+When new devices with relevant new enums appear, add enum check to configure.ac.
+CC_CHECK_DROID_ENUM macro will create macros HAVE_ENUM_FOO, STRING_ENTRY_IF_FOO
+and FANCY_ENTRY_IF_FOO if enum FOO exists in HAL audio.h.
 
-and then in droid-util-audio.h add the enum to proper tables with ifdefs:
+For example:
+
+# configure.ac:
+    CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_IP])
+    CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_OTHER_NEW])
+
+# and then in droid-util-audio.h add macros to proper tables:
     /* string_conversion_table_output_device[] */
-    #ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_IP
-        STRING_ENTRY( AUDIO_DEVICE_OUT_IP ),
-    #endif
+    STRING_ENTRY_IF_OUT_IP
+    STRING_ENTRY_IF_OUT_OTHER_NEW
 
     /* string_conversion_table_output_device_fancy[] */
-    #ifdef HAVE_ENUM_AUDIO_DEVICE_OUT_IP
-        { AUDIO_DEVICE_OUT_IP, "output-ip" },
-    #endif
+    FANCY_ENTRY_IF_OUT_IP("output-ip")
+    FANCY_ENTRY_IF_OUT_OTHER_NEW("output-other_new")
+
+In addition to the above macros there are also now defines
+HAVE_ENUM_AUDIO_DEVICE_OUT_IP and HAVE_ENUM_AUDIO_DEVICE_OUT_OTHER_NEW.
 
 The purpose of droid-modules is to "replace AudioFlinger". Many hardware
 adaptations use ALSA as the kernel interface, but there is no saying that

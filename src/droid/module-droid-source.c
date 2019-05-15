@@ -49,6 +49,7 @@ PA_MODULE_USAGE("master_source=<source to connect to> "
 PA_MODULE_VERSION(PACKAGE_VERSION);
 
 static const char* const valid_modargs[] = {
+    "config",
     "rate",
     "format",
     "channels",
