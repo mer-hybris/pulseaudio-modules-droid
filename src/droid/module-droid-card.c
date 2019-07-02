@@ -451,9 +451,7 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
         return false;
     }
 
-    if (pa_droid_idxset_mapping_with_device(u->old_profile->input_mappings,
-                                            AUDIO_DEVICE_IN_VOICE_CALL))
-        cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME);
+    cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME);
 
     /* call mode specialities */
     if (enabling) {
