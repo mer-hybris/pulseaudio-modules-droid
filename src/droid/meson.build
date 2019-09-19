@@ -53,11 +53,17 @@ module_sink = shared_module('module-droid-source' + droid_module_suffix,
   install_rpath : rpath_dirs,
 )
 
+module_card_sources = ['module-droid-card.c']
+module_card_extra_deps = []
+
+module_card_sources += 'droid-extcon.c'
+module_card_extra_deps += libudev_dep
+
 module_sink = shared_module('module-droid-card' + droid_module_suffix,
-  'module-droid-card.c',
+  module_card_sources,
   name_prefix : '',
   c_args : '-DPA_MODULE_NAME=module_droid_card' + droid_module_name_suffix,
-  dependencies : [droid_sink_dep, droid_source_dep, libdroid_util_dep],
+  dependencies : [droid_sink_dep, droid_source_dep, libdroid_util_dep] + module_card_extra_deps,
   install : true,
   install_dir : modlibexecdir,
   install_rpath : rpath_dirs,
