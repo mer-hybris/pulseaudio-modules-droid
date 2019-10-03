@@ -636,8 +636,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     }
     data.namereg_fail = namereg_fail;
 
-    pa_source_new_data_set_sample_spec(&data, &u->stream->input->sample_spec);
-    pa_source_new_data_set_channel_map(&data, &u->stream->input->channel_map);
+    pa_source_new_data_set_sample_spec(&data, pa_droid_stream_sample_spec(u->stream));
+    pa_source_new_data_set_channel_map(&data, pa_droid_stream_channel_map(u->stream));
     pa_source_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     if (am && card)
