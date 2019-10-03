@@ -238,6 +238,10 @@ static inline bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_ty
     return hw->quirks && hw->quirks->enabled[quirk];
 }
 
+bool pa_droid_hw_has_mic_control(pa_droid_hw_module *hw);
+int pa_droid_hw_mic_get_mute(pa_droid_hw_module *hw_module, bool *muted);
+void pa_droid_hw_mic_set_mute(pa_droid_hw_module *hw_module, bool muted);
+
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
 pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module);

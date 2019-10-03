@@ -1698,6 +1698,47 @@ size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size) {
     return buffer_size;
 }
 
+bool pa_droid_hw_has_mic_control(pa_droid_hw_module *hw) {
+    pa_assert(hw);
+    pa_assert(hw->device);
+
+    if (hw->device->set_mic_mute && hw->device->get_mic_mute) {
+        pa_log_info("Module has HAL mic mute control.");
+        return true;
+    }
+
+    pa_log_info("Module has soft mic mute control.");
+    return false;
+}
+
+int pa_droid_hw_mic_get_mute(pa_droid_hw_module *hw_module, bool *muted) {
+    int ret = 0;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->device);
+    pa_assert(hw_module->device->get_mic_mute);
+
+    pa_droid_hw_module_lock(hw_module);
+    if (hw_module->device->get_mic_mute(hw_module->device, muted) < 0) {
+        pa_log("Failed to get mute state.");
+        ret = -1;
+    }
+    pa_droid_hw_module_unlock(hw_module);
+
+    return ret;
+}
+
+void pa_droid_hw_mic_set_mute(pa_droid_hw_module *hw_module, bool muted) {
+    pa_assert(hw_module);
+    pa_assert(hw_module->device);
+    pa_assert(hw_module->device->set_mic_mute);
+
+    pa_droid_hw_module_lock(hw_module);
+    if (hw_module->device->set_mic_mute(hw_module->device, muted) < 0)
+        pa_log("Failed to set mute state to %smuted.", muted ? "" : "un");
+    pa_droid_hw_module_unlock(hw_module);
+}
+
 const pa_sample_spec *pa_droid_stream_sample_spec(pa_droid_stream *stream) {
     pa_assert(stream);
     pa_assert(stream->output || stream->input);
