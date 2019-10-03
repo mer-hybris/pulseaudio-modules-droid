@@ -94,12 +94,17 @@ static void userdata_free(struct userdata *u);
 static int suspend(struct userdata *u);
 static void unsuspend(struct userdata *u);
 
+/* Our droid source may be left in a state of not having an input stream
+ * if reconfiguration fails and fallback to previously active values fails
+ * as well. In this case just avoid using the stream but don't die. */
+#define assert_stream(x, action) if (!x) do { pa_log_warn("Assert " #x " failed."); action; } while(0)
+
 static int do_routing(struct userdata *u, audio_devices_t devices) {
     int ret;
     audio_devices_t old_device;
 
     pa_assert(u);
-    pa_assert(u->stream);
+    assert_stream(u->stream, return 0);
 
     if (u->primary_devices == devices)
         pa_log_debug("Refresh active device routing.");
@@ -250,7 +255,7 @@ static int suspend(struct userdata *u) {
     int ret;
 
     pa_assert(u);
-    pa_assert(u->stream);
+    assert_stream(u->stream, return 0);
 
     ret = pa_droid_stream_suspend(u->stream, true);
 
@@ -263,9 +268,10 @@ static int suspend(struct userdata *u) {
 /* Called from IO context */
 static void unsuspend(struct userdata *u) {
     pa_assert(u);
-    pa_assert(u->stream);
 
-    if (pa_droid_stream_suspend(u->stream, false) >= 0) {
+    if (!u->stream) {
+        assert_stream(u->stream, u->stream_valid = false);
+    } else if (pa_droid_stream_suspend(u->stream, false) >= 0) {
         u->stream_valid = true;
         pa_log_info("Resuming...");
     } else
@@ -455,9 +461,13 @@ static void source_set_mute_control(struct userdata *u) {
 static void update_latency(struct userdata *u) {
     pa_assert(u);
     pa_assert(u->source);
-    pa_assert(u->stream);
 
-    u->buffer_size = pa_droid_stream_buffer_size(u->stream);
+    if (u->stream)
+        u->buffer_size = pa_droid_stream_buffer_size(u->stream);
+    else
+        u->buffer_size = 1024; /* Random valid value */
+
+    assert_stream(u->stream, return);
 
     if (u->source_buffer_size) {
         u->buffer_size = pa_droid_buffer_size_round_up(u->source_buffer_size, u->buffer_size);
