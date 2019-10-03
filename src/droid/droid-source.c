@@ -790,7 +790,6 @@ static void userdata_free(struct userdata *u) {
     if (u->stream)
         pa_droid_stream_unref(u->stream);
 
-    // Stand alone source
     if (u->hw_module)
         pa_droid_hw_module_unref(u->hw_module);
 
