@@ -473,6 +473,64 @@ static void update_latency(struct userdata *u) {
     pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
 }
 
+static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_output_new_data *new_data, struct userdata *u) {
+    pa_channel_map old_channel_map;
+    pa_sample_spec old_sample_spec;
+    pa_channel_map new_channel_map;
+    pa_sample_spec new_sample_spec;
+    pa_queue *source_outputs = NULL;
+
+    /* Not meant for us */
+    if (new_data->source != u->source)
+        return PA_HOOK_OK;
+
+    if (pa_sample_spec_equal(&new_data->sample_spec, pa_droid_stream_sample_spec(u->stream)) &&
+        pa_channel_map_equal(&new_data->channel_map, pa_droid_stream_channel_map(u->stream)))
+        return PA_HOOK_OK;
+
+    pa_log_info("New source-output connecting and our source needs to be reconfigured.");
+
+    if (pa_source_used_by(u->source)) {
+        /* If we already have connected source outputs detach those
+         * so that when re-attaching them to our source resampling etc.
+         * is renegotiated correctly. */
+        source_outputs = pa_source_move_all_start(u->source, NULL);
+    }
+
+    pa_source_suspend(u->source, true, PA_SUSPEND_UNAVAILABLE);
+
+    old_channel_map = *pa_droid_stream_channel_map(u->stream);
+    old_sample_spec = *pa_droid_stream_sample_spec(u->stream);
+    new_channel_map = new_data->channel_map;
+    new_sample_spec = new_data->sample_spec;
+
+    pa_droid_stream_unref(u->stream);
+    if (!(u->stream = pa_droid_open_input_stream(u->hw_module, &new_sample_spec, &new_channel_map)))
+        u->stream = pa_droid_open_input_stream(u->hw_module, &old_sample_spec, &old_channel_map);
+
+    if (u->stream) {
+        /* We need to be really careful here as we are modifying
+         * quite profound internal structures. */
+        new_sample_spec = *pa_droid_stream_sample_spec(u->stream);
+        new_channel_map = *pa_droid_stream_channel_map(u->stream);
+        u->source->channel_map = new_channel_map;
+        u->source->sample_spec = new_sample_spec;
+        pa_assert_se(pa_cvolume_remap(&u->source->reference_volume, &old_channel_map, &new_channel_map));
+        pa_assert_se(pa_cvolume_remap(&u->source->real_volume, &old_channel_map, &new_channel_map));
+        pa_assert_se(pa_cvolume_remap(&u->source->soft_volume, &old_channel_map, &new_channel_map));
+        pa_log_info("Source reconfigured.");
+    }
+
+    update_latency(u);
+    pa_source_suspend(u->source, false, PA_SUSPEND_UNAVAILABLE);
+
+    if (source_outputs && u->source) {
+        pa_source_move_all_finish(u->source, source_outputs, false);
+    }
+
+    return PA_HOOK_OK;
+}
+
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
@@ -685,6 +743,9 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     pa_droid_stream_set_data(u->stream, u->source);
     pa_source_put(u->source);
+
+    /* As late as possible */
+    pa_module_hook_connect(u->module, &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW], PA_HOOK_LATE * 2, (pa_hook_cb_t) source_output_new_hook_callback, u);
 
     return u->source;
 
