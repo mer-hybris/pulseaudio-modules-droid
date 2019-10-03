@@ -1169,7 +1169,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 
     pa_droid_hw_module_lock(module);
     ret = module->device->open_output_stream(module->device,
-                                             module->stream_out_id++,
+                                             ++module->stream_out_id,
                                              devices,
                                              flags,
                                              &config_out,
