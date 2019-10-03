@@ -548,7 +548,7 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     /* When running under card use hw module name for source by default. */
     if (am)
-        module_id = am->input->module->name;
+        module_id = am->inputs->module->name;
     else
         module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
