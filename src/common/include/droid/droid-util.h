@@ -246,6 +246,7 @@ static inline bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_ty
     return hw->quirks && hw->quirks->enabled[quirk];
 }
 
+bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode);
 bool pa_droid_hw_has_mic_control(pa_droid_hw_module *hw);
 int pa_droid_hw_mic_get_mute(pa_droid_hw_module *hw_module, bool *muted);
 void pa_droid_hw_mic_set_mute(pa_droid_hw_module *hw_module, bool muted);
@@ -304,6 +305,8 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
                                             const pa_sample_spec *requested_sample_spec,
                                             const pa_channel_map *requested_channel_map);
+bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
+                                  audio_devices_t device);
 
 const pa_sample_spec *pa_droid_stream_sample_spec(pa_droid_stream *stream);
 const pa_channel_map *pa_droid_stream_channel_map(pa_droid_stream *stream);

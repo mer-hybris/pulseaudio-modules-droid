@@ -1221,6 +1221,17 @@ fail:
     return NULL;
 }
 
+static const char *audio_mode_to_string(audio_mode_t mode) {
+    switch (mode) {
+        case AUDIO_MODE_RINGTONE:           return "AUDIO_MODE_RINGTONE";
+        case AUDIO_MODE_IN_CALL:            return "AUDIO_MODE_IN_CALL";
+        case AUDIO_MODE_IN_COMMUNICATION:   return "AUDIO_MODE_IN_COMMUNICATION";
+        default: break;
+    }
+
+    return "AUDIO_MODE_NORMAL";
+}
+
 static void set_active_input(pa_droid_hw_module *hw_module, pa_droid_stream *stream) {
     pa_assert(hw_module);
 
@@ -1632,44 +1643,50 @@ static int droid_output_stream_set_route(pa_droid_stream *s, audio_devices_t dev
     return ret;
 }
 
-static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
+static int input_stream_set_route(pa_droid_hw_module *hw_module) {
+    pa_droid_stream *s;
     pa_droid_input_stream *input;
-    audio_source_t source = (uint32_t) -1;
-    char *parameters;
+    audio_devices_t device;
+    audio_source_t source;
+    char *parameters = NULL;
     int ret = 0;
 
-    pa_assert(s);
-    pa_assert(s->input);
-    pa_assert(s->input->stream);
+    pa_assert(hw_module);
+
+    /* No active input, no need for set parameters */
+    if (!(s = hw_module->state.active_input))
+        goto done;
 
     input = s->input;
 
+     /* Input stream closed, no need for set parameters */
+    if (!input->stream)
+        goto done;
+
+    device = hw_module->state.input_device;
+    source = hw_module->state.audio_source;
 #ifdef DROID_DEVICE_I9305
     device &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
-    if (pa_input_device_default_audio_source(device, &source)) {
-        if (pa_droid_quirk(s->module, QUIRK_INPUT_ATOI))
-            parameters = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) device,
-                                                          AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
-        else
-            parameters = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device,
-                                                          AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
-    } else
-            parameters = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device);
+    if (pa_droid_quirk(hw_module, QUIRK_INPUT_ATOI))
+        parameters = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) device,
+                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+    else
+        parameters = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device,
+                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
 
     pa_log_debug("input stream %p set_parameters(%s) %#010x ; %#010x",
-                 (void *) s, parameters, device, source);
+                 (void *) input, parameters, device, source);
 
-
-    if (pa_droid_quirk(s->module, QUIRK_SET_PARAMETERS)) {
-        pa_mutex_lock(s->module->hw_mutex);
-        ret = s->module->device->set_parameters(s->module->device, parameters);
-        pa_mutex_unlock(s->module->hw_mutex);
+    if (pa_droid_quirk(hw_module, QUIRK_SET_PARAMETERS)) {
+        pa_mutex_lock(hw_module->hw_mutex);
+        ret = hw_module->device->set_parameters(hw_module->device, parameters);
+        pa_mutex_unlock(hw_module->hw_mutex);
     } else {
-        pa_mutex_lock(s->module->input_mutex);
+        pa_mutex_lock(hw_module->input_mutex);
         ret = input->stream->common.set_parameters(&input->stream->common, parameters);
-        pa_mutex_unlock(s->module->input_mutex);
+        pa_mutex_unlock(hw_module->input_mutex);
     }
 
     if (ret < 0) {
@@ -1677,27 +1694,11 @@ static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
             pa_log_warn("input set_parameters(%s) not allowed while stream is active", parameters);
         else
             pa_log_warn("input set_parameters(%s) failed", parameters);
-    } else
-        input->device = device;
+    }
 
     pa_xfree(parameters);
 
-    return ret;
-}
-
-static int droid_input_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
-    int ret = 0;
-
-    pa_assert(s);
-    pa_assert(s->input);
-
-    if (s->input->stream) {
-        input_stream_set_route(s, device);
-    } else {
-        s->input->device = device;
-        pa_log_debug("input stream (inactive) %p store route %#010x", (void *) s, device);
-    }
-
+done:
     return ret;
 }
 
@@ -1706,8 +1707,10 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
 
     if (s->output)
         return droid_output_stream_set_route(s, device);
-    else
-        return droid_input_stream_set_route(s, device);
+    else {
+        pa_droid_hw_set_input_device(s->module, device);
+        return input_stream_set_route(s->module);
+    }
 }
 
 int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters) {
@@ -1895,6 +1898,86 @@ void pa_droid_hw_mic_set_mute(pa_droid_hw_module *hw_module, bool muted) {
     if (hw_module->device->set_mic_mute(hw_module->device, muted) < 0)
         pa_log("Failed to set mute state to %smuted.", muted ? "" : "un");
     pa_droid_hw_module_unlock(hw_module);
+}
+
+bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
+    bool ret = true;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->device);
+
+    pa_log_info("Set mode to %s.", audio_mode_to_string(mode));
+
+    pa_droid_hw_module_lock(hw_module);
+    if (hw_module->device->set_mode(hw_module->device, mode) < 0) {
+        ret = false;
+        pa_log_warn("Failed to set mode.");
+    } else {
+        hw_module->state.mode = mode;
+    }
+    pa_droid_hw_module_unlock(hw_module);
+
+    /* Update possible audio source. */
+    pa_droid_hw_set_input_device(hw_module, hw_module->state.input_device);
+
+    return ret;
+}
+
+bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
+                                  audio_devices_t device) {
+    audio_source_t audio_source = AUDIO_SOURCE_DEFAULT;
+    audio_source_t audio_source_override = AUDIO_SOURCE_DEFAULT;
+    bool device_changed = false;
+    bool source_changed = false;
+    const char *audio_source_name;
+
+    pa_assert(hw_module);
+
+    if (hw_module->state.input_device != device) {
+        pa_log_debug("Set global input to %#010x", device);
+        hw_module->state.input_device = device;
+        device_changed = true;
+    }
+
+    pa_input_device_default_audio_source(hw_module->state.input_device, &audio_source);
+
+    /* Override audio source based on mode. */
+    switch (hw_module->state.mode) {
+        case AUDIO_MODE_IN_CALL:
+            audio_source_override = AUDIO_SOURCE_VOICE_CALL;
+            break;
+        case AUDIO_MODE_IN_COMMUNICATION:
+            audio_source_override = AUDIO_SOURCE_VOICE_COMMUNICATION;
+            break;
+        default:
+            audio_source_override = audio_source;
+            break;
+    }
+
+    if (audio_source != audio_source_override) {
+        const char *from, *to;
+        pa_droid_audio_source_name(audio_source, &from);
+        pa_droid_audio_source_name(audio_source_override, &to);
+        pa_log_info("Audio mode %s, overriding audio source %s with %s",
+                    audio_mode_to_string(hw_module->state.mode),
+                    from ? from : "<unknown>",
+                    to ? to : "<unknown>");
+        audio_source = audio_source_override;
+    }
+
+    if (audio_source != hw_module->state.audio_source) {
+        pa_log_debug("set global audio source to %s (%#010x)",
+                     pa_droid_audio_source_name(audio_source, &audio_source_name)
+                       ? audio_source_name : "<unknown>",
+                     audio_source);
+        hw_module->state.audio_source = audio_source;
+        source_changed = true;
+    }
+
+    if (hw_module->state.active_input && (device_changed || source_changed))
+        input_stream_set_route(hw_module);
+
+    return true;
 }
 
 const pa_sample_spec *pa_droid_stream_sample_spec(pa_droid_stream *stream) {
