@@ -96,7 +96,6 @@ struct pa_droid_hw_module {
     pa_atomic_t active_outputs;
 
     pa_droid_quirks *quirks;
-    pa_hook hooks[PA_DROID_HOOK_MAX];
 };
 
 struct pa_droid_output_stream {
@@ -260,8 +259,6 @@ void pa_droid_add_ports(pa_hashmap *ports, pa_droid_mapping *am, pa_card *card);
 /* Add ports from card.
  * May be called multiple times for one card profile. */
 void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_core *core);
-
-pa_hook *pa_droid_hooks(pa_droid_hw_module *hw);
 
 /* Module operations */
 int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);

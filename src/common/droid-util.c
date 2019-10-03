@@ -860,7 +860,6 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
     audio_hw_device_t *device = NULL;
-    int h;
     int ret;
 
     pa_assert(core);
@@ -924,9 +923,6 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
     hw->sink_unlink_hook_slot   = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY-10,
                                                   sink_unlink_hook_cb, hw);
 
-    for (h = 0; h < PA_DROID_HOOK_MAX; h++)
-        pa_hook_init(&hw->hooks[h], hw);
-
     pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
 
     return hw;
@@ -967,8 +963,6 @@ pa_droid_hw_module *pa_droid_hw_module_ref(pa_droid_hw_module *hw) {
 }
 
 static void droid_hw_module_close(pa_droid_hw_module *hw) {
-    int h;
-
     pa_assert(hw);
 
     pa_log_info("Closing hw module %s.%s (%s)", AUDIO_HARDWARE_MODULE_ID, hw->enabled_module->name, DROID_DEVICE_STRING);
@@ -977,9 +971,6 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         pa_hook_slot_free(hw->sink_put_hook_slot);
     if (hw->sink_unlink_hook_slot)
         pa_hook_slot_free(hw->sink_unlink_hook_slot);
-
-    for (h = 0; h < PA_DROID_HOOK_MAX; h++)
-        pa_hook_done(&hw->hooks[h]);
 
     if (hw->config)
         pa_droid_config_free(hw->config);
@@ -1238,8 +1229,6 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     pa_sample_spec sample_spec;
     struct audio_config config_in;
     size_t buffer_size;
-    bool buffer_size_changed = false;
-    bool channel_map_changed = false;
     int ret = -1;
 
     pa_assert(s);
@@ -1255,9 +1244,6 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
         goto done;
 
     pa_input_device_default_audio_source(input->device, &audio_source);
-
-    if (channel_map.channels != input->input_channel_map.channels)
-        channel_map_changed = true;
 
     pa_droid_hw_module_lock(s->module);
     ret = s->module->device->open_input_stream(s->module->device,
@@ -1291,8 +1277,6 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     input->input_sample_spec = sample_spec;
     input->input_channel_map = channel_map;
     buffer_size = input->stream->common.get_buffer_size(&input->stream->common);
-    if (s->buffer_size != 0 && s->buffer_size != buffer_size)
-        buffer_size_changed = true;
     s->buffer_size = buffer_size;
 
     /* we need to call standby before reading with some devices. */
@@ -1301,16 +1285,6 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     pa_log_debug("Opened input stream %p", (void *) s);
 
     input_stream_set_route(s, input->device);
-
-    if (buffer_size_changed) {
-        pa_log_debug("Input stream %p buffer size changed to %u.", (void *) s, s->buffer_size);
-        pa_hook_fire(&s->module->hooks[PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED], (void *) s);
-    }
-
-    if (channel_map_changed) {
-        pa_log_debug("Input stream %p channel count changed to %d.", (void *) s, input->input_channel_map.channels);
-        pa_hook_fire(&s->module->hooks[PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED], (void *) s);
-    }
 
 done:
     return ret;
@@ -1722,11 +1696,4 @@ size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size) {
         return buffer_size + block_size - r;
 
     return buffer_size;
-}
-
-pa_hook *pa_droid_hooks(pa_droid_hw_module *hw) {
-    pa_assert(hw);
-    pa_assert(PA_REFCNT_VALUE(hw) >= 1);
-
-    return hw->hooks;
 }
