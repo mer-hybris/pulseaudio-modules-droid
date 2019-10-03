@@ -602,10 +602,8 @@ pa_source *pa_droid_source_new(pa_module *m,
         }
     }
 
-    if (am)
-        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, am);
-    else
-        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, NULL);
+    pa_droid_hw_set_input_device(u->hw_module, dev_in);
+    u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map);
 
     if (!u->stream) {
         pa_log("Failed to open input stream.");
