@@ -92,7 +92,7 @@ static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL 
 static void droid_port_free(pa_droid_port *p);
 
 static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw);
-static int input_stream_set_route(pa_droid_stream *s, audio_devices_t device);
+static int input_stream_set_route(pa_droid_hw_module *hw_module);
 
 static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
                                      const pa_droid_config_hw_module *module,
@@ -1221,144 +1221,299 @@ fail:
     return NULL;
 }
 
+static void set_active_input(pa_droid_hw_module *hw_module, pa_droid_stream *stream) {
+    pa_assert(hw_module);
+
+    if (hw_module->state.active_input != stream) {
+        pa_log_info("Set active input to %p", (void *) stream);
+        hw_module->state.active_input = stream;
+    }
+}
+
+static bool config_diff(const struct audio_config *a, const struct audio_config *b,
+                        bool *sample_rate, bool *channel_mask, bool *format) {
+    bool diff = false;
+
+    pa_assert(a);
+    pa_assert(b);
+    pa_assert(sample_rate);
+    pa_assert(channel_mask);
+    pa_assert(format);
+
+    *sample_rate = *channel_mask = *format = false;
+
+    if (a->sample_rate != b->sample_rate)
+        diff = *sample_rate = true;
+
+    if (a->channel_mask != b->channel_mask)
+        diff = *channel_mask = true;
+
+    if (a->format != b->format)
+        diff = *format = true;
+
+    return diff;
+}
+
+static bool stream_config_convert(pa_direction_t direction,
+                                  const struct audio_config *config,
+                                  pa_sample_spec *sample_spec,
+                                  pa_channel_map *channel_map) {
+    uint32_t format;
+    uint32_t channel_mask;
+    uint32_t pa_channel = 0;
+    uint32_t channel = 0;
+    uint32_t i = 0;
+
+    pa_assert(direction == PA_DIRECTION_INPUT || direction == PA_DIRECTION_OUTPUT);
+    pa_assert(config);
+    pa_assert(sample_spec);
+    pa_assert(channel_map);
+
+    if (!pa_convert_format(config->format, CONV_FROM_HAL, (uint32_t *) &format)) {
+        pa_log("Config format %#010x not supported.", config->format);
+        return false;
+    }
+
+    sample_spec->format = format;
+
+    channel_mask = config->channel_mask;
+
+    while (channel_mask) {
+        uint32_t current = (1 << i++);
+
+        if (channel_mask & current) {
+            if (!pa_convert_input_channel(current, CONV_FROM_HAL, &pa_channel)) {
+                pa_log_warn("Could not convert channel mask value %#010x", current);
+                return false;
+            }
+
+            channel_map->map[channel] = pa_channel;
+
+            channel++;
+            channel_mask &= ~current;
+        }
+    }
+
+    channel_map->channels = channel;
+
+    sample_spec->rate = config->sample_rate;
+    sample_spec->channels = channel_map->channels;
+
+    if (!pa_sample_spec_valid(sample_spec)) {
+        pa_log_warn("Conversion resulted in invalid sample spec.");
+        return false;
+    }
+
+    if (!pa_channel_map_valid(channel_map)) {
+        pa_log_warn("Conversion resulted in invalid channel map.");
+        return false;
+    }
+
+    return true;
+}
+
+static void log_input_open(pa_log_level_t log_level, const char *prefix,
+                           audio_devices_t device,
+                           audio_source_t source,
+                           uint32_t flags,  /* audio_input_flags_t */
+                           const pa_sample_spec *sample_spec,
+                           const struct audio_config *config,
+                           int return_code) {
+    pa_logl(log_level,
+            "%s input stream with device: %#010x source: %#010x flags: %#010x sample rate: %u (%u) channels: %u (%#010x) format: %u (%#010x) (return code %d)",
+            prefix,
+            device,
+            source,
+            flags,
+            sample_spec->rate,
+            config->sample_rate,
+            sample_spec->channels,
+            config->channel_mask,
+            sample_spec->format,
+            config->format,
+            return_code);
+}
+
 static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
-    pa_droid_input_stream *input;
-    audio_stream_in_t *stream;
-    audio_source_t audio_source = AUDIO_SOURCE_DEFAULT;
+    pa_droid_hw_module *hw_module;
+    pa_droid_input_stream *input = NULL;
     pa_channel_map channel_map;
     pa_sample_spec sample_spec;
-    struct audio_config config_in;
     size_t buffer_size;
     int ret = -1;
 
+    struct audio_config config_try;
+    struct audio_config config_in;
+
+    bool diff_sample_rate = false;
+    bool diff_channel_mask = false;
+    bool diff_format = false;
+
     pa_assert(s);
     pa_assert(s->input);
-    pa_assert(!s->input->stream);
+    pa_assert_se((hw_module = s->module));
+
+    if (s->input->stream) /* already open */
+        return 0;
+
+    pa_assert(!s->module->state.active_input);
 
     input = s->input;
+    input->stream = NULL;
 
-    channel_map = input->channel_map;
-    sample_spec = input->sample_spec;
+    /* Copy our requested specs */
+    sample_spec = input->req_sample_spec;
+    channel_map = input->req_channel_map;
 
-    if (!stream_config_fill(input->device, &sample_spec, &channel_map, &config_in))
+    if (!stream_config_fill(hw_module->state.input_device, &sample_spec, &channel_map, &config_try))
         goto done;
 
-    pa_input_device_default_audio_source(input->device, &audio_source);
-
     pa_droid_hw_module_lock(s->module);
-    ret = s->module->device->open_input_stream(s->module->device,
-                                               s->module->stream_in_id++,
-                                               input->device,
-                                               &config_in,
-                                               &stream
+    while (true) {
+        config_in = config_try;
+
+        log_input_open(PA_LOG_INFO, "Trying to open",
+                       hw_module->state.input_device,
+                       hw_module->state.audio_source,
+                       0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
+                       &sample_spec,
+                       &config_in,
+                       0);
+
+        ret = hw_module->device->open_input_stream(hw_module->device,
+                                                   ++hw_module->stream_in_id,
+                                                   hw_module->state.input_device,
+                                                   &config_in,
+                                                   &input->stream
 #if AUDIO_API_VERSION_MAJ >= 3
-                                               , input->flags
-                                               , NULL                    /* Don't define address */
-                                               , audio_source
+                                                   , 0
+                                                   , NULL                   /* Don't define address */
+                                                   , hw_module->state.audio_source
 #endif
-                                              );
+                                                   );
+        if (ret < 0) {
+            if (config_diff(&config_in, &config_try, &diff_sample_rate, &diff_channel_mask, &diff_format)) {
+                pa_log_info("Could not open input stream, differences in%s%s%s",
+                            diff_sample_rate ? " sample_rate" : "",
+                            diff_channel_mask ? " channel_mask" : "",
+                            diff_format ? " format" : "");
+                if (diff_sample_rate)
+                    pa_log_info("Wanted sample_rate %d suggested %d", config_try.sample_rate, config_in.sample_rate);
+                if (diff_channel_mask)
+                    pa_log_info("Wanted channel_mask %#010x suggested %#010x", config_try.channel_mask, config_in.channel_mask);
+                if (diff_format)
+                    pa_log_info("Wanted format %#010x suggested %#010x", config_try.format, config_in.format);
+
+                if (!stream_config_convert(PA_DIRECTION_INPUT, &config_in, &sample_spec, &channel_map)) {
+                    pa_log_warn("Failed to update PulseAudio structures from received config values.");
+                    break;
+                }
+
+                config_try = config_in;
+                continue;
+            } else {
+                pa_log_warn("Could not open input stream and no suggested changes received, bailing out.");
+                break;
+            }
+        } else if (config_diff(&config_in, &config_try, &diff_sample_rate, &diff_channel_mask, &diff_format)) {
+            pa_log_info("Opened input stream, but differences in%s%s%s",
+                        diff_sample_rate ? " sample_rate" : "",
+                        diff_channel_mask ? " channel_mask" : "",
+                        diff_format ? " format" : "");
+            if (!stream_config_convert(PA_DIRECTION_INPUT, &config_in, &sample_spec, &channel_map)) {
+                pa_log_warn("Failed to update PulseAudio structures from received config values.");
+                input->stream->common.standby(&input->stream->common);
+                hw_module->device->close_input_stream(hw_module->device, input->stream);
+                input->stream = NULL;
+                ret = -1;
+            }
+        }
+
+        break;
+    }
     pa_droid_hw_module_unlock(s->module);
 
-    if (ret < 0 || !stream) {
-        pa_logl(resume_from_suspend ? PA_LOG_DEBUG : PA_LOG_ERROR,
-                "Failed to open input stream: %d with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u)",
-               ret,
-               input->device,
-               0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
-               config_in.sample_rate,
-               sample_spec.channels,
-               config_in.channel_mask,
-               sample_spec.format,
-               config_in.format);
+    if (ret < 0 || !input->stream) {
+        log_input_open(resume_from_suspend ? PA_LOG_INFO : PA_LOG_ERROR, "Failed to open",
+                       hw_module->state.input_device,
+                       hw_module->state.audio_source,
+                       0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
+                       &sample_spec,
+                       &config_in,
+                       ret);
+
         goto done;
     }
 
-    input->stream = stream;
-    input->input_sample_spec = sample_spec;
-    input->input_channel_map = channel_map;
+    log_input_open(PA_LOG_INFO, "Opened",
+                   hw_module->state.input_device,
+                   hw_module->state.audio_source,
+                   0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
+                   &sample_spec,
+                   &config_in,
+                   ret);
+
+    input->sample_spec = sample_spec;
+    input->channel_map = channel_map;
     buffer_size = input->stream->common.get_buffer_size(&input->stream->common);
     s->buffer_size = buffer_size;
 
-    /* we need to call standby before reading with some devices. */
-    input->stream->common.standby(&input->stream->common);
+    /* Set input stream to standby */
+    s->input->stream->common.standby(&s->input->stream->common);
 
     pa_log_debug("Opened input stream %p", (void *) s);
-
-    input_stream_set_route(s, input->device);
+    set_active_input(s->module, s);
 
 done:
     return ret;
 }
 
 static void input_stream_close(pa_droid_stream *s) {
-    pa_droid_input_stream *input;
-
     pa_assert(s);
     pa_assert(s->input);
     pa_assert(s->input->stream);
 
-    input = s->input;
+    if (!s->input->stream)
+        return;
 
     pa_mutex_lock(s->module->input_mutex);
-    s->module->device->close_input_stream(s->module->device, input->stream);
-    input->stream = NULL;
+    set_active_input(s->module, NULL);
+    s->module->device->close_input_stream(s->module->device, s->input->stream);
+    s->input->stream = NULL;
     pa_log_debug("Closed input stream %p", (void *) s);
     pa_mutex_unlock(s->module->input_mutex);
 }
 
-pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *module,
-                                            const pa_sample_spec *spec,
-                                            const pa_channel_map *map,
-                                            audio_devices_t devices,
-                                            pa_droid_mapping *am) {
+pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
+                                            const pa_sample_spec *requested_sample_spec,
+                                            const pa_channel_map *requested_channel_map) {
 
     pa_droid_stream *s = NULL;
     pa_droid_input_stream *input = NULL;
-    int ret = -1;
 
-    s = droid_stream_new(module);
+    pa_assert(hw_module);
+    pa_assert(requested_sample_spec);
+    pa_assert(requested_channel_map);
+
+    if (hw_module->state.active_input) {
+        pa_log_warn("Opening input stream while there is already active input stream.");
+        return pa_droid_stream_ref(hw_module->state.active_input);
+    }
+
+    s = droid_stream_new(hw_module);
     s->input = input = droid_input_stream_new();
-    input->sample_spec = *spec;
-    input->channel_map = *map;
-    input->flags = 0;   /* AUDIO_INPUT_FLAG_NONE */
-    input->device = devices;
 
-    /* We need to open the stream for a while so that we can know
-     * what sample rate we get. We need the rate for droid source. */
+    /* Copy our requested specs, so we know them when resuming from suspend
+     * as well. */
+    input->req_sample_spec = *requested_sample_spec;
+    input->req_channel_map = *requested_channel_map;
 
-    if ((ret = input_stream_open(s, false)) < 0)
-        goto fail;
-
-    if ((input->sample_spec.rate = input->stream->common.get_sample_rate(&input->stream->common)) != spec->rate)
-        pa_log_warn("Requested sample rate %u but got %u instead.", spec->rate, input->sample_spec.rate);
-
-    pa_idxset_put(module->inputs, s, NULL);
-
-    pa_log_info("Opened droid input stream %p with device: %u flags: %u sample rate: %u channels: %u format: %u buffer size: %u (%llu usec)",
-            (void *) s,
-            devices,
-            input->flags,
-            input->sample_spec.rate,
-            input->sample_spec.channels,
-            input->sample_spec.format,
-            s->buffer_size,
-            pa_bytes_to_usec(s->buffer_size, &input->sample_spec));
-
-    /* As audio_source_t may not have any effect when opening the input stream
-     * set input parameters immediately after opening the stream. */
-    if (!pa_droid_quirk(module, QUIRK_CLOSE_INPUT))
-        input_stream_set_route(s, devices);
-
-    /* We start the stream in suspended state. */
-    pa_droid_stream_suspend(s, true);
+    if (input_stream_open(s, false) < 0) {
+        pa_droid_stream_unref(s);
+        s = NULL;
+    }
 
     return s;
-
-fail:
-    pa_xfree(input);
-    pa_xfree(s);
-
-    return NULL;
 }
 
 pa_droid_stream *pa_droid_stream_ref(pa_droid_stream *s) {
@@ -1378,12 +1533,15 @@ void pa_droid_stream_unref(pa_droid_stream *s) {
         return;
 
     if (s->output) {
+        pa_log_debug("Destroy output stream %p", (void *) s);
         pa_mutex_lock(s->module->output_mutex);
         pa_idxset_remove_by_data(s->module->outputs, s, NULL);
         s->module->device->close_output_stream(s->module->device, s->output->stream);
         pa_mutex_unlock(s->module->output_mutex);
         pa_xfree(s->output);
     } else {
+        pa_log_debug("Destroy input stream %p", (void *) s);
+        set_active_input(s->module, NULL);
         pa_mutex_lock(s->module->input_mutex);
         pa_idxset_remove_by_data(s->module->inputs, s, NULL);
         if (s->input->stream) {
