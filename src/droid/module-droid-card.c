@@ -382,39 +382,6 @@ static void init_profile(struct userdata *u) {
     }
 }
 
-static int set_mode(struct userdata *u, audio_mode_t mode) {
-    int ret;
-    const char *mode_str;
-
-    pa_assert(u);
-    pa_assert(u->hw_module);
-    pa_assert(u->hw_module->device);
-
-    switch (mode) {
-        case AUDIO_MODE_RINGTONE:
-            mode_str = "AUDIO_MODE_RINGTONE";
-            break;
-        case AUDIO_MODE_IN_CALL:
-            mode_str = "AUDIO_MODE_IN_CALL";
-            break;
-        case AUDIO_MODE_IN_COMMUNICATION:
-            mode_str = "AUDIO_MODE_IN_COMMUNICATION";
-            break;
-        default:
-            mode_str = "AUDIO_MODE_NORMAL";
-            break;
-    }
-
-    pa_log_debug("Set mode to %s.", mode_str);
-
-    pa_droid_hw_module_lock(u->hw_module);
-    if ((ret = u->hw_module->device->set_mode(u->hw_module->device, mode)) < 0)
-        pa_log("Failed to set mode.");
-    pa_droid_hw_module_unlock(u->hw_module);
-
-    return ret;
-}
-
 static void park_profile(pa_droid_profile *dp) {
     pa_droid_mapping *am;
     uint32_t idx;
@@ -559,7 +526,7 @@ static pa_card_profile *leave_virtual_profile(struct userdata *u, pa_card *c,
 
     if (next->mode != current->mode) {
         park_profile(current->droid_profile);
-        set_mode(u, next->mode);
+        pa_droid_hw_set_mode(u->hw_module, next->mode);
     }
 
     virtual_event(u, current, false);
@@ -612,7 +579,7 @@ static void enter_virtual_profile(struct userdata *u, pa_card *c,
 
     if (next->mode != current->mode) {
         park_profile(current->droid_profile);
-        set_mode(u, next->mode);
+        pa_droid_hw_set_mode(u->hw_module, next->mode);
     }
 
     if (next->virtual.parent) {
