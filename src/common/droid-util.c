@@ -1697,3 +1697,17 @@ size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size) {
 
     return buffer_size;
 }
+
+const pa_sample_spec *pa_droid_stream_sample_spec(pa_droid_stream *stream) {
+    pa_assert(stream);
+    pa_assert(stream->output || stream->input);
+
+    return stream->output ? &stream->output->sample_spec : &stream->input->sample_spec;
+}
+
+const pa_channel_map *pa_droid_stream_channel_map(pa_droid_stream *stream) {
+    pa_assert(stream);
+    pa_assert(stream->output || stream->input);
+
+    return stream->output ? &stream->output->channel_map : &stream->input->channel_map;
+}
