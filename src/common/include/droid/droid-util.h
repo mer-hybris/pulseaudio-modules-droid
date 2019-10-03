@@ -92,8 +92,6 @@ struct pa_droid_hw_module {
     pa_idxset *inputs;
     pa_hook_slot *sink_put_hook_slot;
     pa_hook_slot *sink_unlink_hook_slot;
-    pa_hook_slot *source_put_hook_slot;
-    pa_hook_slot *source_unlink_hook_slot;
 
     pa_atomic_t active_outputs;
 
@@ -117,8 +115,6 @@ struct pa_droid_input_stream {
     pa_channel_map input_channel_map;
     uint32_t flags;
     uint32_t device;
-    audio_devices_t all_devices;
-    bool merged;
 };
 
 struct pa_droid_stream {
@@ -162,8 +158,8 @@ struct pa_droid_mapping {
     pa_droid_profile_set *profile_set;
 
     const pa_droid_config_device *output;
-    const pa_droid_config_device *input;
-    const pa_droid_config_device *input2;
+    /* Use all devices in one input */
+    const pa_droid_config_device *inputs;
 
     char *name;
     char *description;
@@ -189,9 +185,12 @@ typedef struct pa_droid_profile {
     unsigned priority;
 
     /* Idxsets contain pa_droid_mapping objects.
-     * Profile doesn't own the mappings. */
+     * Profile doesn't own the mappings, these
+     * are references to structs in profile set
+     * hashmaps. */
     pa_idxset *output_mappings;
-    pa_idxset *input_mappings;
+    /* Only one input */
+    pa_droid_mapping *input_mapping;
 
 } pa_droid_profile;
 
@@ -242,22 +241,17 @@ static inline bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_ty
 
 /* Profiles */
 pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module);
-pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module,
-                                                       bool merge_inputs);
+pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module);
 void pa_droid_profile_set_free(pa_droid_profile_set *ps);
 
 void pa_droid_profile_add_mapping(pa_droid_profile *p, pa_droid_mapping *am);
 void pa_droid_profile_free(pa_droid_profile *p);
 
 pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, const pa_droid_config_device *device);
-pa_droid_mapping *pa_droid_mapping_merged_get(pa_droid_profile_set *ps,
-                                              const pa_droid_config_device *input1,
-                                              const pa_droid_config_device *input2);
 bool pa_droid_mapping_is_primary(pa_droid_mapping *am);
 /* Go through idxset containing pa_droid_mapping objects and if primary output or input
  * mapping is found, return pointer to that mapping. */
 pa_droid_mapping *pa_droid_idxset_get_primary(pa_idxset *i);
-pa_droid_mapping *pa_droid_idxset_mapping_with_device(pa_idxset *i, uint32_t flag);
 void pa_droid_mapping_free(pa_droid_mapping *am);
 
 /* Add ports from sinks/sources.
