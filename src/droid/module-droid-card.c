@@ -240,7 +240,7 @@ static pa_card_profile* add_virtual_profile(struct userdata *u, const char *name
                                             pa_hashmap *profiles) {
     pa_droid_profile *ap;
     pa_card_profile *cp;
-    struct profile_data *d, *ext;
+    struct profile_data *d;
 
     pa_assert(u);
     pa_assert(u->profile_set);
@@ -414,7 +414,6 @@ static pa_droid_profile *card_get_droid_profile(pa_card_profile *cp) {
 
 static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
     pa_droid_profile *dp = NULL;
-    pa_card_profile *cp = NULL;
     pa_droid_mapping *am_output;
 
     pa_assert(u);
