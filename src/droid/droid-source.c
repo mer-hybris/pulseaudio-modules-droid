@@ -362,7 +362,7 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
         return 0;
     }
 
-    pa_log_debug("Source set port %u", data->device);
+    pa_log_debug("Source set port %#010x", data->device);
 
     if (!PA_SOURCE_IS_OPENED(pa_source_get_state(u->source)))
         do_routing(u, data->device);
