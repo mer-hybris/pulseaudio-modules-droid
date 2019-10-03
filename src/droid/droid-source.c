@@ -73,8 +73,6 @@ struct userdata {
     size_t buffer_size;
     pa_usec_t timestamp;
 
-    pa_hook_slot *input_buffer_size_changed_slot;
-    pa_hook_slot *input_channel_map_changed_slot;
     pa_resampler *resampler;
 
     pa_droid_card_data *card_data;
@@ -475,51 +473,6 @@ static void update_latency(struct userdata *u) {
     pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
 }
 
-/* Called from IO context. */
-static pa_hook_result_t input_buffer_size_changed_cb(pa_droid_hw_module *module,
-                                                     pa_droid_stream *stream,
-                                                     struct userdata *u) {
-    pa_assert(module);
-    pa_assert(stream);
-    pa_assert(u);
-
-    if (stream != u->stream)
-        return PA_HOOK_OK;
-
-    update_latency(u);
-
-    return PA_HOOK_OK;
-}
-
-/* Called from IO context. */
-static pa_hook_result_t input_channel_map_changed_cb(pa_droid_hw_module *module,
-                                                     pa_droid_stream *stream,
-                                                     struct userdata *u) {
-    pa_assert(module);
-    pa_assert(stream);
-    pa_assert(u);
-
-    if (stream != u->stream)
-        return PA_HOOK_OK;
-
-    if (u->stream->input->input_channel_map.channels != u->source->channel_map.channels) {
-        if (u->resampler)
-            pa_resampler_free(u->resampler);
-
-        u->resampler = pa_resampler_new(u->core->mempool,
-                                        &u->stream->input->input_sample_spec, &u->stream->input->input_channel_map,
-                                        &u->source->sample_spec, &u->source->channel_map,
-                                        u->core->lfe_crossover_freq,
-                                        PA_RESAMPLER_COPY,
-                                        0);
-    } else if (u->resampler) {
-        pa_resampler_free(u->resampler);
-        u->resampler = NULL;
-    }
-
-    return PA_HOOK_OK;
-}
-
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
@@ -730,14 +683,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     if (u->source->active_port)
         source_set_port_cb(u->source, u->source->active_port);
 
-    u->input_buffer_size_changed_slot = pa_hook_connect(&pa_droid_hooks(u->hw_module)[PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED],
-                                                        PA_HOOK_NORMAL,
-                                                        (pa_hook_cb_t) input_buffer_size_changed_cb, u);
-
-    u->input_channel_map_changed_slot = pa_hook_connect(&pa_droid_hooks(u->hw_module)[PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED],
-                                                        PA_HOOK_NORMAL,
-                                                        (pa_hook_cb_t) input_channel_map_changed_cb, u);
-
     pa_droid_stream_set_data(u->stream, u->source);
     pa_source_put(u->source);
 
@@ -764,12 +709,6 @@ void pa_droid_source_free(pa_source *s) {
 
 static void userdata_free(struct userdata *u) {
     pa_assert(u);
-
-    if (u->input_channel_map_changed_slot)
-        pa_hook_slot_free(u->input_channel_map_changed_slot);
-
-    if (u->input_buffer_size_changed_slot)
-        pa_hook_slot_free(u->input_buffer_size_changed_slot);
 
     if (u->source)
         pa_source_unlink(u->source);
