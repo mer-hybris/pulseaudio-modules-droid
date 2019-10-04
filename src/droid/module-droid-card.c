@@ -754,10 +754,10 @@ int pa__init(pa_module *m) {
     u->card_data.module_id = pa_xstrdup(module_id);
     u->card_data.userdata = u;
 
-    if (!default_profile || !pa_streq(module_id, DEFAULT_MODULE_ID))
-        u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
-    else
+    if (default_profile)
         u->profile_set = pa_droid_profile_set_default_new(u->hw_module->enabled_module);
+    else
+        u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
 
     pa_card_new_data_init(&data);
     data.driver = __FILE__;
