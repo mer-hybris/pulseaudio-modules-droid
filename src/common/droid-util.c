@@ -310,7 +310,6 @@ static void auto_add_profiles(pa_droid_profile_set *ps,
     add_default_profile(ps, module,
                         primary_output, low_latency_output, media_latency_output,
                         module->inputs);
-    add_all_profiles(ps, module, primary_output);
 }
 
 pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module) {
