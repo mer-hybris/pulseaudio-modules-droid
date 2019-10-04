@@ -175,7 +175,7 @@ static pa_droid_profile *add_profile(pa_droid_profile_set *ps,
                                      const pa_droid_config_device *input) {
     pa_droid_profile *ap;
 
-    pa_assert(primary_output && primary_output->direction == PA_DIRECTION_OUTPUT);
+    pa_assert(!primary_output || primary_output->direction == PA_DIRECTION_OUTPUT);
     pa_assert(output && output->direction == PA_DIRECTION_OUTPUT);
     pa_assert(!input || input->direction == PA_DIRECTION_INPUT);
 
@@ -208,14 +208,20 @@ static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *mo
 }
 
 static void add_all_profiles(pa_droid_profile_set *ps,
-                             const pa_droid_config_hw_module *module,
-                             const pa_droid_config_device *primary_output) {
-    pa_droid_config_device *output;
-    pa_droid_config_device *input;
+                             const pa_droid_config_hw_module *module) {
+    const pa_droid_config_device *primary_output = NULL;
+    const pa_droid_config_device *output;
+    const pa_droid_config_device *input;
 
     pa_assert(ps);
     pa_assert(module);
-    pa_assert(primary_output && primary_output->direction == PA_DIRECTION_OUTPUT);
+
+    SLLIST_FOREACH(output, module->outputs) {
+        if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY) {
+            primary_output = output;
+            break;
+        }
+    }
 
     /* Each distinct hw module output matches one profile. If there are multiple inputs
      * combinations are made so that all possible outputs and inputs can be selected.
@@ -236,7 +242,7 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
-    add_all_profiles(ps, module, NULL);
+    add_all_profiles(ps, module);
 
     return ps;
 }
