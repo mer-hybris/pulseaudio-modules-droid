@@ -54,6 +54,7 @@
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/hashmap.h>
 #include <pulsecore/core-subscribe.h>
+#include <pulse/version.h>
 
 #include "droid-sink.h"
 #include <droid/droid-util.h>
@@ -371,7 +372,11 @@ static void thread_func(void *userdata) {
     pa_log_debug("Thread starting up.");
 
     if (u->core->realtime_scheduling)
+#if (PA_CHECK_VERSION(13,0,0))
+        pa_thread_make_realtime(u->core->realtime_priority);
+#else
         pa_make_realtime(u->core->realtime_priority);
+#endif
 
     pa_thread_mq_install(&u->thread_mq);
 

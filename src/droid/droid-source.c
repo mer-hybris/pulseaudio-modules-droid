@@ -51,6 +51,7 @@
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/resampler.h>
+#include <pulse/version.h>
 
 #include "droid-source.h"
 #include <droid/droid-util.h>
@@ -208,7 +209,11 @@ static void thread_func(void *userdata) {
     pa_log_debug("Thread starting up.");
 
     if (u->core->realtime_scheduling)
+#if (PA_CHECK_VERSION(13,0,0))
+        pa_thread_make_realtime(u->core->realtime_priority);
+#else
         pa_make_realtime(u->core->realtime_priority);
+#endif
 
     pa_thread_mq_install(&u->thread_mq);
 
@@ -366,7 +371,11 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     pa_log_debug("Source set port %u", data->device);
 
+#if (PA_CHECK_VERSION(13,0,0))
+    if (!PA_SOURCE_IS_OPENED(u->source->state))
+#else
     if (!PA_SOURCE_IS_OPENED(pa_source_get_state(u->source)))
+#endif
         do_routing(u, data->device);
     else {
         pa_asyncmsgq_post(u->source->asyncmsgq, PA_MSGOBJECT(u->source), SOURCE_MESSAGE_DO_ROUTING, PA_UINT_TO_PTR(data->device), 0, NULL, NULL);

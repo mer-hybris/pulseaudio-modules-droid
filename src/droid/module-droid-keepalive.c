@@ -31,6 +31,7 @@
 #endif
 
 #include <pulse/xmalloc.h>
+#include <pulse/version.h>
 
 #include <pulsecore/core.h>
 #include <pulsecore/i18n.h>
@@ -86,7 +87,11 @@ static void stop(struct userdata *u) {
         return;
 
     while ((sink = pa_idxset_iterate(u->core->sinks, &state, NULL))) {
+#if (PA_CHECK_VERSION(13,0,0))
+        if (sink->state != PA_SINK_SUSPENDED)
+#else
         if (pa_sink_get_state(sink) != PA_SINK_SUSPENDED)
+#endif
             return;
     }
 
@@ -94,7 +99,11 @@ static void stop(struct userdata *u) {
     while ((source = pa_idxset_iterate(u->core->sources, &state, NULL))) {
         if (source->monitor_of)
             continue;
+#if (PA_CHECK_VERSION(13,0,0))
+        if (source->state != PA_SOURCE_SUSPENDED)
+#else
         if (pa_source_get_state(source) != PA_SOURCE_SUSPENDED)
+#endif
             return;
     }
 
@@ -107,7 +116,11 @@ static void update_sink(pa_sink *sink, struct userdata *u) {
     pa_assert(sink);
     pa_assert(u);
 
+#if (PA_CHECK_VERSION(13,0,0))
+    if (sink->state != PA_SINK_SUSPENDED)
+#else
     if (pa_sink_get_state(sink) != PA_SINK_SUSPENDED)
+#endif
         start(u);
     else
         stop(u);
@@ -119,7 +132,11 @@ static void update_source(pa_source *source, struct userdata *u) {
 
     /* Don't react on monitor state changes. */
     if (!source->monitor_of) {
+#if (PA_CHECK_VERSION(13,0,0))
+        if (source->state != PA_SOURCE_SUSPENDED)
+#else
         if (pa_source_get_state(source) != PA_SOURCE_SUSPENDED)
+#endif
             start(u);
         else
             stop(u);
