@@ -400,60 +400,30 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
     }
 }
 
-#if (PULSEAUDIO_VERSION == 5)
-static void source_get_mute_cb(pa_source *s) {
-#elif (PULSEAUDIO_VERSION >= 6)
 static int source_get_mute_cb(pa_source *s, bool *muted) {
-#endif
     struct userdata *u = s->userdata;
-    int ret = 0;
-    bool b;
 
     pa_assert(u);
-    pa_assert(u->hw_module && u->hw_module->device);
+    pa_assert(u->hw_module);
 
-    pa_droid_hw_module_lock(u->hw_module);
-    if (u->hw_module->device->get_mic_mute(u->hw_module->device, &b) < 0) {
-        pa_log("Failed to get mute state.");
-        ret = -1;
-    }
-    pa_droid_hw_module_unlock(u->hw_module);
-
-#if (PULSEAUDIO_VERSION == 5)
-    if (ret == 0)
-        s->muted = b;
-#elif (PULSEAUDIO_VERSION >= 6)
-    if (ret == 0)
-        *muted = b;
-
-    return ret;
-#endif
+    return pa_droid_hw_mic_get_mute(u->hw_module, muted);
 }
 
 static void source_set_mute_cb(pa_source *s) {
     struct userdata *u = s->userdata;
 
     pa_assert(u);
-    pa_assert(u->hw_module && u->hw_module->device);
 
-    pa_droid_hw_module_lock(u->hw_module);
-    if (u->hw_module->device->set_mic_mute(u->hw_module->device, s->muted) < 0)
-        pa_log("Failed to set mute state to %smuted.", s->muted ? "" : "un");
-    pa_droid_hw_module_unlock(u->hw_module);
+    pa_droid_hw_mic_set_mute(u->hw_module, s->muted);
 }
 
 static void source_set_mute_control(struct userdata *u) {
     pa_assert(u);
     pa_assert(u->hw_module && u->hw_module->device);
 
-    if (u->hw_module->device->set_mic_mute) {
-        pa_log_info("Using hardware mute control for %s", u->source->name);
+    if (pa_droid_hw_has_mic_control(u->hw_module)) {
         pa_source_set_get_mute_callback(u->source, source_get_mute_cb);
         pa_source_set_set_mute_callback(u->source, source_set_mute_cb);
-    } else {
-        pa_log_info("Using software mute control for %s", u->source->name);
-        pa_source_set_get_mute_callback(u->source, NULL);
-        pa_source_set_set_mute_callback(u->source, NULL);
     }
 }
 
@@ -476,11 +446,11 @@ static void update_latency(struct userdata *u) {
         pa_log_info("Using buffer size %u.", u->buffer_size);
 
     if (pa_thread_mq_get())
-        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
+        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
     else
-        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
+        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
 
-    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
+    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
 }
 
 static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_output_new_data *new_data, struct userdata *u) {
