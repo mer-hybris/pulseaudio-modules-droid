@@ -398,11 +398,7 @@ static void thread_func(void *userdata) {
             pa_rtpoll_set_timer_disabled(u->rtpoll);
 
         /* Sleep */
-#if (PULSEAUDIO_VERSION == 5)
-        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
-#elif (PULSEAUDIO_VERSION >= 6)
         if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
-#endif
             goto fail;
 
         if (ret == 0)

@@ -73,8 +73,6 @@ struct userdata {
     size_t buffer_size;
     pa_usec_t timestamp;
 
-    pa_hook_slot *input_buffer_size_changed_slot;
-    pa_hook_slot *input_channel_map_changed_slot;
     pa_resampler *resampler;
 
     pa_droid_card_data *card_data;
@@ -96,12 +94,17 @@ static void userdata_free(struct userdata *u);
 static int suspend(struct userdata *u);
 static void unsuspend(struct userdata *u);
 
+/* Our droid source may be left in a state of not having an input stream
+ * if reconfiguration fails and fallback to previously active values fails
+ * as well. In this case just avoid using the stream but don't die. */
+#define assert_stream(x, action) if (!x) do { pa_log_warn("Assert " #x " failed."); action; } while(0)
+
 static int do_routing(struct userdata *u, audio_devices_t devices) {
     int ret;
     audio_devices_t old_device;
 
     pa_assert(u);
-    pa_assert(u->stream);
+    assert_stream(u->stream, return 0);
 
     if (u->primary_devices == devices)
         pa_log_debug("Refresh active device routing.");
@@ -225,11 +228,7 @@ static void thread_func(void *userdata) {
             pa_rtpoll_set_timer_disabled(u->rtpoll);
 
         /* Sleep */
-#if (PULSEAUDIO_VERSION == 5)
-        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
-#elif (PULSEAUDIO_VERSION >= 6)
         if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
-#endif
             goto fail;
 
         if (ret == 0)
@@ -252,7 +251,7 @@ static int suspend(struct userdata *u) {
     int ret;
 
     pa_assert(u);
-    pa_assert(u->stream);
+    assert_stream(u->stream, return 0);
 
     ret = pa_droid_stream_suspend(u->stream, true);
 
@@ -265,9 +264,10 @@ static int suspend(struct userdata *u) {
 /* Called from IO context */
 static void unsuspend(struct userdata *u) {
     pa_assert(u);
-    pa_assert(u->stream);
 
-    if (pa_droid_stream_suspend(u->stream, false) >= 0) {
+    if (!u->stream) {
+        assert_stream(u->stream, u->stream_valid = false);
+    } else if (pa_droid_stream_suspend(u->stream, false) >= 0) {
         u->stream_valid = true;
         pa_log_info("Resuming...");
     } else
@@ -364,7 +364,7 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
         return 0;
     }
 
-    pa_log_debug("Source set port %u", data->device);
+    pa_log_debug("Source set port %#010x", data->device);
 
     if (!PA_SOURCE_IS_OPENED(pa_source_get_state(u->source)))
         do_routing(u, data->device);
@@ -396,60 +396,30 @@ static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char
     }
 }
 
-#if (PULSEAUDIO_VERSION == 5)
-static void source_get_mute_cb(pa_source *s) {
-#elif (PULSEAUDIO_VERSION >= 6)
 static int source_get_mute_cb(pa_source *s, bool *muted) {
-#endif
     struct userdata *u = s->userdata;
-    int ret = 0;
-    bool b;
 
     pa_assert(u);
-    pa_assert(u->hw_module && u->hw_module->device);
+    pa_assert(u->hw_module);
 
-    pa_droid_hw_module_lock(u->hw_module);
-    if (u->hw_module->device->get_mic_mute(u->hw_module->device, &b) < 0) {
-        pa_log("Failed to get mute state.");
-        ret = -1;
-    }
-    pa_droid_hw_module_unlock(u->hw_module);
-
-#if (PULSEAUDIO_VERSION == 5)
-    if (ret == 0)
-        s->muted = b;
-#elif (PULSEAUDIO_VERSION >= 6)
-    if (ret == 0)
-        *muted = b;
-
-    return ret;
-#endif
+    return pa_droid_hw_mic_get_mute(u->hw_module, muted);
 }
 
 static void source_set_mute_cb(pa_source *s) {
     struct userdata *u = s->userdata;
 
     pa_assert(u);
-    pa_assert(u->hw_module && u->hw_module->device);
 
-    pa_droid_hw_module_lock(u->hw_module);
-    if (u->hw_module->device->set_mic_mute(u->hw_module->device, s->muted) < 0)
-        pa_log("Failed to set mute state to %smuted.", s->muted ? "" : "un");
-    pa_droid_hw_module_unlock(u->hw_module);
+    pa_droid_hw_mic_set_mute(u->hw_module, s->muted);
 }
 
 static void source_set_mute_control(struct userdata *u) {
     pa_assert(u);
     pa_assert(u->hw_module && u->hw_module->device);
 
-    if (u->hw_module->device->set_mic_mute) {
-        pa_log_info("Using hardware mute control for %s", u->source->name);
+    if (pa_droid_hw_has_mic_control(u->hw_module)) {
         pa_source_set_get_mute_callback(u->source, source_get_mute_cb);
         pa_source_set_set_mute_callback(u->source, source_set_mute_cb);
-    } else {
-        pa_log_info("Using software mute control for %s", u->source->name);
-        pa_source_set_get_mute_callback(u->source, NULL);
-        pa_source_set_set_mute_callback(u->source, NULL);
     }
 }
 
@@ -457,9 +427,13 @@ static void source_set_mute_control(struct userdata *u) {
 static void update_latency(struct userdata *u) {
     pa_assert(u);
     pa_assert(u->source);
-    pa_assert(u->stream);
 
-    u->buffer_size = pa_droid_stream_buffer_size(u->stream);
+    if (u->stream)
+        u->buffer_size = pa_droid_stream_buffer_size(u->stream);
+    else
+        u->buffer_size = 1024; /* Random valid value */
+
+    assert_stream(u->stream, return);
 
     if (u->source_buffer_size) {
         u->buffer_size = pa_droid_buffer_size_round_up(u->source_buffer_size, u->buffer_size);
@@ -468,53 +442,66 @@ static void update_latency(struct userdata *u) {
         pa_log_info("Using buffer size %u.", u->buffer_size);
 
     if (pa_thread_mq_get())
-        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
+        pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
     else
-        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
+        pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
 
-    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &u->stream->input->sample_spec));
+    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
 }
 
-/* Called from IO context. */
-static pa_hook_result_t input_buffer_size_changed_cb(pa_droid_hw_module *module,
-                                                     pa_droid_stream *stream,
-                                                     struct userdata *u) {
-    pa_assert(module);
-    pa_assert(stream);
-    pa_assert(u);
+static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_output_new_data *new_data, struct userdata *u) {
+    pa_channel_map old_channel_map;
+    pa_sample_spec old_sample_spec;
+    pa_channel_map new_channel_map;
+    pa_sample_spec new_sample_spec;
+    pa_queue *source_outputs = NULL;
 
-    if (stream != u->stream)
+    /* Not meant for us */
+    if (new_data->source != u->source)
         return PA_HOOK_OK;
+
+    if (pa_sample_spec_equal(&new_data->sample_spec, pa_droid_stream_sample_spec(u->stream)) &&
+        pa_channel_map_equal(&new_data->channel_map, pa_droid_stream_channel_map(u->stream)))
+        return PA_HOOK_OK;
+
+    pa_log_info("New source-output connecting and our source needs to be reconfigured.");
+
+    if (pa_source_used_by(u->source)) {
+        /* If we already have connected source outputs detach those
+         * so that when re-attaching them to our source resampling etc.
+         * is renegotiated correctly. */
+        source_outputs = pa_source_move_all_start(u->source, NULL);
+    }
+
+    pa_source_suspend(u->source, true, PA_SUSPEND_UNAVAILABLE);
+
+    old_channel_map = *pa_droid_stream_channel_map(u->stream);
+    old_sample_spec = *pa_droid_stream_sample_spec(u->stream);
+    new_channel_map = new_data->channel_map;
+    new_sample_spec = new_data->sample_spec;
+
+    pa_droid_stream_unref(u->stream);
+    if (!(u->stream = pa_droid_open_input_stream(u->hw_module, &new_sample_spec, &new_channel_map)))
+        u->stream = pa_droid_open_input_stream(u->hw_module, &old_sample_spec, &old_channel_map);
+
+    if (u->stream) {
+        /* We need to be really careful here as we are modifying
+         * quite profound internal structures. */
+        new_sample_spec = *pa_droid_stream_sample_spec(u->stream);
+        new_channel_map = *pa_droid_stream_channel_map(u->stream);
+        u->source->channel_map = new_channel_map;
+        u->source->sample_spec = new_sample_spec;
+        pa_assert_se(pa_cvolume_remap(&u->source->reference_volume, &old_channel_map, &new_channel_map));
+        pa_assert_se(pa_cvolume_remap(&u->source->real_volume, &old_channel_map, &new_channel_map));
+        pa_assert_se(pa_cvolume_remap(&u->source->soft_volume, &old_channel_map, &new_channel_map));
+        pa_log_info("Source reconfigured.");
+    }
 
     update_latency(u);
+    pa_source_suspend(u->source, false, PA_SUSPEND_UNAVAILABLE);
 
-    return PA_HOOK_OK;
-}
-
-/* Called from IO context. */
-static pa_hook_result_t input_channel_map_changed_cb(pa_droid_hw_module *module,
-                                                     pa_droid_stream *stream,
-                                                     struct userdata *u) {
-    pa_assert(module);
-    pa_assert(stream);
-    pa_assert(u);
-
-    if (stream != u->stream)
-        return PA_HOOK_OK;
-
-    if (u->stream->input->input_channel_map.channels != u->source->channel_map.channels) {
-        if (u->resampler)
-            pa_resampler_free(u->resampler);
-
-        u->resampler = pa_resampler_new(u->core->mempool,
-                                        &u->stream->input->input_sample_spec, &u->stream->input->input_channel_map,
-                                        &u->source->sample_spec, &u->source->channel_map,
-                                        u->core->lfe_crossover_freq,
-                                        PA_RESAMPLER_COPY,
-                                        0);
-    } else if (u->resampler) {
-        pa_resampler_free(u->resampler);
-        u->resampler = NULL;
+    if (source_outputs && u->source) {
+        pa_source_move_all_finish(u->source, source_outputs, false);
     }
 
     return PA_HOOK_OK;
@@ -548,7 +535,7 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     /* When running under card use hw module name for source by default. */
     if (am)
-        module_id = am->input->module->name;
+        module_id = am->inputs->module->name;
     else
         module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
@@ -649,10 +636,8 @@ pa_source *pa_droid_source_new(pa_module *m,
         }
     }
 
-    if (am)
-        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, am);
-    else
-        u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, dev_in, NULL);
+    pa_droid_hw_set_input_device(u->hw_module, dev_in);
+    u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map);
 
     if (!u->stream) {
         pa_log("Failed to open input stream.");
@@ -672,6 +657,8 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, PROP_DROID_API_STRING);
+    pa_proplist_sets(data.proplist, PROP_DROID_INPUT_EXTERNAL, "true");
+    pa_proplist_sets(data.proplist, PROP_DROID_INPUT_BUILTIN, "true");
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because
@@ -685,8 +672,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     }
     data.namereg_fail = namereg_fail;
 
-    pa_source_new_data_set_sample_spec(&data, &u->stream->input->sample_spec);
-    pa_source_new_data_set_channel_map(&data, &u->stream->input->channel_map);
+    pa_source_new_data_set_sample_spec(&data, pa_droid_stream_sample_spec(u->stream));
+    pa_source_new_data_set_channel_map(&data, pa_droid_stream_channel_map(u->stream));
     pa_source_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 
     if (am && card)
@@ -730,16 +717,11 @@ pa_source *pa_droid_source_new(pa_module *m,
     if (u->source->active_port)
         source_set_port_cb(u->source, u->source->active_port);
 
-    u->input_buffer_size_changed_slot = pa_hook_connect(&pa_droid_hooks(u->hw_module)[PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED],
-                                                        PA_HOOK_NORMAL,
-                                                        (pa_hook_cb_t) input_buffer_size_changed_cb, u);
-
-    u->input_channel_map_changed_slot = pa_hook_connect(&pa_droid_hooks(u->hw_module)[PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED],
-                                                        PA_HOOK_NORMAL,
-                                                        (pa_hook_cb_t) input_channel_map_changed_cb, u);
-
     pa_droid_stream_set_data(u->stream, u->source);
     pa_source_put(u->source);
+
+    /* As late as possible */
+    pa_module_hook_connect(u->module, &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW], PA_HOOK_LATE * 2, (pa_hook_cb_t) source_output_new_hook_callback, u);
 
     return u->source;
 
@@ -765,12 +747,6 @@ void pa_droid_source_free(pa_source *s) {
 static void userdata_free(struct userdata *u) {
     pa_assert(u);
 
-    if (u->input_channel_map_changed_slot)
-        pa_hook_slot_free(u->input_channel_map_changed_slot);
-
-    if (u->input_buffer_size_changed_slot)
-        pa_hook_slot_free(u->input_buffer_size_changed_slot);
-
     if (u->source)
         pa_source_unlink(u->source);
 
@@ -790,7 +766,6 @@ static void userdata_free(struct userdata *u) {
     if (u->stream)
         pa_droid_stream_unref(u->stream);
 
-    // Stand alone source
     if (u->hw_module)
         pa_droid_hw_module_unref(u->hw_module);
 

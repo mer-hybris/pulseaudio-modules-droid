@@ -98,8 +98,7 @@ default profile
 When module-droid-card is loaded with default arguments, droid-card will try
 to create a default profile (called surprisingly "default"). The default
 profile will try to merge useful output and input streams to one profile,
-to allow use of possible low latency outputs or multiple inputs if the
-input streams are split to multiple devices.
+to allow use of possible low latency or deep buffer outputs.
 
 For example configuration with
 
@@ -110,8 +109,8 @@ For example configuration with
                 deep_buffer {}
             }
             inputs {
-                builtin {}
-                external {}
+                primary {}
+                voice_rx {}
             }
         }
         other {
@@ -120,38 +119,10 @@ For example configuration with
     }
 
 The default profile would contain two sinks, sink.primary and sink.deep_buffer
-and one source, source.builtin_external. Then this combined source would use
-either "builtin" or "external" input stream, depending on which one has the
-input route currently in use (for example, input-wired_headset from "external"
-and input-back_mic from "builtin" input stream).
+and one source, source.droid.
 
 Usually this default profile is everything that is needed in normal use, and
 additional profiles created should be needed only for testing things out etc.
-
-additional profiles
--------------------
-
-In addition to the default profile all input and output definitions are
-translated to PulseAudio card profiles. For example configuration with
-
-    audio_hw_modules {
-        primary {
-            outputs {
-                primary {}
-                lpa {}
-            }
-            inputs {
-                primary {}
-            }
-        }
-        other {
-            ...
-        }
-    }
-
-Would map to card profiles (input-output) primary-primary and lpa-primary.
-When module-droid-card is run without module_id argument, as default "primary"
-is used.
 
 virtual profiles
 ----------------
@@ -201,6 +172,33 @@ voicecall related algorithms without being in voicecall. Ringtone profile
 should be used when ringtone is playing, to again enable possible loudness
 related optimizations etc. Voicecall-record profile can be enabled when
 voicecall profile is active.
+
+debugging profiles
+------------------
+
+If needed in favour of default profile one can opt to creating combinations
+of all output and input definitions in a module definition. This can be
+done by passing "default=false" to module-droid-card. Module argument
+module_id will then defines which module to load (by default "primary").
+Without default profile all input and output definitions are translated
+to PulseAudio card profiles. For example configuration with
+
+    audio_hw_modules {
+        primary {
+            outputs {
+                primary {}
+                lpa {}
+            }
+            inputs {
+                primary {}
+            }
+        }
+        other {
+            ...
+        }
+    }
+
+Would map to card profiles (<output>-<input>) primary-primary and lpa-primary.
 
 module-droid-sink and module-droid-source
 -----------------------------------------
@@ -252,6 +250,41 @@ control sinks and sources. (For example in SailfishOS this entity is OHM with
 accessory-plugin and pulseaudio-policy-enforcement module for actually making
 the port switching)
 
+Droid source automatic reconfiguration
+--------------------------------------
+
+As droid HAL makes assumptions on (input) routing based on what the parameters
+for the stream are (device, sample rate, channels, format, etc.) normal
+PulseAudio sources are a bit inflexible as only sample rate can change after
+source creation and even then there are restrictions based on alternative
+sample rate value.
+
+To overcome this and to allow some more variables affecting the stream being
+passed to the input stream droid source is modified to reconfigure itself
+with the source-output that connects to it. This means, that just looking at
+inactive source from "pactl list" listing doesn't tell the whole story.
+
+Droid source is always reconfigured with the *last* source-output that
+connects to it, possibly already connected source-outputs will continue
+to read from the source but through resampler.
+
+For example,
+
+ 1) source-output 44100Hz, stereo connects (so1)
+   a) source is configured with 44100Hz, stereo
+   b) so1 connects to the source without resampler
+ 2) source-output 16000Hz, mono connects (so2)
+   a) so1 is detached from the source
+   b) source is configured with 16000Hz, mono
+   c) so2 connects to the source without resampler
+   d) resampler is created for so1, 16000Hz, mono -> 44100Hz stereo
+   f) so1 is re-attached to the source through resampler
+ 3) source-output 16000Hz, mono connects (so3)
+   a) so1 and so2 are detached from the source
+   b) so3 connects to the source without resampler
+   c) so1 is re-attached to the source through resampler
+   d) so2 is attached to the source
+
 Classifying sinks and sources
 -----------------------------
 
@@ -285,9 +318,8 @@ properties:
 There also may be just one sink, with all the properties defined as "true"
 and so on.
 
-Similarly if there is only one input device the sole source would have both
-input type properties set as "true", but it also might be that the different
-input type properties are split to two different sources.
+Right now there exists only one source (input device) which will always have
+both properties as true.
 
 Quirks
 ------
