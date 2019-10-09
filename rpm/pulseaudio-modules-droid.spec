@@ -8,7 +8,7 @@ Summary:    PulseAudio Droid HAL modules
 Version:    %{pulsemajorminor}.80
 Release:    1
 Group:      Multimedia/PulseAudio
-License:    LGPLv2.1+
+License:    LGPLv2+
 URL:        https://github.com/mer-hybris/pulseaudio-modules-droid
 Source0:    %{name}-%{version}.tar.bz2
 Requires:   pulseaudio >= %{pulseversion}
@@ -27,7 +27,6 @@ PulseAudio Droid HAL modules.
 
 %package common
 Summary:    Common libs for the PulseAudio droid modules
-Group:      Multimedia/PulseAudio
 Requires:   pulseaudio >= %{pulseversion}
 
 %description common
@@ -63,6 +62,7 @@ rm -rf %{buildroot}
 %{_libdir}/pulse-%{pulsemajorminor}/modules/module-droid-sink.so
 %{_libdir}/pulse-%{pulsemajorminor}/modules/module-droid-source.so
 %{_libdir}/pulse-%{pulsemajorminor}/modules/module-droid-card.so
+%license COPYING
 
 %files common
 %defattr(-,root,root,-)
