@@ -13,6 +13,7 @@ URL:        https://github.com/mer-hybris/pulseaudio-modules-droid
 Source0:    %{name}-%{version}.tar.bz2
 Requires:   pulseaudio >= %{pulseversion}
 Requires:   %{name}-common = %{version}-%{release}
+Requires:   pulseaudio-module-keepalive >= 1.0.0
 BuildRequires:  automake
 BuildRequires:  libtool
 BuildRequires:  libtool-ltdl-devel
