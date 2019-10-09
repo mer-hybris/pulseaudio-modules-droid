@@ -183,10 +183,6 @@ PKG_CHECK_MODULES([HYBRIS], [libhardware >= 0.1.0])
 AC_SUBST(HYBRIS_CFLAGS)
 AC_SUBST(HYBRIS_LIBS)
 
-PKG_CHECK_MODULES([DBUS], [dbus-1 >= 1.2])
-AC_SUBST(DBUS_CFLAGS)
-AC_SUBST(DBUS_LIBS)
-
 #### expat (for xml config format parsing) (optional) ####
 
 AC_ARG_ENABLE([xml],
