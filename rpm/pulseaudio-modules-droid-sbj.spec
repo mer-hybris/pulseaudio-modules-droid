@@ -20,7 +20,6 @@ BuildRequires:  libtool-ltdl-devel
 BuildRequires:  pkgconfig(pulsecore) >= %{pulsemajorminor}
 BuildRequires:  pkgconfig(android-headers)
 BuildRequires:  pkgconfig(libhardware)
-BuildRequires:  pkgconfig(dbus-1)
 Provides: pulseaudio-modules-droid
 
 %description
@@ -62,7 +61,6 @@ rm -rf %{buildroot}
 %{_libdir}/pulse-%{pulsemajorminor}/modules/module-droid-sink.so
 %{_libdir}/pulse-%{pulsemajorminor}/modules/module-droid-source.so
 %{_libdir}/pulse-%{pulsemajorminor}/modules/module-droid-card.so
-%{_libdir}/pulse-%{pulsemajorminor}/modules/module-droid-keepalive.so
 
 %files common
 %defattr(-,root,root,-)
