@@ -406,6 +406,4 @@ SPEAKER.
 module-droid-keepalive
 ----------------------
 
-Keepalive module is MCE (https://github.com/nemomobile/mce) specific module
-tracking sink/source activity and keeping a WAKELOCK when there are active
-streams.
+Module relocated to its own package pulseaudio-module-keepalive.
