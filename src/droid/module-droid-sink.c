@@ -69,6 +69,7 @@ static const char* const valid_modargs[] = {
     "deferred_volume",
     "voice_property_key",
     "voice_property_value",
+    "voice_virtual_stream",
     NULL,
 };
 
