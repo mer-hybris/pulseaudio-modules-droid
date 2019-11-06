@@ -59,6 +59,10 @@ module_card_extra_deps = []
 module_card_sources += 'droid-extcon.c'
 module_card_extra_deps += libudev_dep
 
+# TODO: build flag if needed
+module_card_sources += 'droid-extevdev.c'
+module_card_extra_deps += libevdev_dep
+
 module_sink = shared_module('module-droid-card' + droid_module_suffix,
   module_card_sources,
   name_prefix : '',
