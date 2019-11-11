@@ -80,10 +80,12 @@ and source) can be used to point to the configuration file location.
 
 By default files are tried in following order,
 
-    /vendor/etc/audio_policy_configuration.xml  (new xml format)
-    /vendor/etc/audio_policy.conf               (legacy format)
-    /system/etc/audio_policy_configuration.xml  (new xml format)
-    /system/etc/audio_policy.conf               (legacy format)
+    /odm/etc/audio_policy_configuration.xml           (new xml format)
+    /vendor/etc/audio/audio_policy_configuration.xml  (new xml format)
+    /vendor/etc/audio_policy_configuration.xml        (new xml format)
+    /vendor/etc/audio_policy.conf                     (legacy format)
+    /system/etc/audio_policy_configuration.xml        (new xml format)
+    /system/etc/audio_policy.conf                     (legacy format)
 
 module-droid-card
 -----------------
