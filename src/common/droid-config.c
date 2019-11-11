@@ -66,6 +66,8 @@
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
 
+#define ODM_AUDIO_POLICY_CONFIG_XML_FILE "/odm/etc/audio_policy_configuration.xml"
+#define VENDOR_AUDIO_AUDIO_POLICY_CONFIG_XML_FILE "/vendor/etc/audio/audio_policy_configuration.xml"
 #define VENDOR_AUDIO_POLICY_CONFIG_XML_FILE "/vendor/etc/audio_policy_configuration.xml"
 #define SYSTEM_AUDIO_POLICY_CONFIG_XML_FILE "/system/etc/audio_policy_configuration.xml"
 
@@ -74,6 +76,8 @@ pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma) {
     pa_droid_config_audio *config = NULL;
     const char *manual_config;
     const char *config_location[] = {
+        ODM_AUDIO_POLICY_CONFIG_XML_FILE,
+        VENDOR_AUDIO_AUDIO_POLICY_CONFIG_XML_FILE,
         VENDOR_AUDIO_POLICY_CONFIG_XML_FILE,
         AUDIO_POLICY_VENDOR_CONFIG_FILE,
         SYSTEM_AUDIO_POLICY_CONFIG_XML_FILE,
