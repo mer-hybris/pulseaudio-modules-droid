@@ -538,6 +538,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_assert(ma);
     pa_assert(driver);
 
+    pa_log_info("Create new droid-source");
+
     /* When running under card use hw module name for source by default. */
     if (am)
         module_id = am->inputs->module->name;

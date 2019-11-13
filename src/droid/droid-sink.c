@@ -1068,6 +1068,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_assert(ma);
     pa_assert(driver);
 
+    pa_log_info("Create new droid-sink");
+
     deferred_volume = m->core->deferred_volume;
     if (pa_modargs_get_value_boolean(ma, "deferred_volume", &deferred_volume) < 0) {
         pa_log("Failed to parse deferred_volume argument.");

@@ -711,6 +711,8 @@ int pa__init(pa_module *m) {
 
     pa_assert(m);
 
+    pa_log_info("Create new droid-card");
+
     if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
         pa_log("Failed to parse module arguments.");
         goto fail;
