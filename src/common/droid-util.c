@@ -1950,12 +1950,15 @@ bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
     audio_source_t audio_source_override = AUDIO_SOURCE_DEFAULT;
     bool device_changed = false;
     bool source_changed = false;
-    const char *audio_source_name;
 
     pa_assert(hw_module);
 
     if (hw_module->state.input_device != device) {
-        pa_log_debug("Set global input to %#010x", device);
+        const char *name = NULL;
+        pa_log_debug("Set global input to %s (%#010x)",
+                     pa_string_convert_input_device_num_to_str(device, &name)
+                       ? name : "<unknown>",
+                     device);
         hw_module->state.input_device = device;
         device_changed = true;
     }
@@ -1987,9 +1990,10 @@ bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
     }
 
     if (audio_source != hw_module->state.audio_source) {
+        const char *name = NULL;
         pa_log_debug("set global audio source to %s (%#010x)",
-                     pa_droid_audio_source_name(audio_source, &audio_source_name)
-                       ? audio_source_name : "<unknown>",
+                     pa_droid_audio_source_name(audio_source, &name)
+                       ? name : "<unknown>",
                      audio_source);
         hw_module->state.audio_source = audio_source;
         source_changed = true;
