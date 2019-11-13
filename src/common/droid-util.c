@@ -1063,6 +1063,29 @@ static pa_droid_input_stream *droid_input_stream_new(void) {
     return pa_xnew0(pa_droid_input_stream, 1);
 }
 
+static int stream_standby(pa_droid_stream *s) {
+    int ret = 0;
+
+    pa_assert(s);
+    pa_assert(s->output || s->input);
+
+    if ((s->output && !s->output->stream) ||
+        (s->input && !s->input->stream))
+        return ret;
+
+    if (s->output) {
+        pa_mutex_lock(s->module->output_mutex);
+        ret = s->output->stream->common.standby(&s->output->stream->common);
+        pa_mutex_unlock(s->module->output_mutex);
+    } else {
+        pa_mutex_lock(s->module->input_mutex);
+        ret = s->input->stream->common.standby(&s->input->stream->common);
+        pa_mutex_unlock(s->module->input_mutex);
+    }
+
+    return ret;
+}
+
 static bool stream_config_fill(audio_devices_t devices,
                                pa_sample_spec *sample_spec,
                                pa_channel_map *channel_map,
@@ -1475,7 +1498,7 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     s->buffer_size = buffer_size;
 
     /* Set input stream to standby */
-    s->input->stream->common.standby(&s->input->stream->common);
+    stream_standby(s);
 
     pa_log_debug("Opened input stream %p", (void *) s);
     set_active_input(s->module, s);
@@ -1782,7 +1805,7 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
     if (s->output) {
         if (suspend) {
             pa_atomic_dec(&s->module->active_outputs);
-            return s->output->stream->common.standby(&s->output->stream->common);
+            return stream_standby(s);
         } else {
             pa_atomic_inc(&s->module->active_outputs);
         }
@@ -1793,7 +1816,7 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
                     s->input->stream->common.standby(&s->input->stream->common);
                     input_stream_close(s);
                 } else
-                    return s->input->stream->common.standby(&s->input->stream->common);
+                    return stream_standby(s);
             }
         } else if (pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
             return input_stream_open(s, true);
