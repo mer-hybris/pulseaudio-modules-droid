@@ -1699,7 +1699,7 @@ static int input_stream_set_route(pa_droid_hw_module *hw_module) {
                                                       AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
 
     pa_log_debug("input stream %p set_parameters(%s) %#010x ; %#010x",
-                 (void *) input, parameters, device, source);
+                 (void *) s, parameters, device, source);
 
     if (pa_droid_quirk(hw_module, QUIRK_SET_PARAMETERS)) {
         pa_mutex_lock(hw_module->hw_mutex);
