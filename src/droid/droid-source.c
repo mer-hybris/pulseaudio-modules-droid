@@ -485,22 +485,20 @@ static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_ou
     new_channel_map = new_data->channel_map;
     new_sample_spec = new_data->sample_spec;
 
-    pa_droid_stream_unref(u->stream);
-    if (!(u->stream = pa_droid_open_input_stream(u->hw_module, &new_sample_spec, &new_channel_map)))
-        u->stream = pa_droid_open_input_stream(u->hw_module, &old_sample_spec, &old_channel_map);
-
-    if (u->stream) {
-        /* We need to be really careful here as we are modifying
-         * quite profound internal structures. */
-        new_sample_spec = *pa_droid_stream_sample_spec(u->stream);
-        new_channel_map = *pa_droid_stream_channel_map(u->stream);
-        u->source->channel_map = new_channel_map;
-        u->source->sample_spec = new_sample_spec;
-        pa_assert_se(pa_cvolume_remap(&u->source->reference_volume, &old_channel_map, &new_channel_map));
-        pa_assert_se(pa_cvolume_remap(&u->source->real_volume, &old_channel_map, &new_channel_map));
-        pa_assert_se(pa_cvolume_remap(&u->source->soft_volume, &old_channel_map, &new_channel_map));
+    if (pa_droid_stream_reconfigure_input(u->stream, &new_sample_spec, &new_channel_map))
         pa_log_info("Source reconfigured.");
-    }
+    else
+        pa_log_info("Failed to reconfigure input stream, no worries, using defaults.");
+
+    /* We need to be really careful here as we are modifying
+     * quite profound internal structures. */
+    new_sample_spec = *pa_droid_stream_sample_spec(u->stream);
+    new_channel_map = *pa_droid_stream_channel_map(u->stream);
+    u->source->channel_map = new_channel_map;
+    u->source->sample_spec = new_sample_spec;
+    pa_assert_se(pa_cvolume_remap(&u->source->reference_volume, &old_channel_map, &new_channel_map));
+    pa_assert_se(pa_cvolume_remap(&u->source->real_volume, &old_channel_map, &new_channel_map));
+    pa_assert_se(pa_cvolume_remap(&u->source->soft_volume, &old_channel_map, &new_channel_map));
 
     update_latency(u);
     pa_source_suspend(u->source, false, PA_SUSPEND_UNAVAILABLE);
