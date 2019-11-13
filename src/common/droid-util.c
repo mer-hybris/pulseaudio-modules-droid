@@ -1060,7 +1060,10 @@ static pa_droid_output_stream *droid_output_stream_new(void) {
 }
 
 static pa_droid_input_stream *droid_input_stream_new(void) {
-    return pa_xnew0(pa_droid_input_stream, 1);
+    pa_droid_input_stream *input = pa_xnew0(pa_droid_input_stream, 1);
+    input->first = true;
+
+    return input;
 }
 
 static int stream_standby(pa_droid_stream *s) {
@@ -1523,6 +1526,42 @@ static void input_stream_close(pa_droid_stream *s) {
     pa_mutex_unlock(s->module->input_mutex);
 }
 
+bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
+                                       const pa_sample_spec *requested_sample_spec,
+                                       const pa_channel_map *requested_channel_map) {
+    pa_sample_spec orig_req_ss;
+    pa_channel_map orig_req_cm;
+
+    pa_assert(s);
+    pa_assert(s->input);
+    pa_assert(requested_sample_spec);
+    pa_assert(requested_channel_map);
+
+    first_reconfigure = s->input->stream ? false : true;
+
+    orig_req_ss = s->input->req_sample_spec;
+    orig_req_cm = s->input->req_channel_map;
+
+    /* Copy our requested specs, so we know them when resuming from suspend
+     * as well. */
+    s->input->req_sample_spec = *requested_sample_spec;
+    s->input->req_channel_map = *requested_channel_map;
+
+    input_stream_close(s);
+
+    if (input_stream_open(s, false) < 0) {
+        if (!s->input->first) {
+            pa_log_debug("Input stream reconfigure failed, restore original values.");
+            s->input->req_sample_spec = orig_req_ss;
+            s->input->req_channel_map = orig_req_cm;
+            input_stream_open(s, false);
+        }
+        return false;
+    }
+
+    return true;
+}
+
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
                                             const pa_sample_spec *requested_sample_spec,
                                             const pa_channel_map *requested_channel_map) {
@@ -1535,22 +1574,18 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
     pa_assert(requested_channel_map);
 
     if (hw_module->state.active_input) {
-        pa_log_warn("Opening input stream while there is already active input stream.");
-        return pa_droid_stream_ref(hw_module->state.active_input);
+        pa_log("Opening input stream while there is already active input stream.");
+        return NULL;
     }
 
     s = droid_stream_new(hw_module);
     s->input = input = droid_input_stream_new();
 
-    /* Copy our requested specs, so we know them when resuming from suspend
-     * as well. */
-    input->req_sample_spec = *requested_sample_spec;
-    input->req_channel_map = *requested_channel_map;
-
-    if (input_stream_open(s, false) < 0) {
+    if (!pa_droid_stream_reconfigure_input(s, requested_sample_spec, requested_channel_map)) {
         pa_droid_stream_unref(s);
         s = NULL;
-    }
+    } else
+        s->input->first = false;
 
     return s;
 }

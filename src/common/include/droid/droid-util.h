@@ -122,6 +122,7 @@ struct pa_droid_input_stream {
     pa_channel_map req_channel_map;
     uint32_t flags;
     uint32_t device;
+    bool first;
 };
 
 struct pa_droid_stream {
@@ -305,6 +306,9 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
                                             const pa_sample_spec *requested_sample_spec,
                                             const pa_channel_map *requested_channel_map);
+bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
+                                       const pa_sample_spec *requested_sample_spec,
+                                       const pa_channel_map *requested_channel_map);
 bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
                                   audio_devices_t device);
 
