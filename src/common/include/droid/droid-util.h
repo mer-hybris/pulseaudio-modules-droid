@@ -276,6 +276,7 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
 
 /* Module operations */
 int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
+pa_droid_stream *pa_droid_hw_primary_output_stream(pa_droid_hw_module *hw);
 
 /* Stream operations */
 pa_droid_stream *pa_droid_stream_ref(pa_droid_stream *s);

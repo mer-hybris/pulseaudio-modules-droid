@@ -91,7 +91,6 @@ static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL 
 
 static void droid_port_free(pa_droid_port *p);
 
-static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw);
 static int input_stream_set_route(pa_droid_hw_module *hw_module);
 
 static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
@@ -1192,7 +1191,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 
     if (pa_idxset_size(module->outputs) == 0)
         pa_log_debug("Set initial output device to %#010x", devices);
-    else if ((primary_stream = get_primary_output(module))) {
+    else if ((primary_stream = pa_droid_hw_primary_output_stream(module))) {
         pa_log_debug("Primary output with device %#010x already open, using as initial device.",
                      primary_stream->output->device);
         devices = primary_stream->output->device;
@@ -1625,7 +1624,7 @@ void pa_droid_stream_unref(pa_droid_stream *s) {
     pa_xfree(s);
 }
 
-static pa_droid_stream *get_primary_output(pa_droid_hw_module *hw) {
+pa_droid_stream *pa_droid_hw_primary_output_stream(pa_droid_hw_module *hw) {
     pa_droid_stream *s;
     uint32_t idx;
 
@@ -1656,7 +1655,7 @@ static int droid_output_stream_set_route(pa_droid_stream *s, audio_devices_t dev
 
     pa_mutex_lock(s->module->output_mutex);
 
-    if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY || get_primary_output(s->module) == NULL) {
+    if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY || pa_droid_hw_primary_output_stream(s->module) == NULL) {
         parameters = pa_sprintf_malloc("%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, device);
 
         pa_log_debug("output stream %p set_parameters(%s) %#010x", (void *) s, parameters, device);
