@@ -82,10 +82,6 @@ struct userdata {
     bool stream_valid;
 };
 
-enum {
-    SOURCE_MESSAGE_DO_ROUTING = PA_SOURCE_MESSAGE_MAX
-};
-
 #define DEFAULT_MODULE_ID "primary"
 
 #define DROID_AUDIO_SOURCE "droid.audio_source"
@@ -330,28 +326,17 @@ static int source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_
 
 /* Called from IO context */
 static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+#if PULSEAUDIO_VERSION < 12
     struct userdata *u = PA_SOURCE(o)->userdata;
 
     switch (code) {
-        case SOURCE_MESSAGE_DO_ROUTING: {
-            audio_devices_t device = PA_PTR_TO_UINT(data);
-
-            pa_assert(PA_SOURCE_IS_OPENED(u->source->thread_info.state));
-
-            suspend(u);
-            do_routing(u, device);
-            unsuspend(u);
-            break;
-        }
-
-#if PULSEAUDIO_VERSION < 12
         case PA_SOURCE_MESSAGE_SET_STATE: {
             int r;
             if ((r = source_set_state_in_io_thread_cb(u->source, PA_PTR_TO_UINT(data), 0)) < 0)
                 return r;
         }
-#endif
     }
+#endif
 
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
@@ -377,9 +362,8 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     if (!PA_SOURCE_IS_OPENED(u->source->state))
         do_routing(u, data->device);
-    else {
-        pa_asyncmsgq_post(u->source->asyncmsgq, PA_MSGOBJECT(u->source), SOURCE_MESSAGE_DO_ROUTING, PA_UINT_TO_PTR(data->device), 0, NULL, NULL);
-    }
+    else
+        source_reconfigure(u, NULL, NULL, data->device);
 
     return 0;
 }
