@@ -117,6 +117,34 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
     return str;
 }
 
+/* Generic conversion */
+bool pa_string_convert_num_to_str(pa_conversion_string_t type, uint32_t value, const char **to_str) {
+    switch (type) {
+        case CONV_STRING_FORMAT:
+            return string_convert_num_to_str(string_conversion_table_format, value, to_str);
+
+        case CONV_STRING_OUTPUT_CHANNELS:
+            return string_convert_num_to_str(string_conversion_table_output_channels, value, to_str);
+
+        case CONV_STRING_INPUT_CHANNELS:
+            return string_convert_num_to_str(string_conversion_table_input_channels, value, to_str);
+
+        case CONV_STRING_OUTPUT_DEVICE:
+            return string_convert_num_to_str(string_conversion_table_output_device, value, to_str);
+
+        case CONV_STRING_INPUT_DEVICE:
+            return string_convert_num_to_str(string_conversion_table_input_device, value, to_str);
+
+        case CONV_STRING_OUTPUT_FLAG:
+            return string_convert_num_to_str(string_conversion_table_output_flag, value, to_str);
+
+        case CONV_STRING_INPUT_FLAG:
+            return string_convert_num_to_str(string_conversion_table_input_flag, value, to_str);
+    }
+
+    pa_assert_not_reached();
+    return false;
+}
 
 /* Output device */
 bool pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str) {
