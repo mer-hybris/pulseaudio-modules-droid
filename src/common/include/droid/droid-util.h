@@ -116,6 +116,8 @@ struct pa_droid_output_stream {
 
 struct pa_droid_input_stream {
     struct audio_stream_in *stream;
+    pa_sample_spec default_sample_spec;
+    pa_channel_map default_channel_map;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_sample_spec req_sample_spec;
@@ -306,8 +308,8 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 /* Open input stream with currently active routing, sample_spec and channel_map
  * are requests and may change when opening the stream. */
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
-                                            const pa_sample_spec *requested_sample_spec,
-                                            const pa_channel_map *requested_channel_map);
+                                            const pa_sample_spec *default_sample_spec,
+                                            const pa_channel_map *default_channel_map);
 bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
                                        const pa_sample_spec *requested_sample_spec,
                                        const pa_channel_map *requested_channel_map);

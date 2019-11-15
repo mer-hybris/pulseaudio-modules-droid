@@ -1614,18 +1614,10 @@ static void input_stream_close(pa_droid_stream *s) {
 bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
                                        const pa_sample_spec *requested_sample_spec,
                                        const pa_channel_map *requested_channel_map) {
-    pa_sample_spec orig_req_ss;
-    pa_channel_map orig_req_cm;
-
     pa_assert(s);
     pa_assert(s->input);
     pa_assert(requested_sample_spec);
     pa_assert(requested_channel_map);
-
-    first_reconfigure = s->input->stream ? false : true;
-
-    orig_req_ss = s->input->req_sample_spec;
-    orig_req_cm = s->input->req_channel_map;
 
     /* Copy our requested specs, so we know them when resuming from suspend
      * as well. */
@@ -1636,9 +1628,9 @@ bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
 
     if (input_stream_open(s, false) < 0) {
         if (!s->input->first) {
-            pa_log_debug("Input stream reconfigure failed, restore original values.");
-            s->input->req_sample_spec = orig_req_ss;
-            s->input->req_channel_map = orig_req_cm;
+            pa_log_debug("Input stream reconfigure failed, restore default values.");
+            s->input->req_sample_spec = s->input->default_sample_spec;
+            s->input->req_channel_map = s->input->default_channel_map;
             input_stream_open(s, false);
         }
         return false;
@@ -1648,25 +1640,27 @@ bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
 }
 
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
-                                            const pa_sample_spec *requested_sample_spec,
-                                            const pa_channel_map *requested_channel_map) {
+                                            const pa_sample_spec *default_sample_spec,
+                                            const pa_channel_map *default_channel_map) {
 
     pa_droid_stream *s = NULL;
     pa_droid_input_stream *input = NULL;
 
     pa_assert(hw_module);
-    pa_assert(requested_sample_spec);
-    pa_assert(requested_channel_map);
+    pa_assert(default_sample_spec);
+    pa_assert(default_channel_map);
 
     if (hw_module->state.active_input) {
         pa_log("Opening input stream while there is already active input stream.");
         return NULL;
     }
 
-    s = droid_stream_new(hw_module);
+    s = droid_stream_new(hw_module, hw_module->enabled_module->inputs);
     s->input = input = droid_input_stream_new();
+    s->input->default_sample_spec = *default_sample_spec;
+    s->input->default_channel_map = *default_channel_map;
 
-    if (!pa_droid_stream_reconfigure_input(s, requested_sample_spec, requested_channel_map)) {
+    if (!pa_droid_stream_reconfigure_input(s, default_sample_spec, default_channel_map)) {
         pa_droid_stream_unref(s);
         s = NULL;
     } else
