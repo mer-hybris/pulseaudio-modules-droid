@@ -492,7 +492,11 @@ static void source_reconfigure(struct userdata *u,
     }
 }
 
-static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_output_new_data *new_data, struct userdata *u) {
+static pa_hook_result_t source_output_new_hook_callback(void *hook_data,
+                                                        void *call_data,
+                                                        void *slot_data) {
+    pa_source_output_new_data *new_data = call_data;
+    struct userdata *u = slot_data;
     pa_droid_stream *primary_output;
 
     /* Not meant for us */
@@ -771,7 +775,10 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_source_put(u->source);
 
     /* As late as possible */
-    pa_module_hook_connect(u->module, &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW], PA_HOOK_LATE * 2, (pa_hook_cb_t) source_output_new_hook_callback, u);
+    pa_module_hook_connect(u->module,
+                           &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW],
+                           PA_HOOK_LATE * 2,
+                           source_output_new_hook_callback, u);
 
     pa_module_hook_connect(u->module,
                            &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_UNLINK_POST],
