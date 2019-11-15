@@ -1268,7 +1268,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
         goto fail;
     }
 
-    if (!stream_config_fill(devices, &sample_spec, &channel_map, &config_out))
+    if (!stream_config_fill(module_output, devices, &sample_spec, &channel_map, &config_out))
         goto fail;
 
     if (pa_idxset_size(module->outputs) == 0)
@@ -1488,7 +1488,7 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     sample_spec = input->req_sample_spec;
     channel_map = input->req_channel_map;
 
-    if (!stream_config_fill(hw_module->state.input_device, &sample_spec, &channel_map, &config_try))
+    if (!stream_config_fill(s->device_def, hw_module->state.input_device, &sample_spec, &channel_map, &config_try))
         goto done;
 
     pa_droid_hw_module_lock(s->module);
