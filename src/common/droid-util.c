@@ -92,7 +92,7 @@ static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL 
 
 static void droid_port_free(pa_droid_port *p);
 
-static int input_stream_set_route(pa_droid_hw_module *hw_module);
+static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s);
 
 static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
                                      const pa_droid_config_hw_module *module,
@@ -1584,6 +1584,10 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     /* Set input stream to standby */
     stream_standby(s);
 
+    /* As audio_source_t may not have any effect when opening the input stream
+     * set input parameters immediately after opening the stream. */
+    input_stream_set_route(s->module, s);
+
     pa_log_debug("Opened input stream %p", (void *) s);
     set_active_input(s->module, s);
 
@@ -1781,8 +1785,7 @@ static int droid_output_stream_set_route(pa_droid_stream *s, audio_devices_t dev
     return ret;
 }
 
-static int input_stream_set_route(pa_droid_hw_module *hw_module) {
-    pa_droid_stream *s;
+static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s) {
     pa_droid_input_stream *input;
     audio_devices_t device;
     audio_source_t source;
@@ -1791,8 +1794,11 @@ static int input_stream_set_route(pa_droid_hw_module *hw_module) {
 
     pa_assert(hw_module);
 
+    if (!s)
+        s = hw_module->state.active_input;
+
     /* No active input, no need for set parameters */
-    if (!(s = hw_module->state.active_input))
+    if (!s)
         goto done;
 
     input = s->input;
@@ -1847,7 +1853,7 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
         return droid_output_stream_set_route(s, device);
     else {
         pa_droid_hw_set_input_device(s->module, device);
-        return input_stream_set_route(s->module);
+        return input_stream_set_route(s->module, NULL);
     }
 }
 
@@ -2116,7 +2122,7 @@ bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
     }
 
     if (hw_module->state.active_input && (device_changed || source_changed))
-        input_stream_set_route(hw_module);
+        input_stream_set_route(hw_module, NULL);
 
     return true;
 }
