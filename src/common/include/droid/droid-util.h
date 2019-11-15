@@ -289,7 +289,7 @@ int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters);
 pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              const pa_sample_spec *spec,
                                              const pa_channel_map *map,
-                                             audio_output_flags_t flags,
+                                             const char *module_output_name,
                                              audio_devices_t devices);
 
 /* Set routing to the input or output stream, with following side-effects:

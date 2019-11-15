@@ -1170,8 +1170,9 @@ fail:
 pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              const pa_sample_spec *spec,
                                              const pa_channel_map *map,
-                                             audio_output_flags_t flags,
+                                             const char *module_output_name,
                                              audio_devices_t devices) {
+    const pa_droid_config_device *module_output = NULL;
     pa_droid_stream *s = NULL;
     pa_droid_output_stream *output = NULL;
     pa_droid_stream *primary_stream = NULL;
@@ -1184,9 +1185,15 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
     pa_assert(module);
     pa_assert(spec);
     pa_assert(map);
+    pa_assert(module_output_name);
 
     sample_spec = *spec;
     channel_map = *map;
+
+    if (!(module_output = pa_droid_config_find_output(module->enabled_module, module_output_name))) {
+        pa_log("Could not find output %s from module %s.", module_output_name, module->enabled_module->name);
+        goto fail;
+    }
 
     if (!stream_config_fill(devices, &sample_spec, &channel_map, &config_out))
         goto fail;
@@ -1203,7 +1210,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
     ret = module->device->open_output_stream(module->device,
                                              ++module->stream_out_id,
                                              devices,
-                                             flags,
+                                             module_output->flags,
                                              &config_out,
                                              &stream
 #if AUDIO_API_VERSION_MAJ >= 3
@@ -1219,12 +1226,12 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
         goto fail;
     }
 
-    s = droid_stream_new(module);
+    s = droid_stream_new(module, module_output);
     s->output = output = droid_output_stream_new();
     output->stream = stream;
     output->sample_spec = *spec;
     output->channel_map = *map;
-    output->flags = flags;
+    output->flags = module_output->flags;
     output->device = devices;
 
     if ((output->sample_spec.rate = output->stream->common.get_sample_rate(&output->stream->common)) != spec->rate)
