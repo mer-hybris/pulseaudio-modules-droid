@@ -520,6 +520,37 @@ static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_ou
     return PA_HOOK_OK;
 }
 
+static void source_reconfigure_after_changes(struct userdata *u) {
+    pa_source_output *so = NULL;
+    pa_source_output *so_i;
+    void *state = NULL;
+
+    if (!pa_source_used_by(u->source))
+        return;
+
+    /* Find last inserted source-output */
+    so = pa_idxset_iterate(u->source->outputs, &state, NULL);
+    if (so) {
+        while ((so_i = pa_idxset_iterate(u->source->outputs, &state, NULL)))
+            so = so_i;
+    }
+
+    if (so) {
+        if (!pa_sample_spec_equal(&so->sample_spec, pa_droid_stream_sample_spec(u->stream)) ||
+            !pa_channel_map_equal(&so->channel_map, pa_droid_stream_channel_map(u->stream))) {
+                    pa_log_info("Source-output disconnected and our source needs to be reconfigured.");
+                    source_reconfigure(u, &so->sample_spec, &so->channel_map, 0);
+        }
+    }
+}
+
+static pa_hook_result_t source_output_unlink_post_hook_callback(void *hook_data,
+                                                                void *call_data,
+                                                                void *slot_data) {
+    source_reconfigure_after_changes(slot_data);
+    return PA_HOOK_OK;
+}
+
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
@@ -741,6 +772,11 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     /* As late as possible */
     pa_module_hook_connect(u->module, &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW], PA_HOOK_LATE * 2, (pa_hook_cb_t) source_output_new_hook_callback, u);
+
+    pa_module_hook_connect(u->module,
+                           &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_UNLINK_POST],
+                           PA_HOOK_LATE * 2,
+                           source_output_unlink_post_hook_callback, u);
 
     return u->source;
 
