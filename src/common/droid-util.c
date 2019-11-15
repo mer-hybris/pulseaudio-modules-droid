@@ -1463,6 +1463,7 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     pa_channel_map channel_map;
     pa_sample_spec sample_spec;
     size_t buffer_size;
+    bool try_defaults = true;
     int ret = -1;
 
     struct audio_config config_try;
@@ -1529,14 +1530,24 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
 
                 if (!stream_config_convert(PA_DIRECTION_INPUT, &config_in, &sample_spec, &channel_map)) {
                     pa_log_warn("Failed to update PulseAudio structures from received config values.");
-                    break;
+                    goto open_done;
                 }
 
                 config_try = config_in;
                 continue;
+            } else if (try_defaults) {
+                pa_log_info("Could not open input stream, trying with defaults.");
+                sample_spec = input->default_sample_spec;
+                channel_map = input->default_channel_map;
+
+                if (!stream_config_fill(s->device_def, hw_module->state.input_device, &sample_spec, &channel_map, &config_try))
+                    goto done;
+
+                try_defaults = false;
+                continue;
             } else {
                 pa_log_warn("Could not open input stream and no suggested changes received, bailing out.");
-                break;
+                goto open_done;
             }
         } else if (config_diff(&config_in, &config_try, &diff_sample_rate, &diff_channel_mask, &diff_format)) {
             pa_log_info("Opened input stream, but differences in%s%s%s",
@@ -1552,8 +1563,9 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
             }
         }
 
-        break;
+        goto open_done;
     }
+open_done:
     pa_droid_hw_module_unlock(s->module);
 
     if (ret < 0 || !input->stream) {
@@ -1576,8 +1588,8 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
                    &config_in,
                    ret);
 
-    input->sample_spec = sample_spec;
-    input->channel_map = channel_map;
+    input->req_sample_spec = input->sample_spec = sample_spec;
+    input->req_channel_map = input->channel_map = channel_map;
     buffer_size = input->stream->common.get_buffer_size(&input->stream->common);
     s->buffer_size = buffer_size;
 
