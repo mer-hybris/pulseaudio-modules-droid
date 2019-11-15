@@ -653,6 +653,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     data.driver = driver;
     data.module = m;
     data.card = card;
+    /* Start suspended */
     data.suspend_cause = PA_SUSPEND_IDLE;
 
     if (am)
@@ -721,6 +722,9 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     if (u->source->active_port)
         source_set_port_cb(u->source, u->source->active_port);
+
+    /* Since we started in suspended mode suspend our stream immediately as well. */
+    pa_droid_stream_suspend(u->stream, true);
 
     pa_droid_stream_set_data(u->stream, u->source);
     pa_source_put(u->source);
