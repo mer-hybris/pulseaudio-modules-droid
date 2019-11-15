@@ -129,6 +129,7 @@ struct pa_droid_stream {
     PA_REFCNT_DECLARE;
 
     pa_droid_hw_module *module;
+    const pa_droid_config_device *device_def;
     size_t buffer_size;
     void *data;
 

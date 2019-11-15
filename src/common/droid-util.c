@@ -1043,13 +1043,15 @@ void pa_droid_hw_module_unlock(pa_droid_hw_module *hw) {
     pa_mutex_unlock(hw->hw_mutex);
 }
 
-static pa_droid_stream *droid_stream_new(pa_droid_hw_module *module) {
+static pa_droid_stream *droid_stream_new(pa_droid_hw_module *module,
+                                         const pa_droid_config_device *device_def) {
     pa_droid_stream *s;
 
     s = pa_xnew0(pa_droid_stream, 1);
     PA_REFCNT_INIT(s);
 
     s->module = pa_droid_hw_module_ref(module);
+    s->device_def = device_def;
 
     return s;
 }
