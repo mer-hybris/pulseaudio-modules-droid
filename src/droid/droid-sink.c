@@ -1046,6 +1046,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_card *card) {
 
     struct userdata *u = NULL;
+    const pa_droid_config_device *output = NULL;
     bool deferred_volume = false;
     char *thread_name = NULL;
     pa_sink_new_data data;
@@ -1076,9 +1077,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
-    if (card && am)
-        module_id = am->output->module->name;
-    else
+    if (card && am) {
+        output = am->output;
+        module_id = output->module->name;
+    } else
         module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
     sample_spec = m->core->default_sample_spec;
@@ -1152,6 +1154,18 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         pa_assert(card);
         pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
+        const char *output_name;
+
+        if (!(output_name = pa_modargs_get_value(ma, "output", NULL))) {
+            pa_log("No output name defined.");
+            goto fail;
+        }
+
+        if (!(output = pa_droid_config_find_output(u->hw_module->enabled_module, output_name))) {
+            pa_log("Could not find output %s from module %s.", output_name, u->hw_module->enabled_module->name);
+            goto fail;
+        }
+
         /* Sink wasn't created from inside card module, so we'll need to open
          * hw module ourself.
          *
@@ -1171,8 +1185,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
 
     /* Default routing */
-    dev_out = (am && am->output->module->global_config) ? am->output->module->global_config->default_output_device
-                                                        : u->hw_module->config->global_config->default_output_device;
+    dev_out = output->module->global_config ? output->module->global_config->default_output_device
+                                            : u->hw_module->config->global_config->default_output_device;
 
     if ((tmp = pa_modargs_get_value(ma, "output_devices", NULL))) {
         audio_devices_t tmp_dev;
@@ -1183,10 +1197,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         pa_log_debug("Set initial devices %s", tmp);
     }
 
-    if (am)
-        flags = am->output->flags;
+    flags = output->flags;
 
-    u->stream = pa_droid_open_output_stream(u->hw_module, &sample_spec, &channel_map, flags, dev_out);
+    u->stream = pa_droid_open_output_stream(u->hw_module, &sample_spec, &channel_map, output->name, dev_out);
 
     if (!u->stream) {
         pa_log("Failed to open output stream.");
@@ -1201,7 +1214,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         pa_log_info("Using buffer size %u.", u->buffer_size);
 
     if ((prewrite_resume = pa_modargs_get_value(ma, "prewrite_on_resume", NULL))) {
-        if (!parse_prewrite_on_resume(u, prewrite_resume, am ? am->output->name : module_id)) {
+        if (!parse_prewrite_on_resume(u, prewrite_resume, output->name)) {
             pa_log("Failed to parse prewrite_on_resume (%s)", prewrite_resume);
             goto fail;
         }
@@ -1218,10 +1231,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     data.module = m;
     data.card = card;
 
-    if (am)
-        set_sink_name(ma, &data, am->output->name);
-    else
-        set_sink_name(ma, &data, module_id);
+    set_sink_name(ma, &data, output->name);
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, PROP_DROID_API_STRING);
 
@@ -1287,10 +1297,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     /* Rewind internal memblockq */
     pa_sink_set_max_rewind(u->sink, 0);
 
-    if (am)
-        thread_name = pa_sprintf_malloc("droid-sink-%s", am->output->name);
-    else
-        thread_name = pa_sprintf_malloc("droid-sink-%s", module_id);
+    thread_name = pa_sprintf_malloc("droid-sink-%s", output->name);
     if (!(u->thread = pa_thread_new(thread_name, thread_func, u))) {
         pa_log("Failed to create thread.");
         goto fail;
