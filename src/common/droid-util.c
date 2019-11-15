@@ -83,7 +83,8 @@ struct droid_quirk valid_quirks[] = {
 };
 
 
-#define DEFAULT_PRIORITY (100)
+#define DEFAULT_PRIORITY        (100)
+#define DEFAULT_AUDIO_FORMAT    (AUDIO_FORMAT_PCM_16_BIT)
 
 
 static const char * const droid_combined_auto_outputs[3]    = { "primary", "low_latency", NULL };
@@ -1090,7 +1091,8 @@ static int stream_standby(pa_droid_stream *s) {
     return ret;
 }
 
-static bool stream_config_fill(audio_devices_t devices,
+static bool stream_config_fill(const pa_droid_config_device *device_def,
+                               audio_devices_t devices,
                                pa_sample_spec *sample_spec,
                                pa_channel_map *channel_map,
                                struct audio_config *config) {
@@ -1098,6 +1100,7 @@ static bool stream_config_fill(audio_devices_t devices,
     audio_channel_mask_t hal_channel_mask = 0;
     bool voicecall_record = false;
     bool output = true;
+    int i;
 
     pa_assert(sample_spec);
     pa_assert(channel_map);
@@ -1112,15 +1115,12 @@ static bool stream_config_fill(audio_devices_t devices,
     output = !(devices & AUDIO_DEVICE_IN_ALL);
 #endif
 
-    if (devices & AUDIO_DEVICE_IN_VOICE_CALL)
+    if (devices & AUDIO_DEVICE_IN_VOICE_CALL) {
+        pa_log_debug("Fill config: Use voice call");
         voicecall_record = true;
-
-    if (!pa_convert_format(sample_spec->format, CONV_FROM_PA, &hal_audio_format)) {
-        pa_log("Sample spec format %u not supported.", sample_spec->format);
-        goto fail;
     }
 
-    for (int i = 0; i < channel_map->channels; i++) {
+    for (i = 0; i < channel_map->channels; i++) {
         bool found;
         audio_channel_mask_t c;
 
@@ -1154,7 +1154,80 @@ static bool stream_config_fill(audio_devices_t devices,
         sample_spec->channels = 1;
         hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
 #endif
+        pa_log_debug("Fill config: Use %d channel(s) for voice call.", sample_spec->channels);
     }
+
+    if (!pa_convert_format(sample_spec->format, CONV_FROM_PA, &hal_audio_format)) {
+        pa_log_warn("Sample spec format %u not supported.", sample_spec->format);
+        goto fail;
+    }
+
+    /* As input sample metrics are based on user request we need to make sure that the sample
+     * format requested is actually usable with the input route. */
+    if (!output) {
+        const pa_droid_config_device *ddef;
+        uint32_t tmp;
+        const char *fmt;
+        uint32_t format_found = 0;
+
+        pa_log_debug("Fill config: Try to use format %s, sample rate %u",
+            pa_string_convert_num_to_str(CONV_STRING_FORMAT, hal_audio_format, &fmt) ? fmt : "<unknown>",
+            sample_spec->rate);
+
+        SLLIST_FOREACH(ddef, device_def) {
+            format_found |= ddef->formats & hal_audio_format;
+
+            if (!(ddef->formats & hal_audio_format) ||
+                !(ddef->devices & devices))
+                continue;
+
+            for (i = 0; i < AUDIO_MAX_SAMPLING_RATES && ddef->sampling_rates[i]; i++) {
+                if (ddef->sampling_rates[i] == (uint32_t) -1 ||
+                    ddef->sampling_rates[i] == sample_spec->rate) {
+                    goto format_found;
+                }
+            }
+        }
+
+        if (!format_found && hal_audio_format != DEFAULT_AUDIO_FORMAT) {
+            hal_audio_format = DEFAULT_AUDIO_FORMAT;
+            pa_assert_se(pa_convert_format(hal_audio_format, CONV_FROM_HAL, &tmp));
+            sample_spec->format = tmp;
+            pa_log_debug("Fill config: Override sample format, use default %s.",
+                pa_string_convert_num_to_str(CONV_STRING_FORMAT, hal_audio_format, &fmt) ? fmt : "<unknown>");
+        }
+
+        SLLIST_FOREACH(ddef, device_def) {
+            if (!(ddef->devices & devices) ||
+                !ddef->sampling_rates[0])
+                continue;
+
+            if (ddef->sampling_rates[0] == (uint32_t) -1)
+                goto format_found;
+
+            for (i = 0; i < AUDIO_MAX_SAMPLING_RATES && ddef->sampling_rates[i]; i++) {
+                if (ddef->sampling_rates[i] == sample_spec->rate)
+                    goto format_found;
+            }
+
+            /* Start from highest sample rate value */
+            for (i = 0; i < AUDIO_MAX_SAMPLING_RATES && ddef->sampling_rates[i]; i++)
+                ;
+
+            for (i -= 1; i >= 0; i--) {
+                if ((ddef->sampling_rates[i] % 11025 == 0 && sample_spec->rate % 11025 == 0) ||
+                    (ddef->sampling_rates[i] % 4000 == 0 && sample_spec->rate % 4000 == 0)) {
+                    sample_spec->rate = ddef->sampling_rates[i];
+                    pa_log_debug("Fill config: Override sample rate, use %u.", sample_spec->rate);
+                    goto format_found;
+                }
+            }
+        }
+
+        /* Format not found, fail */
+        goto fail;
+    }
+format_found:
 
     memset(config, 0, sizeof(*config));
     config->sample_rate = sample_spec->rate;
