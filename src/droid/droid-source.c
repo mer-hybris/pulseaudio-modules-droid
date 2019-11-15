@@ -94,6 +94,10 @@ enum {
 static void userdata_free(struct userdata *u);
 static int suspend(struct userdata *u);
 static void unsuspend(struct userdata *u);
+static void source_reconfigure(struct userdata *u,
+                               const pa_sample_spec *reconfigure_sample_spec,
+                               const pa_channel_map *reconfigure_channel_map,
+                               audio_devices_t update_device);
 
 /* Our droid source may be left in a state of not having an input stream
  * if reconfiguration fails and fallback to previously active values fails
@@ -454,22 +458,15 @@ static void update_latency(struct userdata *u) {
     pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
 }
 
-static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_output_new_data *new_data, struct userdata *u) {
+static void source_reconfigure(struct userdata *u,
+                               const pa_sample_spec *reconfigure_sample_spec,
+                               const pa_channel_map *reconfigure_channel_map,
+                               audio_devices_t update_device) {
     pa_channel_map old_channel_map;
     pa_sample_spec old_sample_spec;
     pa_channel_map new_channel_map;
     pa_sample_spec new_sample_spec;
     pa_queue *source_outputs = NULL;
-
-    /* Not meant for us */
-    if (new_data->source != u->source)
-        return PA_HOOK_OK;
-
-    if (pa_sample_spec_equal(&new_data->sample_spec, pa_droid_stream_sample_spec(u->stream)) &&
-        pa_channel_map_equal(&new_data->channel_map, pa_droid_stream_channel_map(u->stream)))
-        return PA_HOOK_OK;
-
-    pa_log_info("New source-output connecting and our source needs to be reconfigured.");
 
     if (pa_source_used_by(u->source)) {
         /* If we already have connected source outputs detach those
@@ -482,8 +479,11 @@ static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_ou
 
     old_channel_map = *pa_droid_stream_channel_map(u->stream);
     old_sample_spec = *pa_droid_stream_sample_spec(u->stream);
-    new_channel_map = new_data->channel_map;
-    new_sample_spec = new_data->sample_spec;
+    new_channel_map = reconfigure_channel_map ? *reconfigure_channel_map : old_channel_map;
+    new_sample_spec = reconfigure_sample_spec ? *reconfigure_sample_spec : old_sample_spec;
+
+    if (update_device)
+        do_routing(u, update_device);
 
     if (pa_droid_stream_reconfigure_input(u->stream, &new_sample_spec, &new_channel_map))
         pa_log_info("Source reconfigured.");
@@ -506,6 +506,32 @@ static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_ou
     if (source_outputs && u->source) {
         pa_source_move_all_finish(u->source, source_outputs, false);
     }
+}
+
+static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_output_new_data *new_data, struct userdata *u) {
+    pa_droid_stream *primary_output;
+
+    /* Not meant for us */
+    if (new_data->source != u->source)
+        return PA_HOOK_OK;
+
+    if (pa_sample_spec_equal(&new_data->sample_spec, pa_droid_stream_sample_spec(u->stream)) &&
+        pa_channel_map_equal(&new_data->channel_map, pa_droid_stream_channel_map(u->stream)))
+        return PA_HOOK_OK;
+
+    pa_log_info("New source-output connecting and our source needs to be reconfigured.");
+
+    /* Workaround for fm-radio loopback */
+    if (pa_safe_streq(pa_proplist_gets(new_data->proplist, "media.name"), "fmradio-loopback-source") &&
+        (primary_output = pa_droid_hw_primary_output_stream(u->hw_module))) {
+        pa_log_debug("Workaround for fm-radio loopback.");
+        source_reconfigure(u,
+                           pa_droid_stream_sample_spec(primary_output),
+                           pa_droid_stream_channel_map(primary_output),
+                           0);
+
+    } else
+        source_reconfigure(u, &new_data->sample_spec, &new_data->channel_map, 0);
 
     return PA_HOOK_OK;
 }
