@@ -199,6 +199,28 @@ const pa_droid_config_hw_module *pa_droid_config_find_module(const pa_droid_conf
     return NULL;
 }
 
+static const pa_droid_config_device *find_device(const pa_droid_config_hw_module *module, bool output, const char* device_name) {
+    pa_droid_config_device *device;
+
+    pa_assert(module);
+    pa_assert(device_name);
+
+    SLLIST_FOREACH(device, output ? module->outputs : module->inputs) {
+        if (pa_streq(device_name, device->name))
+            return device;
+    }
+
+    return NULL;
+}
+
+const pa_droid_config_device *pa_droid_config_find_output(const pa_droid_config_hw_module *module, const char* output_name) {
+    return find_device(module, true, output_name);
+}
+
+const pa_droid_config_device *pa_droid_config_find_input(const pa_droid_config_hw_module *module, const char* input_name) {
+    return find_device(module, false, input_name);
+}
+
 pa_droid_config_hw_module *pa_droid_config_hw_module_new(const pa_droid_config_audio *config, const char *name) {
     pa_droid_config_hw_module *hw_module;
 
