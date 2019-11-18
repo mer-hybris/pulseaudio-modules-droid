@@ -765,9 +765,9 @@ done:
         profile_free(p);
     } else {
         if (data->current_mix_port)
-            SLLIST_APPEND(struct profile, data->current_module->mix_ports->profiles, p);
+            SLLIST_APPEND(struct profile, data->current_mix_port->profiles, p);
         else if (data->current_device_port)
-            SLLIST_APPEND(struct profile, data->current_module->device_ports->profiles, p);
+            SLLIST_APPEND(struct profile, data->current_device_port->profiles, p);
         else
             pa_assert_not_reached();
     }
