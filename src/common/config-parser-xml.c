@@ -343,86 +343,70 @@ static char *xml_string_dup(const XML_Char *xml_str, int len)
     return str;
 }
 
-static void device_free(struct device *d) {
-    pa_assert(d);
-    pa_xfree(d->name);
-    pa_xfree(d);
-}
-
-static void profile_free(struct profile *p) {
-    pa_assert(p);
-    pa_xfree(p->name);
-    pa_xfree(p);
-}
-
-static void mix_port_free(struct mix_port *p) {
-    struct profile *profile;
-
-    pa_assert(p);
-
-    while (p->profiles) {
-        SLLIST_STEAL_FIRST(profile, p->profiles);
-        profile_free(profile);
-    };
-
-    pa_xfree(p->name);
-    pa_xfree(p->role);
-    pa_xfree(p);
-}
-
-static void device_port_free(struct device_port *p) {
-    pa_assert(p);
-    pa_xfree(p->tag_name);
-    pa_xfree(p->role);
-    pa_xfree(p);
-}
-
-static void route_free(struct route *r) {
+static void device_list_free(struct device *list) {
     struct device *d;
 
-    pa_assert(r);
-
-    while (r->sources) {
-        SLLIST_STEAL_FIRST(d, r->sources);
-        device_free(d);
+    while (list) {
+        SLLIST_STEAL_FIRST(d, list);
+        pa_xfree(d->name);
+        pa_xfree(d);
     }
-    pa_xfree(r->type);
-    pa_xfree(r->sink);
-    pa_xfree(r);
+}
+
+static void profile_list_free(struct profile *list) {
+    struct profile *p;
+
+    while (list) {
+        SLLIST_STEAL_FIRST(p, list);
+        pa_xfree(p->name);
+        pa_xfree(p);
+    };
+}
+
+static void mix_port_list_free(struct mix_port *list) {
+    struct mix_port *p;
+
+    while (list) {
+        SLLIST_STEAL_FIRST(p, list);
+        profile_list_free(p->profiles);
+        pa_xfree(p->name);
+        pa_xfree(p->role);
+        pa_xfree(p);
+    }
+}
+
+static void device_port_list_free(struct device_port *list) {
+    struct device_port *p;
+
+    while (list) {
+        SLLIST_STEAL_FIRST(p, list);
+        profile_list_free(p->profiles);
+        pa_xfree(p->tag_name);
+        pa_xfree(p->role);
+        pa_xfree(p);
+    }
+}
+
+static void route_list_free(struct route *list) {
+    struct route *r;
+
+    while (list) {
+        SLLIST_STEAL_FIRST(r, list);
+        device_list_free(r->sources);
+        pa_xfree(r->type);
+        pa_xfree(r->sink);
+        pa_xfree(r);
+    }
 }
 
 static void module_free(struct module *m) {
-    struct device *dev;
-    struct mix_port *mix_port;
-    struct device_port *device_port;
-    struct route *route;
-
     pa_assert(m);
 
-    while (m->attached_devices) {
-        SLLIST_STEAL_FIRST(dev, m->attached_devices);
-        device_free(dev);
-    };
-
-    while (m->default_output) {
-        SLLIST_STEAL_FIRST(dev, m->default_output);
-        device_free(dev);
-    };
-
-    while (m->mix_ports) {
-        SLLIST_STEAL_FIRST(mix_port, m->mix_ports);
-        mix_port_free(mix_port);
-    };
-
-    while (m->device_ports) {
-        SLLIST_STEAL_FIRST(device_port, m->device_ports);
-        device_port_free(device_port);
-    };
-
-    while (m->routes) {
-        SLLIST_STEAL_FIRST(route, m->routes);
-        route_free(route);
-    };
+    device_list_free(m->attached_devices);
+    device_list_free(m->default_output);
+    mix_port_list_free(m->mix_ports);
+    device_port_list_free(m->device_ports);
+    route_list_free(m->routes);
 
     pa_xfree(m->name);
     pa_xfree(m);
@@ -679,7 +663,7 @@ done:
         data->current_mix_port = p;
     } else {
         pa_log("[%s:%u] Failed to parse element <" ELEMENT_mixPort ">", data->fn, data->lineno);
-        mix_port_free(p);
+        mix_port_list_free(p);
     }
 
     return parsed;
@@ -759,10 +743,10 @@ done:
 
     if (!parsed) {
         pa_log_error("[%s:%u] Failed to parse element <" ELEMENT_profile ">", data->fn, data->lineno);
-        profile_free(p);
+        profile_list_free(p);
     } else if (unknown_format) {
         pa_log_info("[%s:%u] Ignore profile with unknown format.", data->fn, data->lineno);
-        profile_free(p);
+        profile_list_free(p);
     } else {
         if (data->current_mix_port)
             SLLIST_APPEND(struct profile, data->current_mix_port->profiles, p);
@@ -802,10 +786,10 @@ done:
 
     if (!parsed) {
         pa_log("[%s:%u] Failed to parse element <" ELEMENT_devicePort ">", data->fn, data->lineno);
-        device_port_free(d);
+        device_port_list_free(d);
     } else if (unknown_device) {
         pa_log_info("[%s:%u] Ignore <" ELEMENT_devicePort "> with unknown device.", data->fn, data->lineno);
-        device_port_free(d);
+        device_port_list_free(d);
     } else {
         SLLIST_APPEND(struct device_port, data->current_module->device_ports, d);
         data->current_device_port = d;
@@ -844,7 +828,7 @@ done:
         SLLIST_APPEND(struct route, data->current_module->routes, r);
     } else {
         pa_log("[%s:%u] Failed to parse element <" ELEMENT_route ">", data->fn, data->lineno);
-        route_free(r);
+        route_list_free(r);
     }
 
     return parsed;
