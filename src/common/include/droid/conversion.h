@@ -55,6 +55,8 @@ typedef enum {
     CONV_STRING_INPUT_FLAG
 } pa_conversion_string_t;
 
+bool pa_string_convert_num_to_str(pa_conversion_string_t type, uint32_t value, const char **to_str);
+
 bool pa_convert_output_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
 bool pa_convert_input_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
 bool pa_convert_format(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);

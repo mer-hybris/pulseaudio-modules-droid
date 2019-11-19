@@ -60,6 +60,7 @@ static const char* const valid_modargs[] = {
     "sink_channel_map",
     "sink_mix_route",
     "flags",
+    "output",
     "output_devices",
     "sink_name",
     "module_id",

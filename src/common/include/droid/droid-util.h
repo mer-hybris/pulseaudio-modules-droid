@@ -116,18 +116,22 @@ struct pa_droid_output_stream {
 
 struct pa_droid_input_stream {
     struct audio_stream_in *stream;
+    pa_sample_spec default_sample_spec;
+    pa_channel_map default_channel_map;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     pa_sample_spec req_sample_spec;
     pa_channel_map req_channel_map;
     uint32_t flags;
     uint32_t device;
+    bool first;
 };
 
 struct pa_droid_stream {
     PA_REFCNT_DECLARE;
 
     pa_droid_hw_module *module;
+    const pa_droid_config_device *device_def;
     size_t buffer_size;
     void *data;
 
@@ -222,6 +226,8 @@ enum pa_droid_quirk_type {
     QUIRK_OUTPUT_MAKE_WRITABLE,
     QUIRK_REALCALL,
     QUIRK_UNLOAD_CALL_EXIT,
+    QUIRK_OUTPUT_FAST,
+    QUIRK_OUTPUT_DEEP_BUFFER,
     QUIRK_COUNT
 };
 
@@ -275,6 +281,7 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
 
 /* Module operations */
 int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
+pa_droid_stream *pa_droid_hw_primary_output_stream(pa_droid_hw_module *hw);
 
 /* Stream operations */
 pa_droid_stream *pa_droid_stream_ref(pa_droid_stream *s);
@@ -286,7 +293,7 @@ int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters);
 pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              const pa_sample_spec *spec,
                                              const pa_channel_map *map,
-                                             audio_output_flags_t flags,
+                                             const char *module_output_name,
                                              audio_devices_t devices);
 
 /* Set routing to the input or output stream, with following side-effects:
@@ -303,8 +310,11 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 /* Open input stream with currently active routing, sample_spec and channel_map
  * are requests and may change when opening the stream. */
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
-                                            const pa_sample_spec *requested_sample_spec,
-                                            const pa_channel_map *requested_channel_map);
+                                            const pa_sample_spec *default_sample_spec,
+                                            const pa_channel_map *default_channel_map);
+bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
+                                       const pa_sample_spec *requested_sample_spec,
+                                       const pa_channel_map *requested_channel_map);
 bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
                                   audio_devices_t device);
 

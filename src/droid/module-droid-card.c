@@ -300,6 +300,19 @@ static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *mo
     data->namereg_fail = false;
 }
 
+static bool output_enabled(struct userdata *u, pa_droid_mapping *am) {
+    pa_assert(u);
+    pa_assert(am);
+
+    if (!pa_droid_quirk(u->hw_module, QUIRK_OUTPUT_FAST) && am->output->flags & AUDIO_OUTPUT_FLAG_FAST)
+        return false;
+
+    if (!pa_droid_quirk(u->hw_module, QUIRK_OUTPUT_DEEP_BUFFER) && am->output->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+        return false;
+
+    return true;
+}
+
 static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa_droid_profile *ap) {
     pa_card_profile *cp;
     struct profile_data *d;
@@ -320,6 +333,9 @@ static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa
 
     max_channels = 0;
     PA_IDXSET_FOREACH(am, ap->output_mappings, idx) {
+        if (!output_enabled(u, am))
+            continue;
+
         cp->n_sinks++;
         pa_droid_add_card_ports(cp, ports, am, u->core);
         max_channels = popcount(am->output->channel_masks) > max_channels
@@ -373,6 +389,9 @@ static void init_profile(struct userdata *u) {
 
     if (d->droid_profile && pa_idxset_size(d->droid_profile->output_mappings) > 0) {
         PA_IDXSET_FOREACH(am, d->droid_profile->output_mappings, idx) {
+            if (!output_enabled(u, am))
+                continue;
+
             am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
         }
     }
@@ -661,6 +680,9 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
 
     if (next->droid_profile && pa_idxset_size(next->droid_profile->output_mappings) > 0) {
         PA_IDXSET_FOREACH(am, next->droid_profile->output_mappings, idx) {
+            if (!output_enabled(u, am))
+                continue;
+
             if (!am->sink)
                 am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
 
@@ -710,6 +732,8 @@ int pa__init(pa_module *m) {
     pa_card_profile *voicecall = NULL;
 
     pa_assert(m);
+
+    pa_log_info("Create new droid-card");
 
     if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
         pa_log("Failed to parse module arguments.");

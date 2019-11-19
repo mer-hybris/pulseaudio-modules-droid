@@ -82,10 +82,6 @@ struct userdata {
     bool stream_valid;
 };
 
-enum {
-    SOURCE_MESSAGE_DO_ROUTING = PA_SOURCE_MESSAGE_MAX
-};
-
 #define DEFAULT_MODULE_ID "primary"
 
 #define DROID_AUDIO_SOURCE "droid.audio_source"
@@ -94,6 +90,10 @@ enum {
 static void userdata_free(struct userdata *u);
 static int suspend(struct userdata *u);
 static void unsuspend(struct userdata *u);
+static void source_reconfigure(struct userdata *u,
+                               const pa_sample_spec *reconfigure_sample_spec,
+                               const pa_channel_map *reconfigure_channel_map,
+                               audio_devices_t update_device);
 
 /* Our droid source may be left in a state of not having an input stream
  * if reconfiguration fails and fallback to previously active values fails
@@ -326,28 +326,17 @@ static int source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_
 
 /* Called from IO context */
 static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+#if PULSEAUDIO_VERSION < 12
     struct userdata *u = PA_SOURCE(o)->userdata;
 
     switch (code) {
-        case SOURCE_MESSAGE_DO_ROUTING: {
-            audio_devices_t device = PA_PTR_TO_UINT(data);
-
-            pa_assert(PA_SOURCE_IS_OPENED(u->source->thread_info.state));
-
-            suspend(u);
-            do_routing(u, device);
-            unsuspend(u);
-            break;
-        }
-
-#if PULSEAUDIO_VERSION < 12
         case PA_SOURCE_MESSAGE_SET_STATE: {
             int r;
             if ((r = source_set_state_in_io_thread_cb(u->source, PA_PTR_TO_UINT(data), 0)) < 0)
                 return r;
         }
-#endif
     }
+#endif
 
     return pa_source_process_msg(o, code, data, offset, chunk);
 }
@@ -373,9 +362,8 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     if (!PA_SOURCE_IS_OPENED(u->source->state))
         do_routing(u, data->device);
-    else {
-        pa_asyncmsgq_post(u->source->asyncmsgq, PA_MSGOBJECT(u->source), SOURCE_MESSAGE_DO_ROUTING, PA_UINT_TO_PTR(data->device), 0, NULL, NULL);
-    }
+    else
+        source_reconfigure(u, NULL, NULL, data->device);
 
     return 0;
 }
@@ -454,22 +442,15 @@ static void update_latency(struct userdata *u) {
     pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
 }
 
-static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_output_new_data *new_data, struct userdata *u) {
+static void source_reconfigure(struct userdata *u,
+                               const pa_sample_spec *reconfigure_sample_spec,
+                               const pa_channel_map *reconfigure_channel_map,
+                               audio_devices_t update_device) {
     pa_channel_map old_channel_map;
     pa_sample_spec old_sample_spec;
     pa_channel_map new_channel_map;
     pa_sample_spec new_sample_spec;
     pa_queue *source_outputs = NULL;
-
-    /* Not meant for us */
-    if (new_data->source != u->source)
-        return PA_HOOK_OK;
-
-    if (pa_sample_spec_equal(&new_data->sample_spec, pa_droid_stream_sample_spec(u->stream)) &&
-        pa_channel_map_equal(&new_data->channel_map, pa_droid_stream_channel_map(u->stream)))
-        return PA_HOOK_OK;
-
-    pa_log_info("New source-output connecting and our source needs to be reconfigured.");
 
     if (pa_source_used_by(u->source)) {
         /* If we already have connected source outputs detach those
@@ -482,25 +463,26 @@ static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_ou
 
     old_channel_map = *pa_droid_stream_channel_map(u->stream);
     old_sample_spec = *pa_droid_stream_sample_spec(u->stream);
-    new_channel_map = new_data->channel_map;
-    new_sample_spec = new_data->sample_spec;
+    new_channel_map = reconfigure_channel_map ? *reconfigure_channel_map : old_channel_map;
+    new_sample_spec = reconfigure_sample_spec ? *reconfigure_sample_spec : old_sample_spec;
 
-    pa_droid_stream_unref(u->stream);
-    if (!(u->stream = pa_droid_open_input_stream(u->hw_module, &new_sample_spec, &new_channel_map)))
-        u->stream = pa_droid_open_input_stream(u->hw_module, &old_sample_spec, &old_channel_map);
+    if (update_device)
+        do_routing(u, update_device);
 
-    if (u->stream) {
-        /* We need to be really careful here as we are modifying
-         * quite profound internal structures. */
-        new_sample_spec = *pa_droid_stream_sample_spec(u->stream);
-        new_channel_map = *pa_droid_stream_channel_map(u->stream);
-        u->source->channel_map = new_channel_map;
-        u->source->sample_spec = new_sample_spec;
-        pa_assert_se(pa_cvolume_remap(&u->source->reference_volume, &old_channel_map, &new_channel_map));
-        pa_assert_se(pa_cvolume_remap(&u->source->real_volume, &old_channel_map, &new_channel_map));
-        pa_assert_se(pa_cvolume_remap(&u->source->soft_volume, &old_channel_map, &new_channel_map));
+    if (pa_droid_stream_reconfigure_input(u->stream, &new_sample_spec, &new_channel_map))
         pa_log_info("Source reconfigured.");
-    }
+    else
+        pa_log_info("Failed to reconfigure input stream, no worries, using defaults.");
+
+    /* We need to be really careful here as we are modifying
+     * quite profound internal structures. */
+    new_sample_spec = *pa_droid_stream_sample_spec(u->stream);
+    new_channel_map = *pa_droid_stream_channel_map(u->stream);
+    u->source->channel_map = new_channel_map;
+    u->source->sample_spec = new_sample_spec;
+    pa_assert_se(pa_cvolume_remap(&u->source->reference_volume, &old_channel_map, &new_channel_map));
+    pa_assert_se(pa_cvolume_remap(&u->source->real_volume, &old_channel_map, &new_channel_map));
+    pa_assert_se(pa_cvolume_remap(&u->source->soft_volume, &old_channel_map, &new_channel_map));
 
     update_latency(u);
     pa_source_suspend(u->source, false, PA_SUSPEND_UNAVAILABLE);
@@ -508,7 +490,68 @@ static pa_hook_result_t source_output_new_hook_callback(pa_core *c, pa_source_ou
     if (source_outputs && u->source) {
         pa_source_move_all_finish(u->source, source_outputs, false);
     }
+}
 
+static pa_hook_result_t source_output_new_hook_callback(void *hook_data,
+                                                        void *call_data,
+                                                        void *slot_data) {
+    pa_source_output_new_data *new_data = call_data;
+    struct userdata *u = slot_data;
+    pa_droid_stream *primary_output;
+
+    /* Not meant for us */
+    if (new_data->source != u->source)
+        return PA_HOOK_OK;
+
+    if (pa_sample_spec_equal(&new_data->sample_spec, pa_droid_stream_sample_spec(u->stream)) &&
+        pa_channel_map_equal(&new_data->channel_map, pa_droid_stream_channel_map(u->stream)))
+        return PA_HOOK_OK;
+
+    pa_log_info("New source-output connecting and our source needs to be reconfigured.");
+
+    /* Workaround for fm-radio loopback */
+    if (pa_safe_streq(pa_proplist_gets(new_data->proplist, "media.name"), "fmradio-loopback-source") &&
+        (primary_output = pa_droid_hw_primary_output_stream(u->hw_module))) {
+        pa_log_debug("Workaround for fm-radio loopback.");
+        source_reconfigure(u,
+                           pa_droid_stream_sample_spec(primary_output),
+                           pa_droid_stream_channel_map(primary_output),
+                           0);
+
+    } else
+        source_reconfigure(u, &new_data->sample_spec, &new_data->channel_map, 0);
+
+    return PA_HOOK_OK;
+}
+
+static void source_reconfigure_after_changes(struct userdata *u) {
+    pa_source_output *so = NULL;
+    pa_source_output *so_i;
+    void *state = NULL;
+
+    if (!pa_source_used_by(u->source))
+        return;
+
+    /* Find last inserted source-output */
+    so = pa_idxset_iterate(u->source->outputs, &state, NULL);
+    if (so) {
+        while ((so_i = pa_idxset_iterate(u->source->outputs, &state, NULL)))
+            so = so_i;
+    }
+
+    if (so) {
+        if (!pa_sample_spec_equal(&so->sample_spec, pa_droid_stream_sample_spec(u->stream)) ||
+            !pa_channel_map_equal(&so->channel_map, pa_droid_stream_channel_map(u->stream))) {
+                    pa_log_info("Source-output disconnected and our source needs to be reconfigured.");
+                    source_reconfigure(u, &so->sample_spec, &so->channel_map, 0);
+        }
+    }
+}
+
+static pa_hook_result_t source_output_unlink_post_hook_callback(void *hook_data,
+                                                                void *call_data,
+                                                                void *slot_data) {
+    source_reconfigure_after_changes(slot_data);
     return PA_HOOK_OK;
 }
 
@@ -537,6 +580,8 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_assert(m);
     pa_assert(ma);
     pa_assert(driver);
+
+    pa_log_info("Create new droid-source");
 
     /* When running under card use hw module name for source by default. */
     if (am)
@@ -653,6 +698,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     data.driver = driver;
     data.module = m;
     data.card = card;
+    /* Start suspended */
     data.suspend_cause = PA_SUSPEND_IDLE;
 
     if (am)
@@ -722,11 +768,22 @@ pa_source *pa_droid_source_new(pa_module *m,
     if (u->source->active_port)
         source_set_port_cb(u->source, u->source->active_port);
 
+    /* Since we started in suspended mode suspend our stream immediately as well. */
+    pa_droid_stream_suspend(u->stream, true);
+
     pa_droid_stream_set_data(u->stream, u->source);
     pa_source_put(u->source);
 
     /* As late as possible */
-    pa_module_hook_connect(u->module, &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW], PA_HOOK_LATE * 2, (pa_hook_cb_t) source_output_new_hook_callback, u);
+    pa_module_hook_connect(u->module,
+                           &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW],
+                           PA_HOOK_LATE * 2,
+                           source_output_new_hook_callback, u);
+
+    pa_module_hook_connect(u->module,
+                           &u->module->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_UNLINK_POST],
+                           PA_HOOK_LATE * 2,
+                           source_output_unlink_post_hook_callback, u);
 
     return u->source;
 
