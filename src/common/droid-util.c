@@ -80,6 +80,8 @@ struct droid_quirk valid_quirks[] = {
     { "output_make_writable",   QUIRK_OUTPUT_MAKE_WRITABLE  },
     { "realcall",               QUIRK_REALCALL              },
     { "unload_call_exit",       QUIRK_UNLOAD_CALL_EXIT      },
+    { "output_fast",            QUIRK_OUTPUT_FAST           },
+    { "output_deep_buffer",     QUIRK_OUTPUT_DEEP_BUFFER    },
 };
 
 
@@ -709,8 +711,12 @@ static pa_droid_quirks *get_quirks(pa_droid_quirks *q) {
 static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
     q = NULL;
 
-#if (ANDROID_VERSION_MAJOR >= 5) || defined(DROID_AUDIO_HAL_ATOI_FIX)
     q = get_quirks(q);
+    q->enabled[QUIRK_CLOSE_INPUT] = true;
+    q->enabled[QUIRK_OUTPUT_FAST] = true;
+    q->enabled[QUIRK_OUTPUT_DEEP_BUFFER] = true;
+
+#if (ANDROID_VERSION_MAJOR >= 5) || defined(DROID_AUDIO_HAL_ATOI_FIX)
     q->enabled[QUIRK_INPUT_ATOI] = true;
 #endif
 
@@ -720,12 +726,8 @@ static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
     defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
     defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
 #warning Using set_parameters hack, originating from previous cm10 mako.
-    q = get_quirks(q);
     q->enabled[QUIRK_SET_PARAMETERS] = true;
 #endif
-
-    q = get_quirks(q);
-    q->enabled[QUIRK_CLOSE_INPUT] = true;
 
     return q;
 }
@@ -797,10 +799,10 @@ static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
         if (s->output->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
             primary_sink = sink;
 
-        if (s->output->flags & AUDIO_OUTPUT_FLAG_FAST)
+        if (pa_droid_quirk(hw, QUIRK_OUTPUT_FAST) && s->output->flags & AUDIO_OUTPUT_FLAG_FAST)
             low_latency_sink = sink;
 
-        if (s->output->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+        if (pa_droid_quirk(hw, QUIRK_OUTPUT_DEEP_BUFFER) && s->output->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
             media_latency_sink = sink;
 
 #if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
