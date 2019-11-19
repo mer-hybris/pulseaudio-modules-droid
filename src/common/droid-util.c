@@ -259,8 +259,8 @@ static void add_default_profile(pa_droid_profile_set *ps,
     pa_assert(ps);
     pa_assert(module);
     pa_assert(!primary_output || primary_output->direction == PA_DIRECTION_OUTPUT);
-    pa_assert(!low_latency_output || primary_output->direction == PA_DIRECTION_OUTPUT);
-    pa_assert(!media_latency_output || primary_output->direction == PA_DIRECTION_OUTPUT);
+    pa_assert(!low_latency_output || low_latency_output->direction == PA_DIRECTION_OUTPUT);
+    pa_assert(!media_latency_output || media_latency_output->direction == PA_DIRECTION_OUTPUT);
 
     pa_log_debug("New default profile");
 
