@@ -15,6 +15,7 @@ Supported Android versions:
  * 6.0.x
  * 7.x
  * 8.x
+ * 9.x
 
 Headers for defining devices and strings for different droid versions are in
 src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
@@ -371,6 +372,14 @@ Currently there are following quirks:
   * Some HAL module implementations get stuck in mutex or segfault when
     trying to unload the module. To avoid confusing segfaults call
     exit(0) instead of calling unload for the module.
+ * output_fast
+  * Enabled by default.
+  * Create separate sink if AUDIO_OUTPUT_FLAG_FAST is found. If this sink
+    is misbehaving try disabling this quirk.
+ * output_deep_buffer
+  * Enabled by default.
+  * Create separate sink if AUDIO_OUTPUT_FLAG_DEEP_BUFFER is found. If
+    this sink is misbehaving try disabling this quirk.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument
