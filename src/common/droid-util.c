@@ -2061,6 +2061,16 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
         ret = false;
         pa_log_warn("Failed to set mode.");
     } else {
+        if (hw_module->state.mode != mode && mode == AUDIO_MODE_IN_CALL) {
+            pa_droid_stream *primary_output;
+
+            /* Always start call mode with earpiece. This helps some devices which cannot
+             * start call directly with headset and doesn't cause any harm with devices
+             * which can either. */
+            if ((primary_output = pa_droid_hw_primary_output_stream(hw_module)))
+                pa_droid_stream_set_route(primary_output, AUDIO_DEVICE_OUT_EARPIECE);
+        }
+
         hw_module->state.mode = mode;
     }
     pa_droid_hw_module_unlock(hw_module);
