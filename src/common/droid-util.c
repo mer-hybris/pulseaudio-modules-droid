@@ -89,9 +89,6 @@ struct droid_quirk valid_quirks[] = {
 #define DEFAULT_AUDIO_FORMAT    (AUDIO_FORMAT_PCM_16_BIT)
 
 
-static const char * const droid_combined_auto_outputs[3]    = { "primary", "low_latency", NULL };
-static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL };
-
 static void droid_port_free(pa_droid_port *p);
 
 static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s);
