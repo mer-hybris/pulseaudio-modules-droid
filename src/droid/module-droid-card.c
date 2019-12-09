@@ -543,7 +543,7 @@ static pa_card_profile *leave_virtual_profile(struct userdata *u, pa_card *c,
     pa_log_debug("Leave virtual profile %s", current->droid_profile->name);
 
     if (next->mode != current->mode) {
-        park_profile(current->droid_profile);
+        park_profile(card_get_droid_profile(u->real_profile));
         pa_droid_hw_set_mode(u->hw_module, next->mode);
     }
 
@@ -596,7 +596,7 @@ static void enter_virtual_profile(struct userdata *u, pa_card *c,
     }
 
     if (next->mode != current->mode) {
-        park_profile(current->droid_profile);
+        park_profile(card_get_droid_profile(u->real_profile));
         pa_droid_hw_set_mode(u->hw_module, next->mode);
     }
 
