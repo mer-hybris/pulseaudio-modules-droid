@@ -89,9 +89,6 @@ struct droid_quirk valid_quirks[] = {
 #define DEFAULT_AUDIO_FORMAT    (AUDIO_FORMAT_PCM_16_BIT)
 
 
-static const char * const droid_combined_auto_outputs[3]    = { "primary", "low_latency", NULL };
-static const char * const droid_combined_auto_inputs[2]     = { "primary", NULL };
-
 static void droid_port_free(pa_droid_port *p);
 
 static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s);
@@ -2064,6 +2061,16 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
         ret = false;
         pa_log_warn("Failed to set mode.");
     } else {
+        if (hw_module->state.mode != mode && mode == AUDIO_MODE_IN_CALL) {
+            pa_droid_stream *primary_output;
+
+            /* Always start call mode with earpiece. This helps some devices which cannot
+             * start call directly with headset and doesn't cause any harm with devices
+             * which can either. */
+            if ((primary_output = pa_droid_hw_primary_output_stream(hw_module)))
+                pa_droid_stream_set_route(primary_output, AUDIO_DEVICE_OUT_EARPIECE);
+        }
+
         hw_module->state.mode = mode;
     }
     pa_droid_hw_module_unlock(hw_module);
