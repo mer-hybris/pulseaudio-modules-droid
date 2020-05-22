@@ -27,9 +27,10 @@ libdroid_util_deps = [
   pulsecore_dep,
 ]
 
-install_headers(libdroid_util_headers, subdir : 'pulsecore/modules/droid')
+install_headers(libdroid_util_headers,
+                subdir : 'pulsecore/modules/droid' + droid_module_suffix)
 
-libdroid_util = library('droid-util',
+libdroid_util = library('droid-util' + droid_module_suffix,
   libdroid_util_sources,
   c_args : [pa_c_args, '-DPULSEAUDIO_VERSION=@0@'.format(pa_version_major)],
   dependencies : libdroid_util_deps,
@@ -55,10 +56,11 @@ pc_cdata.set('libdir', libdir)
 pc_cdata.set('libexecdir', get_option('libexecdir'))
 pc_cdata.set('PA_MAJORMINOR', pa_version_major_minor)
 pc_cdata.set('PA_MODULE_VERSION', pa_version_module)
+pc_cdata.set('DROID_MODULE_SUFFIX', droid_module_suffix)
 
 configure_file(
   input : 'libdroid-util.pc.in',
-  output : 'libdroid-util.pc',
+  output : 'libdroid-util' + droid_module_suffix + '.pc',
   configuration : pc_cdata,
   install_dir : join_paths(libdir, 'pkgconfig')
 )

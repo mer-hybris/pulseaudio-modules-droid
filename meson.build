@@ -16,7 +16,7 @@ pa_c_args += ['-DDROID_DEVICE_@0@=1'.format(droiddevice.underscorify().to_upper(
 pa_c_args += ['-DDROID_DEVICE_STRING="@0@"'.format(droiddevice)]
 
 # dependencies
-droid_headers_dep = dependency('android-headers', required : true)
+droid_headers_dep = dependency(get_option('android-headers'), required : true)
 expat_dep = dependency('expat', version : '>= 2.1', required : true)
 hybris_dep = dependency('libhardware', version : '>= 0.1.0', required : true)
 hybris_common_dep = cc.find_library('hybris-common', required : true)
@@ -42,6 +42,12 @@ endif
 
 privlibdir = join_paths(libdir, 'pulseaudio')
 rpath_dirs = join_paths(privlibdir) + ':' + join_paths(modlibexecdir)
+
+if get_option('module-suffix') == ''
+  droid_module_suffix = ''
+else
+  droid_module_suffix = '-' + get_option('module-suffix')
+endif
 
 cdata = configuration_data()
 cdata.set_quoted('PACKAGE', meson.project_name())

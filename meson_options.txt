@@ -13,3 +13,12 @@ option('droid-device',
 option('modlibexecdir',
        type : 'string',
        description : 'Specify location where modules will be installed')
+
+option('android-headers',
+       type : 'string',
+       value : 'android-headers',
+       description : 'Specify custom android headers package')
+option('module-suffix',
+       type : 'string',
+       value : '',
+       description : 'Specify suffixes to all modules and libraries. "-" will be included automatically')

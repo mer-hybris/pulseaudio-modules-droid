@@ -4,8 +4,8 @@ libdir=@libdir@
 includedir=${prefix}/include
 libexecdir=@libexecdir@
 
-Name: libdroid-util
+Name: libdroid-util@DROID_MODULE_SUFFIX@
 Description: Common droid module building interface.
 Version: @PA_MODULE_VERSION@
-Libs: -L${libdir}/pulse-@PA_MAJORMINOR@/modules -ldroid-util
+Libs: -L${libdir}/pulse-@PA_MAJORMINOR@/modules -ldroid-util@DROID_MODULE_SUFFIX@
 Cflags: -D_REENTRANT -I${includedir}/pulsecore/modules
