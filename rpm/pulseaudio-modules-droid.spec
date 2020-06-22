@@ -47,7 +47,7 @@ This contains development files for PulseAudio droid modules.
 %build
 echo "%{moduleversion}" > .tarball-version
 # Obtain the DEVICE from the same source as used in /etc/os-release
-. /usr/lib/droid-devel/hw-release.vars
+. %{_libdir}/droid-devel/hw-release.vars
 %reconfigure --disable-static --with-droid-device=$MER_HA_DEVICE
 make %{?jobs:-j%jobs}
 
