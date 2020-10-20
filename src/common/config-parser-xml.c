@@ -42,6 +42,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 #include <pulse/xmalloc.h>
 #include <pulsecore/core-util.h>
 #include <pulsecore/core-error.h>
+#include <pulsecore/strbuf.h>
 
 #include "droid/conversion.h"
 #include "droid/sllist.h"
@@ -70,6 +71,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 /*                ELEMENT_profile */
 #define       ELEMENT_routes                "routes"
 #define         ELEMENT_route               "route"
+#define ELEMENT_include                     "xi:include"
 
 #define ATTRIBUTE_version                   "version"
 #define ATTRIBUTE_name                      "name"
@@ -83,6 +85,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 #define ATTRIBUTE_sink                      "sink"
 #define ATTRIBUTE_sources                   "sources"
 #define ATTRIBUTE_type                      "type"
+#define ATTRIBUTE_href                      "href"
 
 #define PORT_TYPE_sink                      "sink"
 #define PORT_TYPE_source                    "source"
@@ -133,6 +136,7 @@ static void parse_default_output_device(struct parser_data *data, const char *st
 static void parse_item(struct parser_data *data, const char *str);
 static bool parse_module(struct parser_data *data, const char *element_name, const XML_Char **attributes);
 static bool parse_global_configuration(struct parser_data *data, const char *element_name, const XML_Char **attributes);
+static bool parse_module_include(struct parser_data *data, const char *element_name, const XML_Char **attributes);
 
 static const struct element_parser element_parse_route = {
     ELEMENT_route,
@@ -214,12 +218,20 @@ static const struct element_parser element_parse_attached_devices = {
     &element_parse_item
 };
 
+static const struct element_parser element_parse_module_include = {
+    ELEMENT_include,
+    parse_module_include,
+    NULL,
+    &element_parse_attached_devices,
+    NULL
+};
+
 static const struct element_parser element_parse_module = {
     ELEMENT_module,
     parse_module,
     NULL,
     NULL,
-    &element_parse_attached_devices
+    &element_parse_module_include
 };
 
 static const struct element_parser element_parse_modules = {
@@ -309,9 +321,17 @@ struct module {
     struct module *next;
 };
 
+struct includes {
+    char *href;
+    struct module *module;
+
+    struct includes *next;
+};
+
 struct audio_policy_configuration {
     struct global_configuration *global;
     struct module *modules;
+    struct includes *includes;
 };
 
 struct parser_data {
@@ -326,6 +346,7 @@ struct parser_data {
     struct module *current_module;
     struct mix_port *current_mix_port;
     struct device_port *current_device_port;
+    struct includes *current_include;
 };
 
 
@@ -411,9 +432,15 @@ static void module_free(struct module *m) {
     pa_xfree(m);
 }
 
+static void includes_free(struct includes *i) {
+    pa_assert(i);
+
+    pa_xfree(i->href);
+    pa_xfree(i);
+}
+
 static void audio_policy_configuration_free(struct audio_policy_configuration *xml_config) {
     struct global_configuration *global;
-    struct module *m;
 
     pa_assert(xml_config);
 
@@ -425,9 +452,16 @@ static void audio_policy_configuration_free(struct audio_policy_configuration *x
     }
 
     while (xml_config->modules) {
+        struct module *m;
         SLLIST_STEAL_FIRST(m, xml_config->modules);
         module_free(m);
-    };
+    }
+
+    while (xml_config->includes) {
+        struct includes *i;
+        SLLIST_STEAL_FIRST(i, xml_config->includes);
+        includes_free(i);
+    }
 
     pa_xfree(xml_config);
 }
@@ -571,9 +605,36 @@ static bool parse_audio_policy_configuration(struct parser_data *data,
     return true;
 }
 
+static bool parse_module_include(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
+    struct includes *i;
+    char *href = NULL;
+
+    if (!get_element_attr(data, attributes, true, ATTRIBUTE_href, &href)) {
+        pa_log("[%s:%u] Include but no href.", data->fn, data->lineno);
+        return false;
+    }
+
+    /* We ignore xpointer attribute for now and just use the module element
+     * we are currently in when parsing the included file. */
+
+    i = pa_xmalloc0(sizeof(*i));
+    i->module = data->current_module;
+    i->href = href;
+
+    SLLIST_APPEND(struct includes, data->conf->includes, i);
+
+    return true;
+}
+
 static bool parse_module(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
     struct module *m;
     char *halVersion = NULL;
+
+    if (data->current_include && data->current_include->module) {
+        /* We are processing included file, get our module definition from cache. */
+        data->current_module = data->current_include->module;
+        return true;
+    }
 
     m = pa_xmalloc0(sizeof(*m));
 
@@ -1021,6 +1082,31 @@ static pa_droid_config_audio *convert_config(struct audio_policy_configuration *
     return config;
 }
 
+/* Take base filename and relative path to filename and construct new
+ * path replacing file part from the base filename with new filename.
+ * For example, base_file="x/y/file.xml", filename="a/other.xml"
+ * result "x/y/a/other.xml"
+ */
+static char *build_path(const char *base_file, const char *filename) {
+    char *fn = NULL;
+    pa_strbuf *buf;
+    char *end;
+    int len;
+
+    pa_assert(base_file);
+    pa_assert(filename);
+
+    if ((end = strrchr(base_file, '/'))) {
+        buf = pa_strbuf_new();
+        len = end - base_file + 1;
+        pa_strbuf_putsn(buf, base_file, len);
+        pa_strbuf_puts(buf, filename);
+        fn = pa_strbuf_to_string_free(buf);
+    }
+
+    return fn;
+}
+
 pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
     pa_droid_config_audio *config = NULL;
     struct parser_data data;
@@ -1032,6 +1118,27 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 
     if (!(ret = parse_file(&data, &element_parse_root, filename)))
         goto done;
+
+    if (data.conf->includes) {
+        /* Only handle module includes for now. */
+        SLLIST_FOREACH(data.current_include, data.conf->includes) {
+            char *fn = NULL;
+
+            if (!data.current_include->module)
+                continue;
+
+            if (data.current_include->href[0] != '/')
+                fn = build_path(filename, data.current_include->href);
+
+            ret = parse_file(&data, &element_parse_modules, fn ? fn : data.current_include->href);
+
+            pa_assert(!data.current_module);
+            pa_xfree(fn);
+
+            if (!ret)
+                goto done;
+        }
+    }
 
     config = convert_config(data.conf);
 
