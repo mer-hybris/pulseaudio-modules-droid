@@ -319,7 +319,6 @@ struct parser_data {
     const char *fn;
     unsigned lineno;
 
-    const struct element_parser *root;
     const struct element_parser *current;
     struct element_parser_stack *stack;
 
@@ -834,7 +833,7 @@ done:
     return parsed;
 }
 
-static bool parse_file(struct parser_data *data, const char *filename) {
+static bool parse_file(struct parser_data *data, const struct element_parser *root, const char *filename) {
     char buf[BUFSIZ];
     FILE *f = NULL;
     XML_Parser parser = NULL;
@@ -857,6 +856,8 @@ static bool parse_file(struct parser_data *data, const char *filename) {
     data->fn = filename;
     if (!data->conf)
         data->conf = pa_xnew0(struct audio_policy_configuration, 1);
+
+    data->current = root;
 
     XML_SetUserData(parser, data);
     XML_SetElementHandler(parser, xml_start_element, xml_end_element);
@@ -1029,10 +1030,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 
     memset(&data, 0, sizeof(data));
 
-    data.root = &element_parse_root;
-    data.current = data.root;
-
-    if (!(ret = parse_file(&data, filename)))
+    if (!(ret = parse_file(&data, &element_parse_root, filename)))
         goto done;
 
     config = convert_config(data.conf);
