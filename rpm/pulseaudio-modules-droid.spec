@@ -5,9 +5,8 @@
 Name:       pulseaudio-modules-droid
 
 Summary:    PulseAudio Droid HAL modules
-Version:    %{pulsemajorminor}.85
+Version:    %{pulsemajorminor}.86
 Release:    1
-Group:      Multimedia/PulseAudio
 License:    LGPLv2+
 URL:        https://github.com/mer-hybris/pulseaudio-modules-droid
 Source0:    %{name}-%{version}.tar.bz2
@@ -34,7 +33,6 @@ This contains common libs for the PulseAudio droid modules.
 
 %package devel
 Summary:    Development files for PulseAudio droid modules
-Group:      Development/Libraries
 Requires:   %{name}-common = %{version}-%{release}
 Requires:   pulseaudio >= %{pulseversion}
 
