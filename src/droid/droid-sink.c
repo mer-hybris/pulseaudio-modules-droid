@@ -524,14 +524,6 @@ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offse
             *((pa_usec_t*) data) = pa_droid_stream_get_latency(u->stream);
             return 0;
         }
-
-#if PULSEAUDIO_VERSION < 12
-        case PA_SINK_MESSAGE_SET_STATE: {
-            int r;
-            if ((r = sink_set_state_in_io_thread_cb(u->sink, PA_PTR_TO_UINT(data), 0)) < 0)
-                return r;
-        }
-#endif
     }
 
     return pa_sink_process_msg(o, code, data, offset, chunk);
@@ -1286,9 +1278,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->sink->userdata = u;
 
     u->sink->parent.process_msg = sink_process_msg;
-#if PULSEAUDIO_VERSION >= 12
     u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
-#endif
 
     u->sink->set_port = sink_set_port_cb;
 
