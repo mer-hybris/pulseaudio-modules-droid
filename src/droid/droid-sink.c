@@ -54,6 +54,7 @@
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/hashmap.h>
 #include <pulsecore/core-subscribe.h>
+#include <pulse/util.h>
 #include <pulse/version.h>
 
 #include "droid-sink.h"

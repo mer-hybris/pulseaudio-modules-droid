@@ -51,6 +51,7 @@
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/resampler.h>
+#include <pulse/util.h>
 #include <pulse/version.h>
 
 #include "droid-source.h"
