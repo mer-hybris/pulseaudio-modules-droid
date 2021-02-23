@@ -40,8 +40,6 @@
 #include <droid/droid-util.h>
 #include "droid-source.h"
 
-#include "module-droid-source-symdef.h"
-
 PA_MODULE_AUTHOR("Juho Hämäläinen");
 PA_MODULE_DESCRIPTION("Droid source");
 PA_MODULE_USAGE("master_source=<source to connect to> "
