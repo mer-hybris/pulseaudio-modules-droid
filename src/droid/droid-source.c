@@ -51,6 +51,7 @@
 #include <pulsecore/rtpoll.h>
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/resampler.h>
+#include <pulse/util.h>
 #include <pulse/version.h>
 
 #include "droid-source.h"
@@ -322,23 +323,6 @@ static int source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_
     }
 
     return 0;
-}
-
-/* Called from IO context */
-static int source_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
-#if PULSEAUDIO_VERSION < 12
-    struct userdata *u = PA_SOURCE(o)->userdata;
-
-    switch (code) {
-        case PA_SOURCE_MESSAGE_SET_STATE: {
-            int r;
-            if ((r = source_set_state_in_io_thread_cb(u->source, PA_PTR_TO_UINT(data), 0)) < 0)
-                return r;
-        }
-    }
-#endif
-
-    return pa_source_process_msg(o, code, data, offset, chunk);
 }
 
 static int source_set_port_cb(pa_source *s, pa_device_port *p) {
@@ -740,10 +724,8 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     u->source->userdata = u;
 
-    u->source->parent.process_msg = source_process_msg;
-#if PULSEAUDIO_VERSION >= 12
+    u->source->parent.process_msg = pa_source_process_msg;
     u->source->set_state_in_io_thread = source_set_state_in_io_thread_cb;
-#endif
 
     source_set_mute_control(u);
 

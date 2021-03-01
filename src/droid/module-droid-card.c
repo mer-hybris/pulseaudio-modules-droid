@@ -64,8 +64,6 @@
 #include "droid-sink.h"
 #include "droid-source.h"
 
-#include "module-droid-card-symdef.h"
-
 PA_MODULE_AUTHOR("Juho Hämäläinen");
 PA_MODULE_DESCRIPTION("Droid card");
 PA_MODULE_VERSION(PACKAGE_VERSION);
