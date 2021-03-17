@@ -27,6 +27,10 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <grp.h>
 
 #ifdef HAVE_VALGRIND_MEMCHECK_H
 #include <valgrind/memcheck.h>
@@ -37,6 +41,7 @@
 #include <pulse/volume.h>
 #include <pulse/xmalloc.h>
 #include <pulse/direction.h>
+#include <pulse/util.h>
 
 #include <pulsecore/core.h>
 #include <pulsecore/core-error.h>
@@ -82,8 +87,13 @@ struct droid_quirk valid_quirks[] = {
     { "unload_call_exit",       QUIRK_UNLOAD_CALL_EXIT      },
     { "output_fast",            QUIRK_OUTPUT_FAST           },
     { "output_deep_buffer",     QUIRK_OUTPUT_DEEP_BUFFER    },
+    { "audio_cal_wait",         QUIRK_AUDIO_CAL_WAIT        },
 };
 
+#define QUIRK_AUDIO_CAL_WAIT_S  (10)
+#define QUIRK_AUDIO_CAL_FILE    "/data/vendor/audio/cirrus_sony.cal"
+#define QUIRK_AUDIO_CAL_GROUP   "audio"
+#define QUIRK_AUDIO_CAL_MODE    (0664)
 
 #define DEFAULT_PRIORITY        (100)
 #define DEFAULT_AUDIO_FORMAT    (AUDIO_FORMAT_PCM_16_BIT)
@@ -858,6 +868,66 @@ static char *shared_name_get(const char *module_id) {
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
 }
 
+static void quirk_audio_cal(pa_droid_hw_module *hw, uint32_t flags) {
+    struct group *grp;
+
+    pa_assert(hw);
+
+    if (!pa_droid_quirk(hw, QUIRK_AUDIO_CAL_WAIT))
+        return;
+
+    if (access(QUIRK_AUDIO_CAL_FILE, F_OK) == 0) {
+        if (flags & AUDIO_OUTPUT_FLAG_PRIMARY) {
+            pa_log_info("Waiting for audio calibration to load.");
+            /* 1 second is enough, so let's double that. */
+            pa_msleep(2 * PA_MSEC_PER_SEC);
+        }
+        return;
+    }
+
+    pa_log_info("Waiting for audio calibration to finish... (%d seconds)", QUIRK_AUDIO_CAL_WAIT_S);
+
+    /* First wait until the calibration file appears on file system. */
+    for (int i = 0; i < QUIRK_AUDIO_CAL_WAIT_S; i++) {
+        pa_log_debug("%d...", QUIRK_AUDIO_CAL_WAIT_S - i);
+        pa_msleep(PA_MSEC_PER_SEC);
+        if (access(QUIRK_AUDIO_CAL_FILE, F_OK) == 0) {
+            pa_log_debug("Calibration file " QUIRK_AUDIO_CAL_FILE " appeared, wait one second more.");
+            /* Then wait for a bit more. */
+            pa_msleep(PA_MSEC_PER_SEC);
+            break;
+        }
+    }
+
+    if (access(QUIRK_AUDIO_CAL_FILE, F_OK) != 0)
+        goto fail;
+
+    if (!(grp = getgrnam(QUIRK_AUDIO_CAL_GROUP))) {
+        pa_log("couldn't get gid for " QUIRK_AUDIO_CAL_GROUP);
+        goto fail;
+    }
+
+    if (chown(QUIRK_AUDIO_CAL_FILE, getuid(), grp->gr_gid) < 0) {
+        pa_log("chown failed for " QUIRK_AUDIO_CAL_FILE);
+        goto fail;
+    }
+
+    if (chmod(QUIRK_AUDIO_CAL_FILE, QUIRK_AUDIO_CAL_MODE) < 0) {
+        pa_log("chmod failed for " QUIRK_AUDIO_CAL_FILE);
+        goto fail;
+    }
+
+    pa_log_info("Done waiting for audio calibration.");
+
+    return;
+
+fail:
+    if (access(QUIRK_AUDIO_CAL_FILE, F_OK) == 0)
+        unlink(QUIRK_AUDIO_CAL_FILE);
+
+    pa_log("Audio calibration file generation failed! (" QUIRK_AUDIO_CAL_FILE " doesn't exist)");
+}
+
 static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config,
                                                 const char *module_id, const pa_droid_quirks *quirks) {
     const pa_droid_config_hw_module *module;
@@ -1307,6 +1377,8 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
         goto fail;
     }
 
+    pa_log_info("Open output stream %s", module_output_name);
+
     if (!stream_config_fill(module_output, devices, &sample_spec, &channel_map, &config_out))
         goto fail;
 
@@ -1337,6 +1409,8 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
         pa_log("Failed to open output stream: %d", ret);
         goto fail;
     }
+
+    quirk_audio_cal(module, module_output->flags);
 
     s = droid_stream_new(module, module_output);
     s->output = output = droid_output_stream_new();

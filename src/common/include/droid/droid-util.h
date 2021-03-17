@@ -79,6 +79,7 @@ enum pa_droid_quirk_type {
     QUIRK_UNLOAD_CALL_EXIT,
     QUIRK_OUTPUT_FAST,
     QUIRK_OUTPUT_DEEP_BUFFER,
+    QUIRK_AUDIO_CAL_WAIT,
     QUIRK_COUNT
 };
 
