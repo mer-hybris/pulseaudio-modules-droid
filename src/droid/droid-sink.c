@@ -290,7 +290,7 @@ static int thread_write(struct userdata *u) {
             pa_memblockq_drop(u->memblockq, c.length);
             pa_memblock_unref(c.memblock);
             u->write_time = 0;
-            pa_log("failed to write stream (%d)", wrote);
+            pa_log("failed to write stream (%zd)", wrote);
             return -1;
         }
 
@@ -1013,7 +1013,7 @@ static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_re
             goto error;
 
         if (pa_streq(stream, name)) {
-            pa_log_info("Using requested prewrite size for %s: %u (%u * %u).",
+            pa_log_info("Using requested prewrite size for %s: %zu (%u * %zu).",
                         name, u->buffer_size * b, b, u->buffer_size);
             u->prewrite_silence = b;
             pa_xfree(entry);
@@ -1202,9 +1202,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->buffer_size = pa_droid_stream_buffer_size(u->stream);
     if (sink_buffer) {
         u->buffer_size = pa_droid_buffer_size_round_up(sink_buffer, u->buffer_size);
-        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, sink_buffer);
+        pa_log_info("Using buffer size %zu (requested %u).", u->buffer_size, sink_buffer);
     } else
-        pa_log_info("Using buffer size %u.", u->buffer_size);
+        pa_log_info("Using buffer size %zu.", u->buffer_size);
 
     if ((prewrite_resume = pa_modargs_get_value(ma, "prewrite_on_resume", NULL))) {
         if (!parse_prewrite_on_resume(u, prewrite_resume, output->name)) {
@@ -1299,7 +1299,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     /* HAL latencies are in milliseconds. */
     latency = pa_droid_stream_get_latency(u->stream);
     pa_sink_set_fixed_latency(u->sink, latency);
-    pa_log_debug("Set fixed latency %llu usec", latency);
+    pa_log_debug("Set fixed latency %" PRIu64 " usec", latency);
     pa_sink_set_max_request(u->sink, u->buffer_size);
 
     if (u->sink->active_port)
