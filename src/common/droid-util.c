@@ -685,30 +685,20 @@ void pa_droid_quirk_log(pa_droid_hw_module *hw) {
 
     pa_assert(hw);
 
-    if (hw->quirks) {
-        for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++) {
-            if (hw->quirks->enabled[i]) {
-                pa_log_debug("Enabled quirks:");
-                for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++)
-                    if (hw->quirks->enabled[i])
-                        pa_log_debug("  %s", valid_quirks[i].name);
-                return;
-            }
+    for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++) {
+        if (hw->quirks.enabled[i]) {
+            pa_log_debug("Enabled quirks:");
+            for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++)
+                if (hw->quirks.enabled[i])
+                    pa_log_debug("  %s", valid_quirks[i].name);
+            return;
         }
     }
 }
 
-static pa_droid_quirks *get_quirks(pa_droid_quirks *q) {
-    if (!q)
-        q = pa_xnew0(pa_droid_quirks, 1);
-
-    return q;
-}
-
 static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
-    q = NULL;
+    pa_assert(q);
 
-    q = get_quirks(q);
     q->enabled[QUIRK_CLOSE_INPUT] = true;
     q->enabled[QUIRK_OUTPUT_FAST] = true;
     q->enabled[QUIRK_OUTPUT_DEEP_BUFFER] = true;
@@ -729,19 +719,23 @@ static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
     return q;
 }
 
-bool pa_droid_quirk_parse(pa_droid_hw_module *hw, const char *quirks) {
+bool pa_droid_quirk_parse(pa_droid_quirks *quirks, const char *quirks_def) {
     char *quirk = NULL;
     char *d;
     const char *state = NULL;
 
-    pa_assert(hw);
     pa_assert(quirks);
 
-    hw->quirks = get_quirks(hw->quirks);
+    memset(quirks, 0, sizeof(*quirks));
+    set_default_quirks(quirks);
 
-    while ((quirk = pa_split(quirks, ",", &state))) {
+    if (!quirks_def)
+        return true;
+
+    while ((quirk = pa_split(quirks_def, ",", &state))) {
         uint32_t i;
         bool enable = false;
+        bool found = false;
 
         if (strlen(quirk) < 2)
             goto error;
@@ -756,9 +750,14 @@ bool pa_droid_quirk_parse(pa_droid_hw_module *hw, const char *quirks) {
             goto error;
 
         for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++) {
-            if (pa_streq(valid_quirks[i].name, d))
-                hw->quirks->enabled[valid_quirks[i].value] = enable;
+            if (pa_streq(valid_quirks[i].name, d)) {
+                quirks->enabled[valid_quirks[i].value] = enable;
+                found = true;
+            }
         }
+
+        if (!found)
+            goto error;
 
         pa_xfree(quirk);
     }
@@ -766,7 +765,7 @@ bool pa_droid_quirk_parse(pa_droid_hw_module *hw, const char *quirks) {
     return true;
 
 error:
-    pa_log("Incorrect quirk definition \"%s\" (\"%s\")", quirk ? quirk : "<null>", quirks);
+    pa_log("Incorrect quirk definition \"%s\" (\"%s\")", quirk ? quirk : "<null>", quirks_def);
     pa_xfree(quirk);
 
     return false;
@@ -859,7 +858,8 @@ static char *shared_name_get(const char *module_id) {
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
 }
 
-static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
+static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config,
+                                                const char *module_id, const pa_droid_quirks *quirks) {
     const pa_droid_config_hw_module *module;
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
@@ -920,7 +920,10 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
     hw->shared_name = shared_name_get(hw->module_id);
     hw->outputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
     hw->inputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
-    hw->quirks = set_default_quirks(hw->quirks);
+    if (quirks)
+        memcpy(&hw->quirks, quirks, sizeof(*quirks));
+    else
+        set_default_quirks(&hw->quirks);
 
     hw->sink_put_hook_slot      = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_EARLY-10,
                                                   sink_put_hook_cb, hw);
@@ -941,20 +944,59 @@ fail:
     return NULL;
 }
 
-pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
-    pa_droid_hw_module *hw;
+static pa_droid_hw_module *droid_hw_module_shared_get(pa_core *core, const char *module_id) {
+    pa_droid_hw_module *hw = NULL;
     char *shared_name;
 
     pa_assert(core);
     pa_assert(module_id);
 
     shared_name = shared_name_get(module_id);
+
     if ((hw = pa_shared_get(core, shared_name)))
         hw = pa_droid_hw_module_ref(hw);
-    else
-        hw = droid_hw_module_open(core, config, module_id);
 
     pa_xfree(shared_name);
+
+    return hw;
+}
+
+pa_droid_hw_module *pa_droid_hw_module_get2(pa_core *core, pa_modargs *ma, const char *module_id) {
+    pa_droid_hw_module *hw = NULL;
+    pa_droid_config_audio *config = NULL;
+    pa_droid_quirks quirks;
+
+    pa_assert(core);
+    pa_assert(ma);
+    pa_assert(module_id);
+
+    /* First let's find out if hw module has already been opened. */
+
+    if ((hw = droid_hw_module_shared_get(core, module_id)))
+        return hw;
+
+    /* No hw module object in shared object db, let's parse quirks and config and
+     * open the module now. */
+
+    if (!pa_droid_quirk_parse(&quirks, pa_modargs_get_value(ma, "quirks", NULL)))
+        return NULL;
+
+    if (!(config = pa_droid_config_load(ma)))
+        return NULL;
+
+    hw = droid_hw_module_open(core, config, module_id, &quirks);
+
+    pa_droid_config_free(config);
+
+    return hw;
+}
+
+pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
+    pa_droid_hw_module *hw;
+
+    if (!(hw = droid_hw_module_shared_get(core, module_id)))
+        hw = droid_hw_module_open(core, config, module_id, NULL);
+
     return hw;
 }
 
@@ -1007,8 +1049,6 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         pa_assert(pa_idxset_size(hw->inputs) == 0);
         pa_idxset_free(hw->inputs, NULL);
     }
-
-    pa_xfree(hw->quirks);
 
     pa_xfree(hw);
 }
