@@ -1427,7 +1427,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 
     s->buffer_size = output->stream->common.get_buffer_size(&output->stream->common);
 
-    pa_log_info("Opened droid output stream %p with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u) buffer size: %u (%llu usec)",
+    pa_log_info("Opened droid output stream %p with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u) buffer size: %zu (%" PRIu64 " usec)",
             (void *) s,
             devices,
             output->flags,
