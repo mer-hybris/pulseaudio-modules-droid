@@ -16,6 +16,7 @@ Supported Android versions:
  * 7.x
  * 8.x
  * 9.x
+ * 10.x
 
 Headers for defining devices and strings for different droid versions are in
 src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
@@ -380,6 +381,12 @@ Currently there are following quirks:
   * Enabled by default.
   * Create separate sink if AUDIO_OUTPUT_FLAG_DEEP_BUFFER is found. If
     this sink is misbehaving try disabling this quirk.
+ * audio_cal_wait
+  * Disabled by default.
+  * Certain devices do audio calibration during hw module open and
+    writing audio too early will break the calibration. In these cases
+    this quirk can be enabled and 10 seconds of sleep is added after
+    opening hw module.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument
