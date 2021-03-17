@@ -2,21 +2,21 @@ PulseAudio Droid modules
 ========================
 
 Building of droid modules is split to two packages
- * common (and common-devel) which contains shared library code for use in
-   PulseAudio modules in this package and for inclusion in other projects
- * droid with actual PulseAudio modules
+* **common** (and **common-devel**) which contains shared library code for use in
+  PulseAudio modules in this package and for inclusion in other projects
+* **droid** with actual PulseAudio modules
 
 Supported Android versions:
 
- * 4.1.x with Qualcomm extensions (tested with 4.1.2)
- * 4.2.x
- * 4.4.x
- * 5.x
- * 6.0.x
- * 7.x
- * 8.x
- * 9.x
- * 10.x
+* 4.1.x with Qualcomm extensions (tested with 4.1.2)
+* 4.2.x
+* 4.4.x
+* 5.x
+* 6.0.x
+* 7.x
+* 8.x
+* 9.x
+* 10.x
 
 Headers for defining devices and strings for different droid versions are in
 src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
@@ -27,11 +27,11 @@ and FANCY_ENTRY_IF_FOO if enum FOO exists in HAL audio.h.
 
 For example:
 
-# configure.ac:
+    # configure.ac:
     CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_IP])
     CC_CHECK_DROID_ENUM([${DROIDHEADERS_CFLAGS}], [AUDIO_DEVICE_OUT_OTHER_NEW])
 
-# and then in droid-util-audio.h add macros to proper tables:
+    # and then in droid-util-audio.h add macros to proper tables:
     /* string_conversion_table_output_device[] */
     STRING_ENTRY_IF_OUT_IP
     STRING_ENTRY_IF_OUT_OTHER_NEW
@@ -142,18 +142,18 @@ routes audio to internal handsfree (ihf - "handsfree speaker"):
 (Before starting, droid_card.primary is using profile primary-primary and
 sink.primary port output-speaker)
 
-pactl set-card-profile droid_card.primary voicecall
-pactl set-sink-port sink.primary output-parking
-pactl set-sink-port sink.primary output-speaker
+    pactl set-card-profile droid_card.primary voicecall
+    pactl set-sink-port sink.primary output-parking
+    pactl set-sink-port sink.primary output-speaker
 
 After this, when there is an active voicecall (created by ofono for example),
 voice audio starts to flow between modem and audio chip.
 
 To disable voicecall and return to media audio:
 
-pactl set-card-profile droid_card.primary primary-primary
-pactl set-sink-port sink.primary output-parking
-pactl set-sink-port sink.primary output-speaker
+    pactl set-card-profile droid_card.primary primary-primary
+    pactl set-sink-port sink.primary output-parking
+    pactl set-sink-port sink.primary output-speaker
 
 With this example sequence sinks and sources are the ones from primary-primary
 card profile, and they are maintained for the whole duration of the voicecall
@@ -166,10 +166,10 @@ active port is a no-op (output/input-parking doesn't do any real routing
 changes).
 
 Current virtual profiles are:
- * voicecall
- * voicecall-record
- * communication
- * ringtone
+* voicecall
+* voicecall-record
+* communication
+* ringtone
 
 Communication profile is used for VoIP-like applications, to enable some
 voicecall related algorithms without being in voicecall. Ringtone profile
@@ -202,7 +202,7 @@ to PulseAudio card profiles. For example configuration with
         }
     }
 
-Would map to card profiles (<output>-<input>) primary-primary and lpa-primary.
+Would map to card profiles ([output]-[input]) primary-primary and lpa-primary.
 
 module-droid-sink and module-droid-source
 -----------------------------------------
@@ -212,7 +212,8 @@ hand, but droid-card loads appropriate modules based on the active card
 profile.
 
 Output and input ports for droid-sink and droid-source are generated from the
-audio_policy.conf, where each device generates (usually) one port, for example:
+audio_policy_configuration.xml (where available) or audio_policy.conf (legacy),
+where each device generates (usually) one port, for example:
 
     audio_hw_modules {
         primary {
@@ -246,7 +247,7 @@ droid-util-XXX.h
 
 Changing output routing is then as simple as
 
-pactl set-sink-port sink.primary output-wired_headphone
+    pactl set-sink-port sink.primary output-wired_headphone
 
 Sink or source do not track possible headphone/other wired accessory plugging,
 but this needs to be handled elsewhere and then that other entity needs to
@@ -274,20 +275,20 @@ to read from the source but through resampler.
 
 For example,
 
- 1) source-output 44100Hz, stereo connects (so1)
-   a) source is configured with 44100Hz, stereo
-   b) so1 connects to the source without resampler
- 2) source-output 16000Hz, mono connects (so2)
-   a) so1 is detached from the source
-   b) source is configured with 16000Hz, mono
-   c) so2 connects to the source without resampler
-   d) resampler is created for so1, 16000Hz, mono -> 44100Hz stereo
-   f) so1 is re-attached to the source through resampler
- 3) source-output 16000Hz, mono connects (so3)
-   a) so1 and so2 are detached from the source
-   b) so3 connects to the source without resampler
-   c) so1 is re-attached to the source through resampler
-   d) so2 is attached to the source
+1) source-output 44100Hz, stereo connects (so1)
+    1) source is configured with 44100Hz, stereo
+    2) so1 connects to the source without resampler
+2) source-output 16000Hz, mono connects (so2)
+    1) so1 is detached from the source
+    2) source is configured with 16000Hz, mono
+    3) so2 connects to the source without resampler
+    4) resampler is created for so1, 16000Hz, mono -> 44100Hz stereo
+    5) so1 is re-attached to the source through resampler
+3) source-output 16000Hz, mono connects (so3)
+    1) so1 and so2 are detached from the source
+    2) so3 connects to the source without resampler
+    3) so1 is re-attached to the source through resampler
+    4) so2 is attached to the source
 
 Classifying sinks and sources
 -----------------------------
@@ -297,14 +298,14 @@ functionality to ease device classification.
 
 Currently following properties are set:
 
- * For droid sinks
-  * droid.output.primary
-  * droid.output.low_latency
-  * droid.output.media_latency
-  * droid.output.offload
- * For droid sources
-  * droid.input.builtin
-  * droid.input.external
+* For droid sinks
+    * droid.output.primary
+    * droid.output.low_latency
+    * droid.output.media_latency
+    * droid.output.offload
+* For droid sources
+    * droid.input.builtin
+    * droid.input.external
 
 If the property is set and with value "true", the sink or source should be
 used for the property type. If the property is not defined or contains
@@ -313,11 +314,11 @@ value "false" it shouldn't be used for the property type.
 For example, we might have sink.primary and sink.low_latency with following
 properties:
 
- * sink.primary
-  * droid.output.primary "true"
-  * droid.output.media_latency "true"
- * sink.low_latency
-  * droid.output.low_latency "true"
+* sink.primary
+    * droid.output.primary "true"
+    * droid.output.media_latency "true"
+* sink.low_latency
+    * droid.output.low_latency "true"
 
 There also may be just one sink, with all the properties defined as "true"
 and so on.
@@ -334,59 +335,59 @@ are enabled by default with some adaptations etc.
 
 Currently there are following quirks:
 
- * input_atoi
-  * Enabled by default with Android versions 5 and up.
-  * Due to how atoi works in bionic vs libc we need to pass the input
-    route a bit funny. If input routing doesn't work switch this on or off.
- * set_parameters
-  * Disabled by default.
-  * Some adaptations need to use hw module's generic set_parameters call
-    to change input routing. If input routing doesn't work switch this
-    on or off. (mostly just older adaptations)
- * close_input
-  * Enabled by default.
-  * Close input stream when not in use instead of suspending the stream.
-    Cannot be changed when multiple inputs are merged to single source.
- * unload_no_close
-  * Disabled by default.
-  * Don't call audio_hw_device_close() for the hw module when unloading.
-    Mostly useful for tracking module unload issues.
- * no_hw_volume
-  * Disabled by default.
-  * Some broken implementations are incorrectly probed for supporting hw
-    volume control. This is manifested by always full volume with volume
-    control not affecting volume level. To fix this enable this quirk.
- * output_make_writable
-  * Disabled by default.
-  * Some implementations modify write buffer in-place when this should
-    not be done. This can result in random segfaults when playing audio.
-    As a workaround make the buffer memchunk writable before passing to
-    audio HAL.
- * realcall
-  * Disabled by default.
-  * Some vendors apply custom realcall parameter to HAL device when
-    doing voicecall routing. If there is no voicecall audio you can
-    try enabling this quirk so that the realcall parameter is applied
-    when switching to voicecall profile.
- * unload_call_exit
-  * Disabled by default.
-  * Some HAL module implementations get stuck in mutex or segfault when
-    trying to unload the module. To avoid confusing segfaults call
-    exit(0) instead of calling unload for the module.
- * output_fast
-  * Enabled by default.
-  * Create separate sink if AUDIO_OUTPUT_FLAG_FAST is found. If this sink
-    is misbehaving try disabling this quirk.
- * output_deep_buffer
-  * Enabled by default.
-  * Create separate sink if AUDIO_OUTPUT_FLAG_DEEP_BUFFER is found. If
-    this sink is misbehaving try disabling this quirk.
- * audio_cal_wait
-  * Disabled by default.
-  * Certain devices do audio calibration during hw module open and
-    writing audio too early will break the calibration. In these cases
-    this quirk can be enabled and 10 seconds of sleep is added after
-    opening hw module.
+* input_atoi
+    * Enabled by default with Android versions 5 and up.
+    * Due to how atoi works in bionic vs libc we need to pass the input
+      route a bit funny. If input routing doesn't work switch this on or off.
+* set_parameters
+    * Disabled by default.
+    * Some adaptations need to use hw module's generic set_parameters call
+      to change input routing. If input routing doesn't work switch this
+      on or off. (mostly just older adaptations)
+* close_input
+    * Enabled by default.
+    * Close input stream when not in use instead of suspending the stream.
+      Cannot be changed when multiple inputs are merged to single source.
+* unload_no_close
+    * Disabled by default.
+    * Don't call audio_hw_device_close() for the hw module when unloading.
+      Mostly useful for tracking module unload issues.
+* no_hw_volume
+    * Disabled by default.
+    * Some broken implementations are incorrectly probed for supporting hw
+      volume control. This is manifested by always full volume with volume
+      control not affecting volume level. To fix this enable this quirk.
+* output_make_writable
+    * Disabled by default.
+    * Some implementations modify write buffer in-place when this should
+      not be done. This can result in random segfaults when playing audio.
+      As a workaround make the buffer memchunk writable before passing to
+      audio HAL.
+* realcall
+    * Disabled by default.
+    * Some vendors apply custom realcall parameter to HAL device when
+      doing voicecall routing. If there is no voicecall audio you can
+      try enabling this quirk so that the realcall parameter is applied
+      when switching to voicecall profile.
+* unload_call_exit
+    * Disabled by default.
+    * Some HAL module implementations get stuck in mutex or segfault when
+      trying to unload the module. To avoid confusing segfaults call
+      exit(0) instead of calling unload for the module.
+* output_fast
+    * Enabled by default.
+    * Create separate sink if AUDIO_OUTPUT_FLAG_FAST is found. If this sink
+      is misbehaving try disabling this quirk.
+* output_deep_buffer
+    * Enabled by default.
+    * Create separate sink if AUDIO_OUTPUT_FLAG_DEEP_BUFFER is found. If
+      this sink is misbehaving try disabling this quirk.
+* audio_cal_wait
+    * Disabled by default.
+    * Certain devices do audio calibration during hw module open and
+      writing audio too early will break the calibration. In these cases
+      this quirk can be enabled and 10 seconds of sleep is added after
+      opening hw module.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument
@@ -416,7 +417,7 @@ droid.device.additional-route connects to droid-sink, this extra route is set
 
 For example, if droid-sink has active port output-wired_headphone:
 
-paplay --property=droid.device.additional-route=AUDIO_DEVICE_OUT_SPEAKER a.wav
+    paplay --property=droid.device.additional-route=AUDIO_DEVICE_OUT_SPEAKER a.wav
 
 As long as the new stream is connected to droid-sink, output routing is
 SPEAKER.
