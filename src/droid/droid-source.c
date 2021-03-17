@@ -174,7 +174,7 @@ static int thread_read(struct userdata *u) {
     pa_memblock_release(chunk.memblock);
 
     if (readd < 0) {
-        pa_log("Failed to read from stream. (err %i)", readd);
+        pa_log("Failed to read from stream. (err %zd)", readd);
         goto end;
     }
 
@@ -414,9 +414,9 @@ static void update_latency(struct userdata *u) {
 
     if (u->source_buffer_size) {
         u->buffer_size = pa_droid_buffer_size_round_up(u->source_buffer_size, u->buffer_size);
-        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, u->source_buffer_size);
+        pa_log_info("Using buffer size %zu (requested %zu).", u->buffer_size, u->source_buffer_size);
     } else
-        pa_log_info("Using buffer size %u.", u->buffer_size);
+        pa_log_info("Using buffer size %zu.", u->buffer_size);
 
     if (pa_thread_mq_get())
         pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
