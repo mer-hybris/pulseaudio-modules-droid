@@ -1053,7 +1053,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_channel_map channel_map;
     bool namereg_fail = false;
     pa_usec_t latency;
-    pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
     uint32_t sink_buffer = 0;
     const char *prewrite_resume = NULL;
     bool mix_route = false;
@@ -1160,21 +1159,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
 
         /* Sink wasn't created from inside card module, so we'll need to open
-         * hw module ourself.
-         *
-         * First let's find out if hw module has already been opened, or if we need to
-         * do it ourself. */
-        if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
-            /* No hw module object in shared object db, let's open the module now. */
-            if (!(config = pa_droid_config_load(ma)))
-                goto fail;
+         * hw module ourself. */
 
-            if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-                goto fail;
-
-            pa_droid_config_free(config);
-            config = NULL;
-        }
+        if (!(u->hw_module = pa_droid_hw_module_get2(u->core, ma, module_id)))
+            goto fail;
     }
 
     /* Default routing */
@@ -1326,7 +1314,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     return u->sink;
 
 fail:
-    pa_droid_config_free(config);
     pa_xfree(thread_name);
 
     if (u)
