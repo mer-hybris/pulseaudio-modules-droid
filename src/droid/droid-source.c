@@ -558,7 +558,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_channel_map channel_map;
     const char *format;
     bool namereg_fail = false;
-    pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
 
     pa_assert(m);
@@ -634,20 +633,10 @@ pa_source *pa_droid_source_new(pa_module *m,
         pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
         /* Source wasn't created from inside card module, so we'll need to open
-         * hw module ourself.
-         *
-         * First let's find out if hw module has already been opened, or if we need to
-         * do it ourself. */
-        if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
-            if (!(config = pa_droid_config_load(ma)))
-                goto fail;
+         * hw module ourself. */
 
-            if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-                goto fail;
-
-            pa_droid_config_free(config);
-            config = NULL;
-        }
+        if (!(u->hw_module = pa_droid_hw_module_get2(u->core, ma, module_id)))
+            goto fail;
     }
 
     /* Default routing */
@@ -770,7 +759,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     return u->source;
 
 fail:
-    pa_droid_config_free(config);
     pa_xfree(thread_name);
 
     if (u)
