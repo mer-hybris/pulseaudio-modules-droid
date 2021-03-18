@@ -566,6 +566,7 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 static void apply_volume(pa_sink *s) {
     struct userdata *u = s->userdata;
     pa_cvolume r;
+    float val;
 
     if (!u->use_hw_volume)
         return;
@@ -573,23 +574,17 @@ static void apply_volume(pa_sink *s) {
     /* Shift up by the base volume */
     pa_sw_cvolume_divide_scalar(&r, &s->real_volume, s->base_volume);
 
-    if (r.channels == 1) {
-        float val = pa_sw_volume_to_linear(r.values[0]);
-        pa_log_debug("Set %s hw volume %f", s->name, val);
-        pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->output->stream->set_volume(u->stream->output->stream, val, val) < 0)
-            pa_log_warn("Failed to set hw volume.");
-        pa_droid_hw_module_unlock(u->hw_module);
-    } else if (r.channels == 2) {
-        float val[2];
-        for (unsigned i = 0; i < 2; i++)
-            val[i] = pa_sw_volume_to_linear(r.values[i]);
-        pa_log_debug("Set %s hw volume %f : %f", s->name, val[0], val[1]);
-        pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->output->stream->set_volume(u->stream->output->stream, val[0], val[1]) < 0)
-            pa_log_warn("Failed to set hw volume.");
-        pa_droid_hw_module_unlock(u->hw_module);
-    }
+    /* So far every hal implementation doing volume control expects
+     * both channels to have equal value, so we can just average the value
+     * from all channels. */
+    val = pa_sw_volume_to_linear(pa_cvolume_avg(&r));
+
+    pa_log_debug("Set %s volume -> %f", s->name, val);
+    pa_droid_hw_module_lock(u->hw_module);
+    if (u->stream->output->stream->set_volume(u->stream->output->stream, val, val) < 0)
+        pa_log_warn("Failed to set volume.");
+    pa_droid_hw_module_unlock(u->hw_module);
+}
 
 static void sink_set_volume_cb(pa_sink *s) {
     (void) s;
