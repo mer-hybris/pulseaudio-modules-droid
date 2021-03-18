@@ -80,6 +80,7 @@ struct userdata {
     pa_usec_t write_time;
     pa_usec_t write_threshold;
     audio_devices_t prewrite_devices;
+    bool prewrite_always;
     uint32_t prewrite_silence;
     pa_hook_slot *sink_put_hook_slot;
     pa_hook_slot *sink_unlink_hook_slot;
@@ -467,7 +468,7 @@ static int unsuspend(struct userdata *u) {
 
     if (u->prewrite_silence &&
         (u->primary_devices | u->extra_devices) & u->prewrite_devices &&
-        pa_droid_output_stream_any_active(u->stream) == 0) {
+        (u->prewrite_always || pa_droid_output_stream_any_active(u->stream) == 0)) {
         for (i = 0; i < u->prewrite_silence; i++)
             thread_write_silence(u);
     }
@@ -1005,6 +1006,9 @@ static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_re
     /* Argument is string of for example "deep_buffer=AUDIO_DEVICE_OUT_SPEAKER:1,primary=FOO:5" */
 
     while ((entry = pa_split(prewrite_resume, ",", &state))) {
+        audio_devices_t prewrite_devices = 0;
+        bool prewrite_always = false;
+        char *tmp;
 
         entry_len = strlen(entry);
         devices_index = strcspn(entry, "=");
@@ -1025,17 +1029,23 @@ static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_re
         devices[value_index] = '\0';
         value = devices + value_index + 1;
 
-        if (!parse_device_list(devices, &u->prewrite_devices)) {
-            u->prewrite_devices = 0;
+        if (!parse_device_list(devices, &prewrite_devices))
             goto error;
+
+        if ((tmp = strstr(value, "/always"))) {
+            prewrite_always = true;
+            *tmp = '\0';
         }
 
         if (strlen(value) == 0 || pa_atou(value, &b) < 0)
             goto error;
 
         if (pa_streq(stream, name)) {
-            pa_log_info("Using requested prewrite size for %s: %zu (%u * %zu).",
+            pa_log_info("Using requested prewrite%s size for %s: %zu (%u * %zu).",
+                        prewrite_always ? "_always" : "",
                         name, u->buffer_size * b, b, u->buffer_size);
+            u->prewrite_devices = prewrite_devices;
+            u->prewrite_always = prewrite_always;
             u->prewrite_silence = b;
             pa_xfree(entry);
             return true;
