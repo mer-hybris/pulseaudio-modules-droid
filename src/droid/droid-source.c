@@ -174,7 +174,7 @@ static int thread_read(struct userdata *u) {
     pa_memblock_release(chunk.memblock);
 
     if (readd < 0) {
-        pa_log("Failed to read from stream. (err %i)", readd);
+        pa_log("Failed to read from stream. (err %zd)", readd);
         goto end;
     }
 
@@ -414,9 +414,9 @@ static void update_latency(struct userdata *u) {
 
     if (u->source_buffer_size) {
         u->buffer_size = pa_droid_buffer_size_round_up(u->source_buffer_size, u->buffer_size);
-        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, u->source_buffer_size);
+        pa_log_info("Using buffer size %zu (requested %zu).", u->buffer_size, u->source_buffer_size);
     } else
-        pa_log_info("Using buffer size %u.", u->buffer_size);
+        pa_log_info("Using buffer size %zu.", u->buffer_size);
 
     if (pa_thread_mq_get())
         pa_source_set_fixed_latency_within_thread(u->source, pa_bytes_to_usec(u->buffer_size, pa_droid_stream_sample_spec(u->stream)));
@@ -558,7 +558,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     pa_channel_map channel_map;
     const char *format;
     bool namereg_fail = false;
-    pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
     uint32_t source_buffer = 0;
 
     pa_assert(m);
@@ -634,20 +633,10 @@ pa_source *pa_droid_source_new(pa_module *m,
         pa_assert_se((u->hw_module = pa_droid_hw_module_get(u->core, NULL, card_data->module_id)));
     } else {
         /* Source wasn't created from inside card module, so we'll need to open
-         * hw module ourself.
-         *
-         * First let's find out if hw module has already been opened, or if we need to
-         * do it ourself. */
-        if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
-            if (!(config = pa_droid_config_load(ma)))
-                goto fail;
+         * hw module ourself. */
 
-            if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-                goto fail;
-
-            pa_droid_config_free(config);
-            config = NULL;
-        }
+        if (!(u->hw_module = pa_droid_hw_module_get2(u->core, ma, module_id)))
+            goto fail;
     }
 
     /* Default routing */
@@ -770,7 +759,6 @@ pa_source *pa_droid_source_new(pa_module *m,
     return u->source;
 
 fail:
-    pa_droid_config_free(config);
     pa_xfree(thread_name);
 
     if (u)

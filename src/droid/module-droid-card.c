@@ -722,11 +722,9 @@ int pa__init(pa_module *m) {
     struct userdata *u = NULL;
     pa_modargs *ma = NULL;
     pa_card_new_data data;
-    pa_droid_config_audio *config = NULL;
     const char *module_id;
     bool namereg_fail = false;
     bool default_profile = true;
-    const char *quirks;
     pa_card_profile *voicecall = NULL;
 
     pa_assert(m);
@@ -749,26 +747,8 @@ int pa__init(pa_module *m) {
 
     module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
-    /* First let's find out if hw module has already been opened, or if we need to
-     * do it ourself. */
-    if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
-        /* No hw module object in shared object db, let's open the module now. */
-        if (!(config = pa_droid_config_load(ma)))
-            goto fail;
-
-        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-            goto fail;
-
-        pa_droid_config_free(config);
-        config = NULL;
-    }
-
-    if ((quirks = pa_modargs_get_value(ma, "quirks", NULL))) {
-        if (!pa_droid_quirk_parse(u->hw_module, quirks)) {
-            pa_log("Failed to parse quirks.");
-            goto fail;
-        }
-    }
+    if (!(u->hw_module = pa_droid_hw_module_get2(u->core, ma, module_id)))
+        goto fail;
 
     pa_droid_quirk_log(u->hw_module);
 
@@ -870,8 +850,6 @@ int pa__init(pa_module *m) {
     return 0;
 
 fail:
-    pa_droid_config_free(config);
-
     if (ma)
         pa_modargs_free(ma);
 

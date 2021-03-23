@@ -290,7 +290,7 @@ static int thread_write(struct userdata *u) {
             pa_memblockq_drop(u->memblockq, c.length);
             pa_memblock_unref(c.memblock);
             u->write_time = 0;
-            pa_log("failed to write stream (%d)", wrote);
+            pa_log("failed to write stream (%zd)", wrote);
             return -1;
         }
 
@@ -1013,7 +1013,7 @@ static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_re
             goto error;
 
         if (pa_streq(stream, name)) {
-            pa_log_info("Using requested prewrite size for %s: %u (%u * %u).",
+            pa_log_info("Using requested prewrite size for %s: %zu (%u * %zu).",
                         name, u->buffer_size * b, b, u->buffer_size);
             u->prewrite_silence = b;
             pa_xfree(entry);
@@ -1053,7 +1053,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_channel_map channel_map;
     bool namereg_fail = false;
     pa_usec_t latency;
-    pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
     uint32_t sink_buffer = 0;
     const char *prewrite_resume = NULL;
     bool mix_route = false;
@@ -1160,21 +1159,10 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         }
 
         /* Sink wasn't created from inside card module, so we'll need to open
-         * hw module ourself.
-         *
-         * First let's find out if hw module has already been opened, or if we need to
-         * do it ourself. */
-        if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
-            /* No hw module object in shared object db, let's open the module now. */
-            if (!(config = pa_droid_config_load(ma)))
-                goto fail;
+         * hw module ourself. */
 
-            if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-                goto fail;
-
-            pa_droid_config_free(config);
-            config = NULL;
-        }
+        if (!(u->hw_module = pa_droid_hw_module_get2(u->core, ma, module_id)))
+            goto fail;
     }
 
     /* Default routing */
@@ -1202,9 +1190,9 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->buffer_size = pa_droid_stream_buffer_size(u->stream);
     if (sink_buffer) {
         u->buffer_size = pa_droid_buffer_size_round_up(sink_buffer, u->buffer_size);
-        pa_log_info("Using buffer size %u (requested %u).", u->buffer_size, sink_buffer);
+        pa_log_info("Using buffer size %zu (requested %u).", u->buffer_size, sink_buffer);
     } else
-        pa_log_info("Using buffer size %u.", u->buffer_size);
+        pa_log_info("Using buffer size %zu.", u->buffer_size);
 
     if ((prewrite_resume = pa_modargs_get_value(ma, "prewrite_on_resume", NULL))) {
         if (!parse_prewrite_on_resume(u, prewrite_resume, output->name)) {
@@ -1299,7 +1287,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     /* HAL latencies are in milliseconds. */
     latency = pa_droid_stream_get_latency(u->stream);
     pa_sink_set_fixed_latency(u->sink, latency);
-    pa_log_debug("Set fixed latency %llu usec", latency);
+    pa_log_debug("Set fixed latency %" PRIu64 " usec", latency);
     pa_sink_set_max_request(u->sink, u->buffer_size);
 
     if (u->sink->active_port)
@@ -1326,7 +1314,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     return u->sink;
 
 fail:
-    pa_droid_config_free(config);
     pa_xfree(thread_name);
 
     if (u)
