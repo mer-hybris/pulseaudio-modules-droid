@@ -80,6 +80,7 @@ struct userdata {
     pa_usec_t write_time;
     pa_usec_t write_threshold;
     audio_devices_t prewrite_devices;
+    bool prewrite_always;
     uint32_t prewrite_silence;
     pa_hook_slot *sink_put_hook_slot;
     pa_hook_slot *sink_unlink_hook_slot;
@@ -130,6 +131,7 @@ typedef struct droid_parameter_mapping {
 static void parameter_free(droid_parameter_mapping *m);
 static void userdata_free(struct userdata *u);
 static void set_voice_volume(struct userdata *u, pa_sink_input *i);
+static void apply_volume(pa_sink *s);
 
 static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
     pa_assert(u);
@@ -392,6 +394,9 @@ static void thread_func(void *userdata) {
             if (pa_rtpoll_timer_elapsed(u->rtpoll)) {
                 pa_usec_t sleept = 0;
 
+                if (u->use_hw_volume)
+                    pa_sink_volume_change_apply(u->sink, NULL);
+
                 thread_render(u);
                 thread_write(u);
 
@@ -399,6 +404,9 @@ static void thread_func(void *userdata) {
                     sleept = u->buffer_time;
 
                 pa_rtpoll_set_timer_relative(u->rtpoll, sleept);
+
+                if (u->use_hw_volume)
+                    pa_sink_volume_change_apply(u->sink, NULL);
             }
         } else
             pa_rtpoll_set_timer_disabled(u->rtpoll);
@@ -456,9 +464,11 @@ static int unsuspend(struct userdata *u) {
 
     pa_log_info("Resuming...");
 
+    apply_volume(u->sink);
+
     if (u->prewrite_silence &&
         (u->primary_devices | u->extra_devices) & u->prewrite_devices &&
-        pa_droid_output_stream_any_active(u->stream) == 0) {
+        (u->prewrite_always || pa_droid_output_stream_any_active(u->stream) == 0)) {
         for (i = 0; i < u->prewrite_silence; i++)
             thread_write_silence(u);
     }
@@ -554,30 +564,36 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
     return 0;
 }
 
-static void sink_set_volume_cb(pa_sink *s) {
+static void apply_volume(pa_sink *s) {
     struct userdata *u = s->userdata;
     pa_cvolume r;
+    float val;
+
+    if (!u->use_hw_volume)
+        return;
 
     /* Shift up by the base volume */
     pa_sw_cvolume_divide_scalar(&r, &s->real_volume, s->base_volume);
 
-    if (r.channels == 1) {
-        float val = pa_sw_volume_to_linear(r.values[0]);
-        pa_log_debug("Set %s hw volume %f", s->name, val);
-        pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->output->stream->set_volume(u->stream->output->stream, val, val) < 0)
-            pa_log_warn("Failed to set hw volume.");
-        pa_droid_hw_module_unlock(u->hw_module);
-    } else if (r.channels == 2) {
-        float val[2];
-        for (unsigned i = 0; i < 2; i++)
-            val[i] = pa_sw_volume_to_linear(r.values[i]);
-        pa_log_debug("Set %s hw volume %f : %f", s->name, val[0], val[1]);
-        pa_droid_hw_module_lock(u->hw_module);
-        if (u->stream->output->stream->set_volume(u->stream->output->stream, val[0], val[1]) < 0)
-            pa_log_warn("Failed to set hw volume.");
-        pa_droid_hw_module_unlock(u->hw_module);
-    }
+    /* So far every hal implementation doing volume control expects
+     * both channels to have equal value, so we can just average the value
+     * from all channels. */
+    val = pa_sw_volume_to_linear(pa_cvolume_avg(&r));
+
+    pa_log_debug("Set %s volume -> %f", s->name, val);
+    pa_droid_hw_module_lock(u->hw_module);
+    if (u->stream->output->stream->set_volume(u->stream->output->stream, val, val) < 0)
+        pa_log_warn("Failed to set volume.");
+    pa_droid_hw_module_unlock(u->hw_module);
+}
+
+static void sink_set_volume_cb(pa_sink *s) {
+    (void) s;
+    /* noop */
+}
+
+static void sink_write_volume_cb(pa_sink *s) {
+    apply_volume(s);
 }
 
 /* Called from main thread */
@@ -624,8 +640,10 @@ static void update_volumes(struct userdata *u) {
                      u->use_hw_volume ? "hardware" : "software", u->sink->name);
     }
 
-    if (u->use_hw_volume)
+    if (u->use_hw_volume) {
         pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
+        pa_sink_set_write_volume_callback(u->sink, sink_write_volume_cb);
+    }
 }
 
 static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *module_id) {
@@ -727,8 +745,10 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
 
         pa_assert(!u->sink_input_volume_changed_hook_slot);
 
-        if (u->use_hw_volume)
+        if (u->use_hw_volume) {
+            pa_sink_set_write_volume_callback(u->sink, NULL);
             pa_sink_set_set_volume_callback(u->sink, NULL);
+        }
 
         u->sink_input_volume_changed_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_INPUT_VOLUME_CHANGED],
                 PA_HOOK_LATE+10, (pa_hook_cb_t) sink_input_volume_changed_hook_cb, u);
@@ -748,8 +768,10 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
         pa_log_debug("Using %s volume control with %s",
                      u->use_hw_volume ? "hardware" : "software", u->sink->name);
 
-        if (u->use_hw_volume)
+        if (u->use_hw_volume) {
             pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
+            pa_sink_set_write_volume_callback(u->sink, sink_write_volume_cb);
+        }
     }
 }
 
@@ -984,6 +1006,9 @@ static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_re
     /* Argument is string of for example "deep_buffer=AUDIO_DEVICE_OUT_SPEAKER:1,primary=FOO:5" */
 
     while ((entry = pa_split(prewrite_resume, ",", &state))) {
+        audio_devices_t prewrite_devices = 0;
+        bool prewrite_always = false;
+        char *tmp;
 
         entry_len = strlen(entry);
         devices_index = strcspn(entry, "=");
@@ -1004,17 +1029,23 @@ static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_re
         devices[value_index] = '\0';
         value = devices + value_index + 1;
 
-        if (!parse_device_list(devices, &u->prewrite_devices)) {
-            u->prewrite_devices = 0;
+        if (!parse_device_list(devices, &prewrite_devices))
             goto error;
+
+        if ((tmp = strstr(value, "/always"))) {
+            prewrite_always = true;
+            *tmp = '\0';
         }
 
         if (strlen(value) == 0 || pa_atou(value, &b) < 0)
             goto error;
 
         if (pa_streq(stream, name)) {
-            pa_log_info("Using requested prewrite size for %s: %zu (%u * %zu).",
+            pa_log_info("Using requested prewrite%s size for %s: %zu (%u * %zu).",
+                        prewrite_always ? "_always" : "",
                         name, u->buffer_size * b, b, u->buffer_size);
+            u->prewrite_devices = prewrite_devices;
+            u->prewrite_always = prewrite_always;
             u->prewrite_silence = b;
             pa_xfree(entry);
             return true;
