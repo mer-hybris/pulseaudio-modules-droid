@@ -99,9 +99,21 @@ struct droid_quirk valid_quirks[] = {
 #define DEFAULT_AUDIO_FORMAT    (AUDIO_FORMAT_PCM_16_BIT)
 
 
+#ifndef AUDIO_PARAMETER_VALUE_ON
+#define AUDIO_PARAMETER_VALUE_ON    "on"
+#endif
+
+#ifndef AUDIO_PARAMETER_VALUE_OFF
+#define AUDIO_PARAMETER_VALUE_OFF   "off"
+#endif
+
+#define AUDIO_PARAMETER_BT_SCO_ON   "BT_SCO=" AUDIO_PARAMETER_VALUE_ON
+#define AUDIO_PARAMETER_BT_SCO_OFF  "BT_SCO=" AUDIO_PARAMETER_VALUE_OFF
+
 static void droid_port_free(pa_droid_port *p);
 
 static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s);
+static int droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
 
 static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
                                      const pa_droid_config_hw_module *module,
@@ -1861,10 +1873,29 @@ static int droid_output_stream_set_route(pa_droid_stream *s, audio_devices_t dev
     pa_mutex_lock(s->module->output_mutex);
 
     if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY || pa_droid_hw_primary_output_stream(s->module) == NULL) {
+        int set_bt_sco = -1;
+
         parameters = pa_sprintf_malloc("%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, device);
+
+        /* Set BT_SCO parameter for Bluetooth voice/voip call routes. */
+        if (device != output->device &&
+            (device | output->device) & (AUDIO_DEVICE_OUT_BLUETOOTH_SCO |
+                                         AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET |
+                                         AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT)) {
+
+            set_bt_sco = (device & (AUDIO_DEVICE_OUT_BLUETOOTH_SCO |
+                                    AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET |
+                                    AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT)) ? 1 : 0;
+        }
+
+        if (set_bt_sco == 1)
+            droid_set_parameters(s->module, AUDIO_PARAMETER_BT_SCO_ON);
 
         pa_log_debug("output stream %p set_parameters(%s) %#010x", (void *) s, parameters, device);
         ret = output->stream->common.set_parameters(&output->stream->common, parameters);
+
+        if (set_bt_sco == 0)
+            droid_set_parameters(s->module, AUDIO_PARAMETER_BT_SCO_OFF);
 
         if (ret < 0) {
             if (ret == -ENOSYS)
@@ -2002,19 +2033,30 @@ int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters) {
     return ret;
 }
 
-int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters) {
+static int droid_set_parameters(pa_droid_hw_module *hw, const char *parameters) {
     int ret;
 
     pa_assert(hw);
     pa_assert(parameters);
 
     pa_log_debug("hw %p set_parameters(%s)", (void *) hw, parameters);
-    pa_mutex_lock(hw->hw_mutex);
     ret = hw->device->set_parameters(hw->device, parameters);
-    pa_mutex_unlock(hw->hw_mutex);
 
     if (ret < 0)
         pa_log("hw module %p set_parameters(%s) failed: %d", (void *) hw, parameters, ret);
+
+    return ret;
+}
+
+int pa_droid_set_parameters(pa_droid_hw_module *hw, const char *parameters) {
+    int ret;
+
+    pa_assert(hw);
+    pa_assert(parameters);
+
+    pa_mutex_lock(hw->hw_mutex);
+    ret = droid_set_parameters(hw, parameters);
+    pa_mutex_unlock(hw->hw_mutex);
 
     return ret;
 }
