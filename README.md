@@ -388,6 +388,13 @@ Currently there are following quirks:
       writing audio too early will break the calibration. In these cases
       this quirk can be enabled and 10 seconds of sleep is added after
       opening hw module.
+* standby_set_route
+    * Disabled by default.
+    * Some devices don't like to receive set_parameters() call while they
+      are in write(), even if it seems the mutexes are correctly in place.
+      Standby is another synchronization point which seems to work better.
+      If there are hiccups like long delays when setting route during
+      voice call start try enabling this quirk.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument

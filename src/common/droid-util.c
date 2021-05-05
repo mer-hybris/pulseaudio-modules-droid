@@ -88,6 +88,7 @@ struct droid_quirk valid_quirks[] = {
     { "output_fast",            QUIRK_OUTPUT_FAST           },
     { "output_deep_buffer",     QUIRK_OUTPUT_DEEP_BUFFER    },
     { "audio_cal_wait",         QUIRK_AUDIO_CAL_WAIT        },
+    { "standby_set_route",      QUIRK_STANDBY_SET_ROUTE     },
 };
 
 #define QUIRK_AUDIO_CAL_WAIT_S  (10)
@@ -1914,6 +1915,13 @@ static int droid_output_stream_set_route(pa_droid_stream *s, audio_devices_t dev
         PA_IDXSET_FOREACH(slave, s->module->outputs, idx) {
             if (slave == s)
                 continue;
+
+            if (pa_droid_quirk(s->module, QUIRK_STANDBY_SET_ROUTE)) {
+                 /* Some devices don't like to receive set_parameters() call while they
+                  * are in write(), even if it seems the mutexes are correctly in place.
+                  * Standby is another synchronization point which seems to work better. */
+                slave->output->stream->common.standby(&slave->output->stream->common);
+            }
 
             pa_log_debug("slave output stream %p set_parameters(%s)", (void *) slave, parameters);
             ret = slave->output->stream->common.set_parameters(&slave->output->stream->common, parameters);

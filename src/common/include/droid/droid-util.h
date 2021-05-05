@@ -80,6 +80,7 @@ enum pa_droid_quirk_type {
     QUIRK_OUTPUT_FAST,
     QUIRK_OUTPUT_DEEP_BUFFER,
     QUIRK_AUDIO_CAL_WAIT,
+    QUIRK_STANDBY_SET_ROUTE,
     QUIRK_COUNT
 };
 
