@@ -395,6 +395,13 @@ Currently there are following quirks:
       Standby is another synchronization point which seems to work better.
       If there are hiccups like long delays when setting route during
       voice call start try enabling this quirk.
+* speaker_before_voice
+    * Disabled by default.
+    * Set route to speaker before changing audio mode to AUDIO_MODE_IN_CALL.
+      Some devices don't get routing right if the route is something else
+      (like AUDIO_DEVICE_OUT_WIRED_HEADSET) before calling set_mode().
+      If routing is wrong when call starts with wired accessory connected
+      try enabling this quirk.
 
 For example, to disable input_atoi and enable close_input quirks, use module
 argument

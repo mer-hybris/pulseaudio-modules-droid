@@ -89,6 +89,7 @@ struct droid_quirk valid_quirks[] = {
     { "output_deep_buffer",     QUIRK_OUTPUT_DEEP_BUFFER    },
     { "audio_cal_wait",         QUIRK_AUDIO_CAL_WAIT        },
     { "standby_set_route",      QUIRK_STANDBY_SET_ROUTE     },
+    { "speaker_before_voice",   QUIRK_SPEAKER_BEFORE_VOICE  },
 };
 
 #define QUIRK_AUDIO_CAL_WAIT_S  (10)
@@ -2219,6 +2220,17 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
     pa_assert(hw_module->device);
 
     pa_log_info("Set mode to %s.", audio_mode_to_string(mode));
+
+    if (pa_droid_quirk(hw_module, QUIRK_SPEAKER_BEFORE_VOICE) &&
+        hw_module->state.mode != mode && mode == AUDIO_MODE_IN_CALL) {
+        pa_droid_stream *primary_output;
+
+        /* Set route to speaker before changing audio mode to AUDIO_MODE_IN_CALL.
+         * Some devices don't get routing right if the route is something else
+         * (like AUDIO_DEVICE_OUT_WIRED_HEADSET) before calling set_mode().*/
+        if ((primary_output = pa_droid_hw_primary_output_stream(hw_module)))
+            pa_droid_stream_set_route(primary_output, AUDIO_DEVICE_OUT_SPEAKER);
+    }
 
     pa_droid_hw_module_lock(hw_module);
     if (hw_module->device->set_mode(hw_module->device, mode) < 0) {
