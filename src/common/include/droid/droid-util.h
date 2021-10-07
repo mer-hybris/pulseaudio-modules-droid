@@ -50,6 +50,7 @@
 #define PROP_DROID_OUTPUT_OFFLOAD       "droid.output.offload"
 #define PROP_DROID_INPUT_BUILTIN        "droid.input.builtin"
 #define PROP_DROID_INPUT_EXTERNAL       "droid.input.external"
+#define PROP_DROID_INPUT_AUDIO_SOURCE   "droid.input.source"
 
 #define PA_DROID_PRIMARY_DEVICE     "primary"
 
@@ -318,9 +319,15 @@ int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device);
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
                                             const pa_sample_spec *default_sample_spec,
                                             const pa_channel_map *default_channel_map);
+/* Test if reconfiguring of input stream is needed */
+bool pa_droid_stream_reconfigure_input_needed(pa_droid_stream *s,
+                                              const pa_sample_spec *requested_sample_spec,
+                                              const pa_channel_map *requested_channel_map,
+                                              const pa_proplist *proplist);
 bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
                                        const pa_sample_spec *requested_sample_spec,
-                                       const pa_channel_map *requested_channel_map);
+                                       const pa_channel_map *requested_channel_map,
+                                       const pa_proplist *proplist);
 bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
                                   audio_devices_t device);
 
