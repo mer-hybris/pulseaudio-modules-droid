@@ -94,6 +94,7 @@ static void unsuspend(struct userdata *u);
 static void source_reconfigure(struct userdata *u,
                                const pa_sample_spec *reconfigure_sample_spec,
                                const pa_channel_map *reconfigure_channel_map,
+                               const pa_proplist *proplist,
                                audio_devices_t update_device);
 
 /* Our droid source may be left in a state of not having an input stream
@@ -347,7 +348,7 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
     if (!PA_SOURCE_IS_OPENED(u->source->state))
         do_routing(u, data->device);
     else
-        source_reconfigure(u, NULL, NULL, data->device);
+        source_reconfigure(u, NULL, NULL, NULL, data->device);
 
     return 0;
 }
@@ -429,6 +430,7 @@ static void update_latency(struct userdata *u) {
 static void source_reconfigure(struct userdata *u,
                                const pa_sample_spec *reconfigure_sample_spec,
                                const pa_channel_map *reconfigure_channel_map,
+                               const pa_proplist *proplist,
                                audio_devices_t update_device) {
     pa_channel_map old_channel_map;
     pa_sample_spec old_sample_spec;
@@ -453,7 +455,7 @@ static void source_reconfigure(struct userdata *u,
     if (update_device)
         do_routing(u, update_device);
 
-    if (pa_droid_stream_reconfigure_input(u->stream, &new_sample_spec, &new_channel_map))
+    if (pa_droid_stream_reconfigure_input(u->stream, &new_sample_spec, &new_channel_map, proplist))
         pa_log_info("Source reconfigured.");
     else
         pa_log_info("Failed to reconfigure input stream, no worries, using defaults.");
@@ -487,8 +489,10 @@ static pa_hook_result_t source_output_new_hook_callback(void *hook_data,
     if (new_data->source != u->source)
         return PA_HOOK_OK;
 
-    if (pa_sample_spec_equal(&new_data->sample_spec, pa_droid_stream_sample_spec(u->stream)) &&
-        pa_channel_map_equal(&new_data->channel_map, pa_droid_stream_channel_map(u->stream)))
+    if (!pa_droid_stream_reconfigure_input_needed(u->stream,
+                                                  &new_data->sample_spec,
+                                                  &new_data->channel_map,
+                                                  new_data->proplist))
         return PA_HOOK_OK;
 
     pa_log_info("New source-output connecting and our source needs to be reconfigured.");
@@ -500,10 +504,11 @@ static pa_hook_result_t source_output_new_hook_callback(void *hook_data,
         source_reconfigure(u,
                            pa_droid_stream_sample_spec(primary_output),
                            pa_droid_stream_channel_map(primary_output),
+                           new_data->proplist,
                            0);
 
     } else
-        source_reconfigure(u, &new_data->sample_spec, &new_data->channel_map, 0);
+        source_reconfigure(u, &new_data->sample_spec, &new_data->channel_map, new_data->proplist, 0);
 
     return PA_HOOK_OK;
 }
@@ -523,12 +528,12 @@ static void source_reconfigure_after_changes(struct userdata *u) {
             so = so_i;
     }
 
-    if (so) {
-        if (!pa_sample_spec_equal(&so->sample_spec, pa_droid_stream_sample_spec(u->stream)) ||
-            !pa_channel_map_equal(&so->channel_map, pa_droid_stream_channel_map(u->stream))) {
-                    pa_log_info("Source-output disconnected and our source needs to be reconfigured.");
-                    source_reconfigure(u, &so->sample_spec, &so->channel_map, 0);
-        }
+    if (so && pa_droid_stream_reconfigure_input_needed(u->stream,
+                                                       &so->sample_spec,
+                                                       &so->channel_map,
+                                                       so->proplist)) {
+        pa_log_info("Source-output disconnected and our source needs to be reconfigured.");
+        source_reconfigure(u, &so->sample_spec, &so->channel_map, so->proplist, 0);
     }
 }
 
