@@ -140,6 +140,40 @@ bool pa_string_convert_num_to_str(pa_conversion_string_t type, uint32_t value, c
 
         case CONV_STRING_INPUT_FLAG:
             return string_convert_num_to_str(string_conversion_table_input_flag, value, to_str);
+
+        case CONV_STRING_AUDIO_SOURCE_FANCY:
+            return string_convert_num_to_str(string_conversion_table_audio_source_fancy, value, to_str);
+    }
+
+    pa_assert_not_reached();
+    return false;
+}
+
+bool pa_string_convert_str_to_num(pa_conversion_string_t type, const char *str, uint32_t *to_value) {
+    switch (type) {
+        case CONV_STRING_FORMAT:
+            return string_convert_str_to_num(string_conversion_table_format, str, to_value);
+
+        case CONV_STRING_OUTPUT_CHANNELS:
+            return string_convert_str_to_num(string_conversion_table_output_channels, str, to_value);
+
+        case CONV_STRING_INPUT_CHANNELS:
+            return string_convert_str_to_num(string_conversion_table_input_channels, str, to_value);
+
+        case CONV_STRING_OUTPUT_DEVICE:
+            return string_convert_str_to_num(string_conversion_table_output_device, str, to_value);
+
+        case CONV_STRING_INPUT_DEVICE:
+            return string_convert_str_to_num(string_conversion_table_input_device, str, to_value);
+
+        case CONV_STRING_OUTPUT_FLAG:
+            return string_convert_str_to_num(string_conversion_table_output_flag, str, to_value);
+
+        case CONV_STRING_INPUT_FLAG:
+            return string_convert_str_to_num(string_conversion_table_input_flag, str, to_value);
+
+        case CONV_STRING_AUDIO_SOURCE_FANCY:
+            return string_convert_str_to_num(string_conversion_table_audio_source_fancy, str, to_value);
     }
 
     pa_assert_not_reached();
@@ -210,10 +244,6 @@ bool pa_droid_input_port_name(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_input_device_fancy, (uint32_t) value, to_str);
 }
 
-bool pa_droid_audio_source_name(audio_source_t value, const char **to_str) {
-    return string_convert_num_to_str(string_conversion_table_audio_source_fancy, (uint32_t) value, to_str);
-}
-
 static int parse_list(const struct string_conversion *table,
                       const char *separator,
                       const char *str,
@@ -280,6 +310,10 @@ int pa_conversion_parse_list(pa_conversion_string_t type, const char *separator,
 
         case CONV_STRING_INPUT_FLAG:
             return parse_list(string_conversion_table_input_flag, separator, str, dst, unknown_entries);
+
+        /* Not handled in this context */
+        case CONV_STRING_AUDIO_SOURCE_FANCY:
+            return 0;
     }
 
     pa_assert_not_reached();
