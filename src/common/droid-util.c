@@ -116,6 +116,7 @@ static void droid_port_free(pa_droid_port *p);
 
 static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s);
 static int droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
+static bool droid_set_audio_source(pa_droid_hw_module *hw_module, audio_source_t audio_source);
 
 static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
                                      const pa_droid_config_hw_module *module,
@@ -1414,7 +1415,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 #if AUDIO_API_VERSION_MAJ >= 3
                                              /* Go with empty address, should work
                                               * with most devices for now. */
-                                             , NULL
+                                             , ""
 #endif
                                              );
     pa_droid_hw_module_unlock(module);
@@ -1638,7 +1639,7 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
                                                    &input->stream
 #if AUDIO_API_VERSION_MAJ >= 3
                                                    , 0
-                                                   , NULL                   /* Don't define address */
+                                                   , "" /* Use empty address. */
                                                    , hw_module->state.audio_source
 #endif
                                                    );
@@ -1752,7 +1753,11 @@ static void input_stream_close(pa_droid_stream *s) {
 
 bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
                                        const pa_sample_spec *requested_sample_spec,
-                                       const pa_channel_map *requested_channel_map) {
+                                       const pa_channel_map *requested_channel_map,
+                                       const pa_proplist *proplist) {
+    /* Use default audio source by default */
+    audio_source_t audio_source = AUDIO_SOURCE_DEFAULT;
+
     pa_assert(s);
     pa_assert(s->input);
     pa_assert(requested_sample_spec);
@@ -1762,6 +1767,16 @@ bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
      * as well. */
     s->input->req_sample_spec = *requested_sample_spec;
     s->input->req_channel_map = *requested_channel_map;
+
+    if (proplist) {
+        const char *source;
+        /* If audio source is defined in source-output proplist use that instead. */
+        if ((source = pa_proplist_gets(proplist, PROP_DROID_INPUT_AUDIO_SOURCE)))
+            pa_string_convert_str_to_num(CONV_STRING_AUDIO_SOURCE_FANCY, source, &audio_source);
+    }
+
+    /* Update audio source */
+    droid_set_audio_source(s->module, audio_source);
 
     input_stream_close(s);
 
@@ -1776,6 +1791,50 @@ bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
     }
 
     return true;
+}
+
+bool pa_droid_stream_reconfigure_input_needed(pa_droid_stream *s,
+                                              const pa_sample_spec *requested_sample_spec,
+                                              const pa_channel_map *requested_channel_map,
+                                              const pa_proplist *proplist) {
+    bool reconfigure_needed = false;
+
+    pa_assert(s);
+    pa_assert(s->input);
+
+    if (requested_sample_spec && !pa_sample_spec_equal(&s->input->sample_spec, requested_sample_spec)) {
+        reconfigure_needed = true;
+        pa_log_debug("input reconfigure needed: sample specs not equal");
+    }
+
+    if (requested_channel_map && !pa_channel_map_equal(&s->input->channel_map, requested_channel_map)) {
+        reconfigure_needed = true;
+        pa_log_debug("input reconfigure needed: channel maps not equal");
+    }
+
+    if (proplist) {
+        const char *source;
+        audio_source_t audio_source;
+
+        /* If audio source is defined in source-output proplist use that instead. */
+        if ((source = pa_proplist_gets(proplist, PROP_DROID_INPUT_AUDIO_SOURCE))) {
+            if (pa_string_convert_str_to_num(CONV_STRING_AUDIO_SOURCE_FANCY, source, &audio_source) &&
+                s->module->state.audio_source != audio_source) {
+
+                reconfigure_needed = true;
+                pa_log_debug("input reconfigure needed: " PROP_DROID_INPUT_AUDIO_SOURCE " changes");
+            }
+        } else {
+            if (pa_input_device_default_audio_source(s->module->state.input_device, &audio_source) &&
+                s->module->state.audio_source != audio_source) {
+
+                reconfigure_needed = true;
+                pa_log_debug("input reconfigure needed: audio source changes");
+            }
+        }
+    }
+
+    return reconfigure_needed;
 }
 
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
@@ -1799,7 +1858,7 @@ pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
     s->input->default_sample_spec = *default_sample_spec;
     s->input->default_channel_map = *default_channel_map;
 
-    if (!pa_droid_stream_reconfigure_input(s, default_sample_spec, default_channel_map)) {
+    if (!pa_droid_stream_reconfigure_input(s, default_sample_spec, default_channel_map, NULL)) {
         pa_droid_stream_unref(s);
         s = NULL;
     } else
@@ -2257,26 +2316,14 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
     return ret;
 }
 
-bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
-                                  audio_devices_t device) {
-    audio_source_t audio_source = AUDIO_SOURCE_DEFAULT;
+/* Return true if audio source changes */
+static bool droid_set_audio_source(pa_droid_hw_module *hw_module, audio_source_t audio_source) {
     audio_source_t audio_source_override = AUDIO_SOURCE_DEFAULT;
-    bool device_changed = false;
-    bool source_changed = false;
 
     pa_assert(hw_module);
 
-    if (hw_module->state.input_device != device) {
-        const char *name = NULL;
-        pa_log_debug("Set global input to %s (%#010x)",
-                     pa_string_convert_input_device_num_to_str(device, &name)
-                       ? name : "<unknown>",
-                     device);
-        hw_module->state.input_device = device;
-        device_changed = true;
-    }
-
-    pa_input_device_default_audio_source(hw_module->state.input_device, &audio_source);
+    if (audio_source == AUDIO_SOURCE_DEFAULT)
+        pa_input_device_default_audio_source(hw_module->state.input_device, &audio_source);
 
     /* Override audio source based on mode. */
     switch (hw_module->state.mode) {
@@ -2292,9 +2339,9 @@ bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
     }
 
     if (audio_source != audio_source_override) {
-        const char *from, *to;
-        pa_droid_audio_source_name(audio_source, &from);
-        pa_droid_audio_source_name(audio_source_override, &to);
+        const char *from = NULL, *to = NULL;
+        pa_string_convert_num_to_str(CONV_STRING_AUDIO_SOURCE_FANCY, audio_source, &from);
+        pa_string_convert_num_to_str(CONV_STRING_AUDIO_SOURCE_FANCY, audio_source, &to);
         pa_log_info("Audio mode %s, overriding audio source %s with %s",
                     audio_mode_to_string(hw_module->state.mode),
                     from ? from : "<unknown>",
@@ -2304,13 +2351,38 @@ bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
 
     if (audio_source != hw_module->state.audio_source) {
         const char *name = NULL;
-        pa_log_debug("set global audio source to %s (%#010x)",
-                     pa_droid_audio_source_name(audio_source, &name)
+        pa_log_debug("Set global audio source to %s (%#010x)",
+                     pa_string_convert_num_to_str(CONV_STRING_AUDIO_SOURCE_FANCY, audio_source, &name)
                        ? name : "<unknown>",
                      audio_source);
         hw_module->state.audio_source = audio_source;
-        source_changed = true;
+
+        /* audio source changed */
+        return true;
     }
+
+    /* audio source did not change */
+    return false;
+}
+
+bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
+                                  audio_devices_t device) {
+    bool device_changed = false;
+    bool source_changed = false;
+
+    pa_assert(hw_module);
+
+    if (hw_module->state.input_device != device) {
+        const char *name = NULL;
+        pa_log_debug("Set global input to %s (%#010x)",
+                     pa_string_convert_input_device_num_to_str(device, &name)
+                       ? name : "<unknown>",
+                     device);
+        hw_module->state.input_device = device;
+        device_changed = true;
+    }
+
+    source_changed = droid_set_audio_source(hw_module, hw_module->state.audio_source);
 
     if (hw_module->state.active_input && (device_changed || source_changed))
         input_stream_set_route(hw_module, NULL);

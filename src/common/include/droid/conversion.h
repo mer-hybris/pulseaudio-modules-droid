@@ -52,10 +52,12 @@ typedef enum {
     CONV_STRING_OUTPUT_DEVICE,
     CONV_STRING_INPUT_DEVICE,
     CONV_STRING_OUTPUT_FLAG,
-    CONV_STRING_INPUT_FLAG
+    CONV_STRING_INPUT_FLAG,
+    CONV_STRING_AUDIO_SOURCE_FANCY,
 } pa_conversion_string_t;
 
 bool pa_string_convert_num_to_str(pa_conversion_string_t type, uint32_t value, const char **to_str);
+bool pa_string_convert_str_to_num(pa_conversion_string_t type, const char *str, uint32_t *to_value);
 
 bool pa_convert_output_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
 bool pa_convert_input_channel(uint32_t value, pa_conversion_field_t from, uint32_t *to_value);
@@ -80,9 +82,6 @@ bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_so
 /* Pretty port names */
 bool pa_droid_output_port_name(audio_devices_t value, const char **to_str);
 bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
-
-/* Pretty audio source names */
-bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
 
 int pa_conversion_parse_list(pa_conversion_string_t type, const char *separator,
                              const char *str, uint32_t *dst, char **unknown_entries);
