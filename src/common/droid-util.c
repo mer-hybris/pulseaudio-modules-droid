@@ -1415,7 +1415,7 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 #if AUDIO_API_VERSION_MAJ >= 3
                                              /* Go with empty address, should work
                                               * with most devices for now. */
-                                             , NULL
+                                             , ""
 #endif
                                              );
     pa_droid_hw_module_unlock(module);
@@ -1639,7 +1639,7 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
                                                    &input->stream
 #if AUDIO_API_VERSION_MAJ >= 3
                                                    , 0
-                                                   , NULL                   /* Don't define address */
+                                                   , "" /* Use empty address. */
                                                    , hw_module->state.audio_source
 #endif
                                                    );
