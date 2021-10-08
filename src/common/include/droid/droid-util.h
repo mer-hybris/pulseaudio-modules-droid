@@ -50,7 +50,8 @@
 #define PROP_DROID_OUTPUT_OFFLOAD       "droid.output.offload"
 #define PROP_DROID_INPUT_BUILTIN        "droid.input.builtin"
 #define PROP_DROID_INPUT_EXTERNAL       "droid.input.external"
-#define PROP_DROID_INPUT_AUDIO_SOURCE   "droid.input.source"
+
+#define EXT_PROP_AUDIO_SOURCE           "audio.source"
 
 #define PA_DROID_PRIMARY_DEVICE     "primary"
 
