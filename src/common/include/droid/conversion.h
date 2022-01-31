@@ -92,10 +92,10 @@ bool pa_conversion_parse_sampling_rates(const char *fn, const unsigned ln,
 bool pa_conversion_parse_formats(const char *fn, const unsigned ln,
                                  const char *str, bool legacy,
                                  audio_format_t *formats);
-bool pa_conversion_parse_output_channels(const char *fn, const unsigned ln,
+int pa_conversion_parse_output_channels(const char *fn, const unsigned ln,
                                          const char *str, bool legacy,
                                          audio_channel_mask_t *channels);
-bool pa_conversion_parse_input_channels(const char *fn, const unsigned ln,
+int pa_conversion_parse_input_channels(const char *fn, const unsigned ln,
                                         const char *str, bool legacy,
                                         audio_channel_mask_t *channels);
 bool pa_conversion_parse_output_devices(const char *fn, const unsigned ln,

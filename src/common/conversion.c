@@ -418,10 +418,11 @@ bool pa_conversion_parse_formats(const char *fn, const unsigned ln,
     return count > 0;
 }
 
-static bool parse_channels(const char *fn, const unsigned ln,
-                           const char *str, bool in_output,
-                           bool legacy, audio_channel_mask_t *channels) {
+static int parse_channels(const char *fn, const unsigned ln,
+                          const char *str, bool in_output,
+                          bool legacy, audio_channel_mask_t *channels) {
     int count;
+    bool success;
     char *unknown = NULL;
 
     pa_assert(fn);
@@ -431,23 +432,25 @@ static bool parse_channels(const char *fn, const unsigned ln,
     /* Needs to be probed later */
     if (pa_streq(str, "dynamic")) {
         *channels = 0;
-        return true;
+        return 1;
     }
 
     count = pa_conversion_parse_list(in_output ? CONV_STRING_OUTPUT_CHANNELS : CONV_STRING_INPUT_CHANNELS,
                                      value_separator(legacy), str, channels, &unknown);
 
-    return check_and_log(fn, ln, in_output ? "output channel_masks" : "input channel_masks",
-                         count, str, unknown, false);
+    /* Avoid aborting parsing when no supported channel is found */
+    success = check_and_log(fn, ln, in_output ? "output channel_masks" : "input channel_masks",
+                            count == 0 ? 1 : count, str, unknown, false);
+    return success ? count : -1;
 }
 
-bool pa_conversion_parse_output_channels(const char *fn, const unsigned ln,
-                                         const char *str, bool legacy,
-                                         audio_channel_mask_t *channels) {
+int pa_conversion_parse_output_channels(const char *fn, const unsigned ln,
+                                        const char *str, bool legacy,
+                                        audio_channel_mask_t *channels) {
     return parse_channels(fn, ln, str, true, legacy, channels);
 }
 
-bool pa_conversion_parse_input_channels(const char *fn, const unsigned ln,
+int pa_conversion_parse_input_channels(const char *fn, const unsigned ln,
                                         const char *str, bool legacy,
                                         audio_channel_mask_t *channels) {
     return parse_channels(fn, ln, str, false, legacy, channels);

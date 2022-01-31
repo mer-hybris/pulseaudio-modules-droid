@@ -375,9 +375,9 @@ pa_droid_config_audio *pa_parse_droid_audio_config_legacy(const char *filename) 
                                                           in_output ? &output->formats : &input->formats);
                 else if (pa_streq(v, CHANNELS_TAG)) {
                     if (in_output)
-                        success = pa_conversion_parse_output_channels(filename, n, value, true, &output->channel_masks);
+                        success = pa_conversion_parse_output_channels(filename, n, value, true, &output->channel_masks) > 0;
                     else
-                        success = pa_conversion_parse_input_channels(filename, n, value, true, &input->channel_masks);
+                        success = pa_conversion_parse_input_channels(filename, n, value, true, &input->channel_masks) > 0;
                 } else if (pa_streq(v, DEVICES_TAG)) {
                     if (in_output)
                         success = pa_conversion_parse_output_devices(filename, n, value, true, false, &output->devices);
