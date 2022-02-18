@@ -743,6 +743,7 @@ static void replace_in_place(char **string, const char *a, const char *b) {
 
 static bool parse_profile(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
     struct profile *p;
+    int channel_count = -1;
     bool parsed = false, unknown_format = false, output = true;
     char *samplingRates = NULL, *channelMasks = NULL, *format = NULL;
 
@@ -790,9 +791,9 @@ static bool parse_profile(struct parser_data *data, const char *element_name, co
     if (!pa_conversion_parse_formats(data->fn, data->lineno, format, false, &p->format))
         unknown_format = true;
 
-    if (!unknown_format && channelMasks && !(output ?
+    if (!unknown_format && channelMasks && (channel_count = output ?
             pa_conversion_parse_output_channels(data->fn, data->lineno, channelMasks, false, &p->channel_masks)
-          : pa_conversion_parse_input_channels(data->fn, data->lineno, channelMasks, false, &p->channel_masks)))
+          : pa_conversion_parse_input_channels(data->fn, data->lineno, channelMasks, false, &p->channel_masks)) == -1)
         goto done;
 
     parsed = true;
@@ -801,7 +802,10 @@ done:
     pa_xfree(channelMasks);
     pa_xfree(format);
 
-    if (!parsed) {
+    if (channel_count == 0) {
+        pa_log_info("[%s:%u] Ignore profile with no supported channels.", data->fn, data->lineno);
+        profile_list_free(p);
+    } else if (!parsed) {
         pa_log_error("[%s:%u] Failed to parse element <" ELEMENT_profile ">", data->fn, data->lineno);
         profile_list_free(p);
     } else if (unknown_format) {
