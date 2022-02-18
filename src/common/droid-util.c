@@ -112,6 +112,10 @@ struct droid_quirk valid_quirks[] = {
 #define AUDIO_PARAMETER_BT_SCO_ON   "BT_SCO=" AUDIO_PARAMETER_VALUE_ON
 #define AUDIO_PARAMETER_BT_SCO_OFF  "BT_SCO=" AUDIO_PARAMETER_VALUE_OFF
 
+#define DROID_HW_HANDLE_V1          "droid.handle.v1"
+#define DROID_SET_PARAMETERS_V1     "droid.set_parameters.v1"
+#define DROID_GET_PARAMETERS_V1     "droid.get_parameters.v1"
+
 static void droid_port_free(pa_droid_port *p);
 
 static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s);
@@ -943,6 +947,41 @@ fail:
     pa_log("Audio calibration file generation failed! (" QUIRK_AUDIO_CAL_FILE " doesn't exist)");
 }
 
+static int droid_set_parameters_v1_cb(void *handle, const char *key_value_pairs) {
+    pa_droid_hw_module *hw = handle;
+    int ret = 0;
+
+    pa_assert(hw);
+    pa_assert(key_value_pairs);
+
+    pa_log_debug(DROID_SET_PARAMETERS_V1 "(\"%s\")", key_value_pairs);
+
+    pa_droid_hw_module_lock(hw);
+    ret = hw->device->set_parameters(hw->device, key_value_pairs);
+    pa_droid_hw_module_unlock(hw);
+
+    if (ret != 0)
+        pa_log_warn(DROID_SET_PARAMETERS_V1 "(\"%s\") failed: %d", key_value_pairs, ret);
+
+    return ret;
+}
+
+static char *droid_get_parameters_v1_cb(void *handle, const char *keys) {
+    pa_droid_hw_module *hw = handle;
+    char *key_value_pairs = NULL;
+
+    pa_assert(hw);
+    pa_assert(keys);
+
+    pa_droid_hw_module_lock(hw);
+    key_value_pairs = hw->device->get_parameters(hw->device, keys);
+    pa_droid_hw_module_unlock(hw);
+
+    pa_log_debug(DROID_GET_PARAMETERS_V1 "(\"%s\"): \"%s\"", keys, key_value_pairs ? key_value_pairs : "<null>");
+
+    return key_value_pairs;
+}
+
 static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config,
                                                 const char *module_id, const pa_droid_quirks *quirks) {
     const pa_droid_config_hw_module *module;
@@ -1016,6 +1055,14 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
                                                   sink_unlink_hook_cb, hw);
 
     pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
+
+    /* API for calling HAL functions from other modules. */
+
+    if (pa_streq(hw->module_id, PA_DROID_PRIMARY_DEVICE)) {
+        pa_shared_set(core, DROID_HW_HANDLE_V1, hw);
+        pa_shared_set(core, DROID_SET_PARAMETERS_V1, droid_set_parameters_v1_cb);
+        pa_shared_set(core, DROID_GET_PARAMETERS_V1, droid_get_parameters_v1_cb);
+    }
 
     return hw;
 
@@ -1097,6 +1144,12 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     pa_assert(hw);
 
     pa_log_info("Closing hw module %s.%s (%s)", AUDIO_HARDWARE_MODULE_ID, hw->enabled_module->name, DROID_DEVICE_STRING);
+
+    if (pa_streq(hw->module_id, PA_DROID_PRIMARY_DEVICE)) {
+        pa_shared_remove(hw->core, DROID_HW_HANDLE_V1);
+        pa_shared_remove(hw->core, DROID_SET_PARAMETERS_V1);
+        pa_shared_remove(hw->core, DROID_GET_PARAMETERS_V1);
+    }
 
     if (hw->sink_put_hook_slot)
         pa_hook_slot_free(hw->sink_put_hook_slot);
