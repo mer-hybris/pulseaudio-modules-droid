@@ -436,6 +436,26 @@ For example, if droid-sink has active port output-wired_headphone:
 As long as the new stream is connected to droid-sink, output routing is
 SPEAKER.
 
+HAL API
+-------
+
+If there is need to call HAL directly from other modules it can be done with
+function pointer API stored in PulseAudio shared map.
+
+Once the function pointers are acquired when called they will work the same
+way as defined in Android audio.h. For example:
+
+    void   *handle;
+    int   (*set_parameters)(void *handle, const char *key_value_pairs);
+    char* (*get_parameters)(void *handle, const char *keys);
+
+    handle = pa_shared_get(core, "droid.handle.v1");
+    set_parameters = pa_shared_get(core, "droid.set_parameters.v1");
+    get_parameters = pa_shared_get(core, "droid.get_parameters.v1");
+
+    set_parameters(handle, "route=2;");
+    char *value = get_parameters(handle, "connected");
+
 module-droid-keepalive
 ----------------------
 
