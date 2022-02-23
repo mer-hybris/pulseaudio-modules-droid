@@ -62,33 +62,32 @@ typedef struct pa_droid_input_stream pa_droid_input_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;
 typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
-typedef struct pa_droid_quirks pa_droid_quirks;
-
 typedef enum pa_droid_hook {
     PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED,    /* Call data: pa_droid_stream */
     PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED,    /* Call data: pa_droid_stream */
     PA_DROID_HOOK_MAX
 } pa_droid_hook_t;
 
-enum pa_droid_quirk_type {
-    QUIRK_INPUT_ATOI,
-    QUIRK_SET_PARAMETERS,
-    QUIRK_CLOSE_INPUT,
-    QUIRK_UNLOAD_NO_CLOSE,
-    QUIRK_NO_HW_VOLUME,
-    QUIRK_OUTPUT_MAKE_WRITABLE,
-    QUIRK_REALCALL,
-    QUIRK_UNLOAD_CALL_EXIT,
-    QUIRK_OUTPUT_FAST,
-    QUIRK_OUTPUT_DEEP_BUFFER,
-    QUIRK_AUDIO_CAL_WAIT,
-    QUIRK_STANDBY_SET_ROUTE,
-    QUIRK_SPEAKER_BEFORE_VOICE,
-    QUIRK_COUNT
+typedef struct pa_droid_options pa_droid_options;
+
+enum pa_droid_option_type {
+    DM_OPTION_INPUT_ATOI,
+    DM_OPTION_CLOSE_INPUT,
+    DM_OPTION_UNLOAD_NO_CLOSE,
+    DM_OPTION_HW_VOLUME,
+    DM_OPTION_REALCALL,
+    DM_OPTION_UNLOAD_CALL_EXIT,
+    DM_OPTION_OUTPUT_FAST,
+    DM_OPTION_OUTPUT_DEEP_BUFFER,
+    DM_OPTION_AUDIO_CAL_WAIT,
+    DM_OPTION_SPEAKER_BEFORE_VOICE,
+    DM_OPTION_OUTPUT_VOIP_RX,
+    DM_OPTION_RECORD_VOICE_16K,
+    DM_OPTION_COUNT
 };
 
-struct pa_droid_quirks {
-    bool enabled[QUIRK_COUNT];
+struct pa_droid_options {
+    bool enabled[DM_OPTION_COUNT];
 };
 
 struct pa_droid_hw_module {
@@ -118,7 +117,7 @@ struct pa_droid_hw_module {
 
     pa_atomic_t active_outputs;
 
-    pa_droid_quirks quirks;
+    pa_droid_options options;
 
     /* Mode and input control */
     struct _state {
@@ -256,8 +255,8 @@ void pa_droid_hw_module_unlock(pa_droid_hw_module *hw);
 bool pa_droid_quirk_parse(pa_droid_quirks *quirks, const char *quirks_def);
 void pa_droid_quirk_log(pa_droid_hw_module *hw);
 
-static inline bool pa_droid_quirk(pa_droid_hw_module *hw, enum pa_droid_quirk_type quirk) {
-    return hw && hw->quirks.enabled[quirk];
+static inline bool pa_droid_option(pa_droid_hw_module *hw, enum pa_droid_option_type option) {
+    return hw && hw->options.enabled[option];
 }
 
 bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode);
@@ -358,6 +357,8 @@ void pa_droid_stream_set_data(pa_droid_stream *s, void *data);
 void *pa_droid_stream_get_data(pa_droid_stream *s);
 bool pa_sink_is_droid_sink(pa_sink *sink);
 bool pa_source_is_droid_source(pa_source *source);
+
+pa_modargs *pa_droid_modargs_new(const char *args, const char* const keys[]);
 
 /* Misc */
 size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size);

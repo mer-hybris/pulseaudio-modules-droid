@@ -71,34 +71,40 @@
 #include "droid/conversion.h"
 #include "droid/sllist.h"
 
-struct droid_quirk {
+struct droid_option {
     const char *name;
     uint32_t value;
 };
 
-struct droid_quirk valid_quirks[] = {
-    { "input_atoi",             QUIRK_INPUT_ATOI            },
-    { "set_parameters",         QUIRK_SET_PARAMETERS        },
-    { "close_input",            QUIRK_CLOSE_INPUT           },
-    { "unload_no_close",        QUIRK_UNLOAD_NO_CLOSE       },
-    { "no_hw_volume",           QUIRK_NO_HW_VOLUME          },
-    { "output_make_writable",   QUIRK_OUTPUT_MAKE_WRITABLE  },
-    { "realcall",               QUIRK_REALCALL              },
-    { "unload_call_exit",       QUIRK_UNLOAD_CALL_EXIT      },
-    { "output_fast",            QUIRK_OUTPUT_FAST           },
-    { "output_deep_buffer",     QUIRK_OUTPUT_DEEP_BUFFER    },
-    { "audio_cal_wait",         QUIRK_AUDIO_CAL_WAIT        },
-    { "standby_set_route",      QUIRK_STANDBY_SET_ROUTE     },
-    { "speaker_before_voice",   QUIRK_SPEAKER_BEFORE_VOICE  },
+struct droid_option valid_options[] = {
+    { "input_atoi",             DM_OPTION_INPUT_ATOI            },
+    { "close_input",            DM_OPTION_CLOSE_INPUT           },
+    { "unload_no_close",        DM_OPTION_UNLOAD_NO_CLOSE       },
+    { "hw_volume",              DM_OPTION_HW_VOLUME             },
+    { "realcall",               DM_OPTION_REALCALL              },
+    { "unload_call_exit",       DM_OPTION_UNLOAD_CALL_EXIT      },
+    { "output_fast",            DM_OPTION_OUTPUT_FAST           },
+    { "output_deep_buffer",     DM_OPTION_OUTPUT_DEEP_BUFFER    },
+    { "audio_cal_wait",         DM_OPTION_AUDIO_CAL_WAIT        },
+    { "speaker_before_voice",   DM_OPTION_SPEAKER_BEFORE_VOICE  },
+    { "output_voip_rx",         DM_OPTION_OUTPUT_VOIP_RX        },
+    { "record_voice_16k",       DM_OPTION_RECORD_VOICE_16K      },
 };
 
-#define QUIRK_AUDIO_CAL_WAIT_S  (10)
-#define QUIRK_AUDIO_CAL_FILE    "/data/vendor/audio/cirrus_sony.cal"
-#define QUIRK_AUDIO_CAL_GROUP   "audio"
-#define QUIRK_AUDIO_CAL_MODE    (0664)
+struct user_options {
+    struct user_option {
+        bool enable;
+        bool set;
+    } options[DM_OPTION_COUNT];
+};
 
-#define DEFAULT_PRIORITY        (100)
-#define DEFAULT_AUDIO_FORMAT    (AUDIO_FORMAT_PCM_16_BIT)
+#define DM_OPTION_AUDIO_CAL_WAIT_S  (10)
+#define DM_OPTION_AUDIO_CAL_FILE    "/data/vendor/audio/cirrus_sony.cal"
+#define DM_OPTION_AUDIO_CAL_GROUP   "audio"
+#define DM_OPTION_AUDIO_CAL_MODE    (0664)
+
+#define DEFAULT_PRIORITY            (100)
+#define DEFAULT_AUDIO_FORMAT        (AUDIO_FORMAT_PCM_16_BIT)
 
 
 #ifndef AUDIO_PARAMETER_VALUE_ON
@@ -709,95 +715,71 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
     add_ports(core, cp, ports, am, NULL);
 }
 
-void pa_droid_quirk_log(pa_droid_hw_module *hw) {
+void pa_droid_options_log(pa_droid_hw_module *hw) {
     uint32_t i;
 
     pa_assert(hw);
 
-    for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++) {
-        if (hw->quirks.enabled[i]) {
-            pa_log_debug("Enabled quirks:");
-            for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++)
-                if (hw->quirks.enabled[i])
-                    pa_log_debug("  %s", valid_quirks[i].name);
-            return;
+    pa_log_debug("Module options:");
+    for (i = 0; i < sizeof(valid_options) / sizeof(struct droid_option); i++) {
+        pa_log_debug("  [%s] %s", hw->options.enabled[i] ? "x" : " ", valid_options[i].name);
+    }
+}
+
+static void set_options(pa_droid_options *options,
+                        const audio_hw_device_t *hw_device,
+                        const struct user_options *user_options) {
+    pa_assert(options);
+
+    memset(options, 0, sizeof(*options));
+
+    /* First set defaults */
+
+    options->enabled[DM_OPTION_CLOSE_INPUT] = true;
+    options->enabled[DM_OPTION_OUTPUT_FAST] = true;
+    options->enabled[DM_OPTION_OUTPUT_DEEP_BUFFER] = true;
+    options->enabled[DM_OPTION_HW_VOLUME] = true;
+#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_VOIP_RX)
+    options->enabled[DM_OPTION_OUTPUT_VOIP_RX] = true;
+#endif
+
+#if (ANDROID_VERSION_MAJOR >= 5) || defined(DROID_AUDIO_HAL_ATOI_FIX)
+    options->enabled[DM_OPTION_INPUT_ATOI] = true;
+#endif
+
+    /* Then override by user defined options */
+
+    if (user_options) {
+        int i;
+
+        for (i = 0; i < DM_OPTION_COUNT; i++) {
+            if (user_options->options[i].set)
+                options->enabled[i] = user_options->options[i].enable;
         }
     }
 }
 
-static pa_droid_quirks *set_default_quirks(pa_droid_quirks *q) {
-    pa_assert(q);
+static bool droid_options_parse(struct user_options *user_options, pa_modargs *ma) {
+    const char *value;
+    int i;
 
-    q->enabled[QUIRK_CLOSE_INPUT] = true;
-    q->enabled[QUIRK_OUTPUT_FAST] = true;
-    q->enabled[QUIRK_OUTPUT_DEEP_BUFFER] = true;
+    pa_assert(user_options);
+    pa_assert(ma);
 
-#if (ANDROID_VERSION_MAJOR >= 5) || defined(DROID_AUDIO_HAL_ATOI_FIX)
-    q->enabled[QUIRK_INPUT_ATOI] = true;
-#endif
+    memset(user_options, 0, sizeof(*user_options));
 
-#if defined(DROID_DEVICE_ANZU) ||\
-    defined(DROID_DEVICE_COCONUT) || defined(DROID_DEVICE_HAIDA) ||\
-    defined(DROID_DEVICE_HALLON) || defined(DROID_DEVICE_IYOKAN) ||\
-    defined(DROID_DEVICE_MANGO) || defined(DROID_DEVICE_SATSUMA) ||\
-    defined(DROID_DEVICE_SMULTRON) || defined(DROID_DEVICE_URUSHI)
-#warning Using set_parameters hack, originating from previous cm10 mako.
-    q->enabled[QUIRK_SET_PARAMETERS] = true;
-#endif
-
-    return q;
-}
-
-bool pa_droid_quirk_parse(pa_droid_quirks *quirks, const char *quirks_def) {
-    char *quirk = NULL;
-    char *d;
-    const char *state = NULL;
-
-    pa_assert(quirks);
-
-    memset(quirks, 0, sizeof(*quirks));
-    set_default_quirks(quirks);
-
-    if (!quirks_def)
-        return true;
-
-    while ((quirk = pa_split(quirks_def, ",", &state))) {
-        uint32_t i;
-        bool enable = false;
-        bool found = false;
-
-        if (strlen(quirk) < 2)
-            goto error;
-
-        d = quirk + 1;
-
-        if (quirk[0] == '+')
-            enable = true;
-        else if (quirk[0] == '-')
-            enable = false;
-        else
-            goto error;
-
-        for (i = 0; i < sizeof(valid_quirks) / sizeof(struct droid_quirk); i++) {
-            if (pa_streq(valid_quirks[i].name, d)) {
-                quirks->enabled[valid_quirks[i].value] = enable;
-                found = true;
+    for (i = 0; i < DM_OPTION_COUNT; i++) {
+        if ((value = pa_modargs_get_value(ma, valid_options[i].name, NULL))) {
+            if (pa_modargs_get_value_boolean(ma, valid_options[i].name, &user_options->options[i].enable) < 0) {
+                pa_log("Failed to parse module option %s=%s (needs boolean value).", valid_options[i].name, value);
+                return false;
+            } else {
+                user_options->options[i].set = true;
             }
         }
-
-        if (!found)
-            goto error;
-
-        pa_xfree(quirk);
     }
 
     return true;
-
-error:
-    pa_log("Incorrect quirk definition \"%s\" (\"%s\")", quirk ? quirk : "<null>", quirks_def);
-    pa_xfree(quirk);
-
-    return false;
 }
 
 static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
@@ -887,15 +869,15 @@ static char *shared_name_get(const char *module_id) {
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
 }
 
-static void quirk_audio_cal(pa_droid_hw_module *hw, uint32_t flags) {
+static void option_audio_cal(pa_droid_hw_module *hw, uint32_t flags) {
     struct group *grp;
 
     pa_assert(hw);
 
-    if (!pa_droid_quirk(hw, QUIRK_AUDIO_CAL_WAIT))
+    if (!pa_droid_option(hw, DM_OPTION_AUDIO_CAL_WAIT))
         return;
 
-    if (access(QUIRK_AUDIO_CAL_FILE, F_OK) == 0) {
+    if (access(DM_OPTION_AUDIO_CAL_FILE, F_OK) == 0) {
         if (flags & AUDIO_OUTPUT_FLAG_PRIMARY) {
             pa_log_info("Waiting for audio calibration to load.");
             /* 1 second is enough, so let's double that. */
@@ -904,35 +886,35 @@ static void quirk_audio_cal(pa_droid_hw_module *hw, uint32_t flags) {
         return;
     }
 
-    pa_log_info("Waiting for audio calibration to finish... (%d seconds)", QUIRK_AUDIO_CAL_WAIT_S);
+    pa_log_info("Waiting for audio calibration to finish... (%d seconds)", DM_OPTION_AUDIO_CAL_WAIT_S);
 
     /* First wait until the calibration file appears on file system. */
-    for (int i = 0; i < QUIRK_AUDIO_CAL_WAIT_S; i++) {
-        pa_log_debug("%d...", QUIRK_AUDIO_CAL_WAIT_S - i);
+    for (int i = 0; i < DM_OPTION_AUDIO_CAL_WAIT_S; i++) {
+        pa_log_debug("%d...", DM_OPTION_AUDIO_CAL_WAIT_S - i);
         pa_msleep(PA_MSEC_PER_SEC);
-        if (access(QUIRK_AUDIO_CAL_FILE, F_OK) == 0) {
-            pa_log_debug("Calibration file " QUIRK_AUDIO_CAL_FILE " appeared, wait one second more.");
+        if (access(DM_OPTION_AUDIO_CAL_FILE, F_OK) == 0) {
+            pa_log_debug("Calibration file " DM_OPTION_AUDIO_CAL_FILE " appeared, wait one second more.");
             /* Then wait for a bit more. */
             pa_msleep(PA_MSEC_PER_SEC);
             break;
         }
     }
 
-    if (access(QUIRK_AUDIO_CAL_FILE, F_OK) != 0)
+    if (access(DM_OPTION_AUDIO_CAL_FILE, F_OK) != 0)
         goto fail;
 
-    if (!(grp = getgrnam(QUIRK_AUDIO_CAL_GROUP))) {
-        pa_log("couldn't get gid for " QUIRK_AUDIO_CAL_GROUP);
-        goto fail;
-    }
-
-    if (chown(QUIRK_AUDIO_CAL_FILE, getuid(), grp->gr_gid) < 0) {
-        pa_log("chown failed for " QUIRK_AUDIO_CAL_FILE);
+    if (!(grp = getgrnam(DM_OPTION_AUDIO_CAL_GROUP))) {
+        pa_log("couldn't get gid for " DM_OPTION_AUDIO_CAL_GROUP);
         goto fail;
     }
 
-    if (chmod(QUIRK_AUDIO_CAL_FILE, QUIRK_AUDIO_CAL_MODE) < 0) {
-        pa_log("chmod failed for " QUIRK_AUDIO_CAL_FILE);
+    if (chown(DM_OPTION_AUDIO_CAL_FILE, getuid(), grp->gr_gid) < 0) {
+        pa_log("chown failed for " DM_OPTION_AUDIO_CAL_FILE);
+        goto fail;
+    }
+
+    if (chmod(DM_OPTION_AUDIO_CAL_FILE, DM_OPTION_AUDIO_CAL_MODE) < 0) {
+        pa_log("chmod failed for " DM_OPTION_AUDIO_CAL_FILE);
         goto fail;
     }
 
@@ -941,10 +923,10 @@ static void quirk_audio_cal(pa_droid_hw_module *hw, uint32_t flags) {
     return;
 
 fail:
-    if (access(QUIRK_AUDIO_CAL_FILE, F_OK) == 0)
-        unlink(QUIRK_AUDIO_CAL_FILE);
+    if (access(DM_OPTION_AUDIO_CAL_FILE, F_OK) == 0)
+        unlink(DM_OPTION_AUDIO_CAL_FILE);
 
-    pa_log("Audio calibration file generation failed! (" QUIRK_AUDIO_CAL_FILE " doesn't exist)");
+    pa_log("Audio calibration file generation failed! (" DM_OPTION_AUDIO_CAL_FILE " doesn't exist)");
 }
 
 static int droid_set_parameters_v1_cb(void *handle, const char *key_value_pairs) {
@@ -983,8 +965,8 @@ static char *droid_get_parameters_v1_cb(void *handle, const char *keys) {
 }
 
 static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config,
-                                                const char *module_id, const pa_droid_quirks *quirks) {
     const pa_droid_config_hw_module *module;
+                                                const char *module_id, const struct user_options *user_options) {
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
     audio_hw_device_t *device = NULL;
@@ -1031,6 +1013,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
     }
 
     hw = pa_xnew0(pa_droid_hw_module, 1);
+    set_options(&hw->options, device, user_options);
     PA_REFCNT_INIT(hw);
     hw->core = core;
     hw->hwmod = hwmod;
@@ -1044,10 +1027,6 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
     hw->shared_name = shared_name_get(hw->module_id);
     hw->outputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
     hw->inputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
-    if (quirks)
-        memcpy(&hw->quirks, quirks, sizeof(*quirks));
-    else
-        set_default_quirks(&hw->quirks);
 
     hw->sink_put_hook_slot      = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_EARLY-10,
                                                   sink_put_hook_cb, hw);
@@ -1096,7 +1075,7 @@ static pa_droid_hw_module *droid_hw_module_shared_get(pa_core *core, const char 
 pa_droid_hw_module *pa_droid_hw_module_get2(pa_core *core, pa_modargs *ma, const char *module_id) {
     pa_droid_hw_module *hw = NULL;
     pa_droid_config_audio *config = NULL;
-    pa_droid_quirks quirks;
+    struct user_options user_options;
 
     pa_assert(core);
     pa_assert(ma);
@@ -1110,7 +1089,7 @@ pa_droid_hw_module *pa_droid_hw_module_get2(pa_core *core, pa_modargs *ma, const
     /* No hw module object in shared object db, let's parse quirks and config and
      * open the module now. */
 
-    if (!pa_droid_quirk_parse(&quirks, pa_modargs_get_value(ma, "quirks", NULL)))
+    if (!droid_options_parse(&user_options, ma))
         return NULL;
 
     if (!(config = pa_droid_config_load(ma)))
@@ -1160,9 +1139,9 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         pa_droid_config_free(hw->config);
 
     if (hw->device) {
-        if (pa_droid_quirk(hw, QUIRK_UNLOAD_CALL_EXIT))
+        if (pa_droid_option(hw, DM_OPTION_UNLOAD_CALL_EXIT))
             exit(EXIT_SUCCESS);
-        else if (!pa_droid_quirk(hw, QUIRK_UNLOAD_NO_CLOSE))
+        else if (!pa_droid_option(hw, DM_OPTION_UNLOAD_NO_CLOSE))
             audio_hw_device_close(hw->device);
     }
 
@@ -2210,12 +2189,12 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
     } else {
         if (suspend) {
             if (s->input->stream) {
-                if (pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
+                if (pa_droid_option(s->module, DM_OPTION_CLOSE_INPUT))
                     input_stream_close(s);
                 else
                     return stream_standby(s);
             }
-        } else if (pa_droid_quirk(s->module, QUIRK_CLOSE_INPUT))
+        } else if (pa_droid_option(s->module, DM_OPTION_CLOSE_INPUT))
             return input_stream_open(s, true);
     }
 
@@ -2455,4 +2434,27 @@ const pa_channel_map *pa_droid_stream_channel_map(pa_droid_stream *stream) {
     pa_assert(stream->output || stream->input);
 
     return stream->output ? &stream->output->channel_map : &stream->input->channel_map;
+}
+
+pa_modargs *pa_droid_modargs_new(const char *args, const char* const keys[]) {
+    pa_modargs *ma;
+    const char **full_keys;
+    int count;
+    int i, k;
+
+    for (count = 0; keys[count]; count++) ;
+
+    full_keys = pa_xnew0(const char *, count + DM_OPTION_COUNT + 1);
+
+    for (i = 0; keys[i]; i++)
+        full_keys[i] = keys[i];
+
+    for (k = 0; k < DM_OPTION_COUNT; k++)
+        full_keys[i++] = valid_options[k].name;
+
+    ma = pa_modargs_new(args, full_keys);
+
+    pa_xfree(full_keys);
+
+    return ma;
 }
