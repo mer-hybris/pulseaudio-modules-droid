@@ -58,12 +58,6 @@ typedef struct pa_droid_input_stream pa_droid_input_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;
 typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
-typedef enum pa_droid_hook {
-    PA_DROID_HOOK_INPUT_CHANNEL_MAP_CHANGED,    /* Call data: pa_droid_stream */
-    PA_DROID_HOOK_INPUT_BUFFER_SIZE_CHANGED,    /* Call data: pa_droid_stream */
-    PA_DROID_HOOK_MAX
-} pa_droid_hook_t;
-
 typedef struct pa_droid_options pa_droid_options;
 
 enum pa_droid_option_type {
