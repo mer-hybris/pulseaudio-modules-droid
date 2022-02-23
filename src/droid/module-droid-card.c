@@ -171,7 +171,7 @@ struct profile_data {
     struct virtual_profile virtual;
 };
 
-#ifdef DROID_AUDIO_HAL_USE_VSID
+#ifdef DROID_AUDIO_HAL_DEBUG_VSID
 
 /* From hal/voice_extn/voice_extn.c */
 #define AUDIO_PARAMETER_KEY_VSID            "vsid"
@@ -215,7 +215,7 @@ static bool voicecall_vowlan_vsid_profile_event_cb(struct userdata *u, pa_droid_
 static bool voicecall_voicemmode1_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
 static bool voicecall_voicemmode2_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
 
-#endif /* DROID_AUDIO_HAL_USE_VSID */
+#endif /* DROID_AUDIO_HAL_DEBUG_VSID */
 
 static void add_disabled_profile(pa_hashmap *profiles) {
     pa_card_profile *cp;
@@ -449,7 +449,7 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
     return true;
 }
 
-#ifdef DROID_AUDIO_HAL_USE_VSID
+#ifdef DROID_AUDIO_HAL_DEBUG_VSID
 static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsid, bool enabling)
 {
     char *setparam;
@@ -498,7 +498,7 @@ static bool voicecall_voicemmode2_vsid_profile_event_cb(struct userdata *u, pa_d
 {
     return voicecall_vsid(u, p, VOICEMMODE2_VSID, enabling);
 }
-#endif /* DROID_AUDIO_HAL_USE_VSID */
+#endif /* DROID_AUDIO_HAL_DEBUG_VSID */
 
 static void virtual_event(struct userdata *u, struct profile_data *profile, bool enabling) {
     pa_assert(u);
@@ -789,14 +789,13 @@ int pa__init(pa_module *m) {
     add_virtual_profile(u, RINGTONE_PROFILE_NAME, RINGTONE_PROFILE_DESC,
                         AUDIO_MODE_RINGTONE, NULL,
                         PA_AVAILABLE_YES, NULL, data.profiles);
-#ifdef DROID_AUDIO_HAL_USE_VSID
+#ifdef DROID_AUDIO_HAL_DEBUG_VSID
     add_virtual_profile(u, VOICE_SESSION_VOICE1_PROFILE_NAME, VOICE_SESSION_VOICE1_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_voice1_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
     add_virtual_profile(u, VOICE_SESSION_VOICE2_PROFILE_NAME, VOICE_SESSION_VOICE2_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_voice2_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
-    /* TODO: Probably enabled state needs to be determined dynamically for VOLTE and friends. */
     add_virtual_profile(u, VOICE_SESSION_VOLTE_PROFILE_NAME, VOICE_SESSION_VOLTE_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_volte_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
@@ -812,7 +811,7 @@ int pa__init(pa_module *m) {
     add_virtual_profile(u, VOICE_SESSION_VOICEMMODE2_PROFILE_NAME, VOICE_SESSION_VOICEMMODE2_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_voicemmode2_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
-#endif /* DROID_AUDIO_HAL_USE_VSID */
+#endif /* DROID_AUDIO_HAL_DEBUG_VSID */
 
     add_disabled_profile(data.profiles);
 
