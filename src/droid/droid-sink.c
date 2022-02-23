@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Jolla Ltd.
+ * Copyright (C) 2013-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -60,6 +60,7 @@
 #include "droid-sink.h"
 #include <droid/droid-util.h>
 #include <droid/conversion.h>
+#include <droid/sllist.h>
 
 struct userdata {
     pa_core *core;
@@ -79,18 +80,10 @@ struct userdata {
     pa_usec_t buffer_time;
     pa_usec_t write_time;
     pa_usec_t write_threshold;
-    audio_devices_t prewrite_devices;
-    bool prewrite_always;
-    uint32_t prewrite_silence;
-    pa_hook_slot *sink_put_hook_slot;
-    pa_hook_slot *sink_unlink_hook_slot;
-    pa_hook_slot *sink_port_changed_hook_slot;
-    pa_sink *primary_stream_sink;
 
-    audio_devices_t primary_devices;
-    audio_devices_t extra_devices;
-    pa_hashmap *extra_devices_map;
-    bool mix_route;
+    dm_config_port *active_device_port;
+    dm_config_port *override_device_port;
+    dm_list *extra_devices_stack;
 
     bool use_hw_volume;
     bool use_voice_volume;
@@ -133,87 +126,84 @@ static void set_voice_volume(struct userdata *u, pa_sink_input *i);
 static void apply_volume(pa_sink *s);
 static pa_sink_input *find_volume_control_sink_input(struct userdata *u);
 
-static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
-    pa_assert(u);
-    pa_assert(devices);
-
-    u->primary_devices = devices;
-}
-
-static bool add_extra_devices(struct userdata *u, audio_devices_t devices) {
-    void *value;
-    uint32_t count;
-    bool need_update = false;
+static bool add_extra_devices(struct userdata *u, audio_devices_t device) {
+    dm_list_entry *prev;
+    dm_config_port *device_port;
 
     pa_assert(u);
-    pa_assert(u->extra_devices_map);
-    pa_assert(devices);
+    pa_assert(u->extra_devices_stack);
 
-    if ((value = pa_hashmap_get(u->extra_devices_map, PA_UINT_TO_PTR(devices)))) {
-        count = PA_PTR_TO_UINT(value);
-        count++;
-        pa_hashmap_remove(u->extra_devices_map, PA_UINT_TO_PTR(devices));
-        pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(count));
-
-        /* added extra device already exists in hashmap, so no need to update route. */
-        need_update = false;
-    } else {
-        pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(1));
-        u->extra_devices |= devices;
-        need_update = true;
+    if (!(device_port = dm_config_find_device_port(u->active_device_port, device))) {
+        pa_log("Unknown device port %u", device);
+        return false;
     }
 
-    return need_update;
+    prev = dm_list_last(u->extra_devices_stack);
+
+    dm_list_push_back(u->extra_devices_stack, device_port);
+
+    if (prev) {
+        dm_config_port *last_port = prev->data;
+        if (dm_config_port_equal(last_port, device_port))
+            return false;
+    }
+
+    u->override_device_port = device_port;
+
+    return true;
 }
 
-static bool remove_extra_devices(struct userdata *u, audio_devices_t devices) {
-    void *value;
-    uint32_t count;
+static bool remove_extra_devices(struct userdata *u, audio_devices_t device) {
+    dm_config_port *device_port;
+    dm_list_entry *remove = NULL, *i = NULL;
     bool need_update = false;
 
     pa_assert(u);
-    pa_assert(u->extra_devices_map);
-    pa_assert(devices);
+    pa_assert(u->extra_devices_stack);
 
-    if ((value = pa_hashmap_get(u->extra_devices_map, PA_UINT_TO_PTR(devices)))) {
-        pa_hashmap_remove(u->extra_devices_map, PA_UINT_TO_PTR(devices));
-        count = PA_PTR_TO_UINT(value);
-        count--;
-        if (count == 0) {
-            u->extra_devices &= ~devices;
-            need_update = true;
-        } else {
-            /* added extra devices still exists in hashmap, so no need to update route. */
-            pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(count));
-            need_update = false;
+    if (!(device_port = dm_config_find_device_port(u->active_device_port, device))) {
+        pa_log("Unknown device port %u", device);
+        return false;
+    }
+
+    DM_LIST_FOREACH(i, u->extra_devices_stack) {
+        if (dm_config_port_equal(i->data, device_port)) {
+            remove = i;
+            break;
         }
     }
+
+    if (remove && dm_list_last(u->extra_devices_stack) == remove)
+        need_update = true;
+
+    if (remove)
+        dm_list_remove(u->extra_devices_stack, remove);
 
     return need_update;
 }
 
 static void clear_extra_devices(struct userdata *u) {
     pa_assert(u);
-    pa_assert(u->extra_devices_map);
+    pa_assert(u->extra_devices_stack);
 
-    pa_hashmap_remove_all(u->extra_devices_map);
-    u->extra_devices = 0;
+    while (dm_list_steal_first(u->extra_devices_stack));
+    u->override_device_port = NULL;
 }
 
 /* Called from main context during voice calls, and from IO context during media operation. */
 static void do_routing(struct userdata *u) {
-    audio_devices_t routing;
+    dm_config_port *routing = NULL;
 
     pa_assert(u);
     pa_assert(u->stream);
 
-    if (u->use_voice_volume && u->extra_devices)
+    if (u->use_voice_volume && u->override_device_port)
         clear_extra_devices(u);
 
-    if (!u->mix_route && u->extra_devices)
-        routing = u->extra_devices;
+    if (u->override_device_port)
+        routing = u->override_device_port;
     else
-        routing = u->primary_devices | u->extra_devices;
+        routing = u->active_device_port;
 
     pa_droid_stream_set_route(u->stream, routing);
 }
@@ -244,30 +234,6 @@ static bool parse_device_list(const char *str, audio_devices_t *dst) {
     return true;
 }
 
-static int thread_write_silence(struct userdata *u) {
-    const void *p;
-    ssize_t wrote;
-
-    /* Drop our rendered audio and write silence to HAL. */
-    pa_memblockq_drop(u->memblockq, u->buffer_size);
-    u->write_time = pa_rtclock_now();
-
-    /* We should be able to write everything in one go as long as memblock size
-     * is multiples of buffer_size. Even if we don't write whole buffer size
-     * here it's okay, as long as mute time isn't configured too strictly. */
-
-    p = pa_memblock_acquire_chunk(&u->silence);
-    wrote = pa_droid_stream_write(u->stream, p, u->silence.length);
-    pa_memblock_release(u->silence.memblock);
-
-    u->write_time = pa_rtclock_now() - u->write_time;
-
-    if (wrote < 0)
-        return -1;
-
-    return 0;
-}
-
 static int thread_write(struct userdata *u) {
     pa_memchunk c;
     const void *p;
@@ -281,9 +247,6 @@ static int thread_write(struct userdata *u) {
     u->write_time = pa_rtclock_now();
 
     for (;;) {
-        if (pa_droid_quirk(u->hw_module, QUIRK_OUTPUT_MAKE_WRITABLE))
-            pa_memchunk_make_writable(&c, c.length);
-
         p = pa_memblock_acquire_chunk(&c);
         wrote = pa_droid_stream_write(u->stream, p, c.length);
         pa_memblock_release(c.memblock);
@@ -454,8 +417,6 @@ static int suspend(struct userdata *u) {
 
 /* Called from IO context */
 static int unsuspend(struct userdata *u) {
-    uint32_t i;
-
     pa_assert(u);
     pa_assert(u->sink);
 
@@ -465,13 +426,6 @@ static int unsuspend(struct userdata *u) {
     pa_log_info("Resuming...");
 
     apply_volume(u->sink);
-
-    if (u->prewrite_silence &&
-        (u->primary_devices | u->extra_devices) & u->prewrite_devices &&
-        (u->prewrite_always || pa_droid_output_stream_any_active(u->stream) == 0)) {
-        for (i = 0; i < u->prewrite_silence; i++)
-            thread_write_silence(u);
-    }
 
     pa_droid_stream_suspend(u->stream, false);
 
@@ -548,7 +502,7 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 
     data = PA_DEVICE_PORT_DATA(p);
 
-    if (!data->device) {
+    if (!data->device_port) {
         /* If there is no device defined, just return 0 to say everything is ok.
          * Then next port change can be whatever sink port, even the one enabled
          * before parking. */
@@ -556,9 +510,9 @@ static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
         return 0;
     }
 
-    pa_log_debug("Sink set port %u", data->device);
+    pa_log_debug("Sink set port %#010x (%s)", data->device_port->type, data->device_port->name);
 
-    set_primary_devices(u, data->device);
+    u->active_device_port = data->device_port;
     do_routing(u);
 
     return 0;
@@ -633,9 +587,9 @@ static void update_volumes(struct userdata *u) {
     u->use_hw_volume = (ret == 0);
     if (u->use_hw_volume &&
 #if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-        !(u->stream->output->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+        !(u->stream->mix_port->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
 #endif
-        pa_droid_quirk(u->hw_module, QUIRK_NO_HW_VOLUME)) {
+        !pa_droid_option(u->hw_module, DM_OPTION_HW_VOLUME)) {
         pa_log_info("Forcing software volume control with %s", u->sink->name);
         u->use_hw_volume = false;
     } else {
@@ -649,7 +603,7 @@ static void update_volumes(struct userdata *u) {
     }
 }
 
-static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *module_id) {
+static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, pa_droid_mapping *am, const char *name) {
     const char *tmp;
 
     pa_assert(ma);
@@ -660,13 +614,14 @@ static void set_sink_name(pa_modargs *ma, pa_sink_new_data *data, const char *mo
         data->namereg_fail = true;
         pa_proplist_sets(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink");
     } else {
-        char *tt;
-        pa_assert(module_id);
-        tt = pa_sprintf_malloc("sink.%s", module_id);
-        pa_sink_new_data_set_name(data, tt);
-        pa_xfree(tt);
+        char *full_name;
+        pa_assert(name);
+        pa_assert(am);
+        full_name = pa_sprintf_malloc("sink.%s", name);
+        pa_sink_new_data_set_name(data, full_name);
+        pa_xfree(full_name);
         data->namereg_fail = false;
-        pa_proplist_setf(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink %s", module_id);
+        pa_proplist_setf(data->proplist, PA_PROP_DEVICE_DESCRIPTION, "Droid sink %s", am->name);
     }
 }
 
@@ -786,7 +741,7 @@ static pa_hook_result_t sink_input_put_hook_cb(pa_core *c, pa_sink_input *sink_i
 
         if (parse_device_list(dev_str, &devices) && devices) {
 
-            pa_log_debug("Add extra route %s (%u).", dev_str, devices);
+            pa_log_debug("%s: Add extra route %s (%u).", u->sink->name, dev_str, devices);
 
             /* if this device was not routed to previously post routing change */
             if (add_extra_devices(u, devices))
@@ -882,167 +837,6 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
     return PA_HOOK_OK;
 }
 
-static pa_hook_result_t sink_port_changed_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
-    pa_device_port *port;
-
-    pa_assert(c);
-    pa_assert(sink);
-    pa_assert(u);
-
-    if (sink != u->primary_stream_sink)
-        return PA_HOOK_OK;
-
-    port = sink->active_port;
-    pa_log_info("Set slave sink port to %s", port->name);
-    pa_sink_set_port(u->sink, port->name, false);
-
-    return PA_HOOK_OK;
-}
-
-static void unset_primary_stream_sink(struct userdata *u) {
-    pa_assert(u);
-    pa_assert(u->primary_stream_sink);
-    pa_assert(u->sink_port_changed_hook_slot);
-
-    pa_hook_slot_free(u->sink_port_changed_hook_slot);
-    u->sink_port_changed_hook_slot = NULL;
-    u->primary_stream_sink = NULL;
-}
-
-static pa_hook_result_t sink_unlink_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
-    pa_assert(c);
-    pa_assert(sink);
-    pa_assert(u);
-
-    if (sink != u->primary_stream_sink)
-        return PA_HOOK_OK;
-
-    pa_log_info("Primary stream sink disappeared.");
-    unset_primary_stream_sink(u);
-
-    return PA_HOOK_OK;
-}
-
-static pa_hook_result_t sink_put_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
-    struct userdata *sink_u;
-
-    pa_assert(c);
-    pa_assert(sink);
-    pa_assert(u);
-
-    if (!pa_sink_is_droid_sink(sink))
-        return PA_HOOK_OK;
-
-    sink_u = sink->userdata;
-
-    if (!pa_droid_stream_is_primary(sink_u->stream))
-        return PA_HOOK_OK;
-
-    u->primary_stream_sink = sink;
-
-    pa_assert(!u->sink_port_changed_hook_slot);
-    u->sink_port_changed_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_PORT_CHANGED], PA_HOOK_NORMAL,
-            (pa_hook_cb_t) sink_port_changed_hook_cb, u);
-
-    pa_log_info("Primary stream sink setup for slave.");
-
-    sink_port_changed_hook_cb(c, sink, u);
-
-    return PA_HOOK_OK;
-}
-
-static void setup_track_primary(struct userdata *u) {
-    pa_sink *sink;
-    struct userdata *sink_u;
-    uint32_t idx;
-
-    pa_assert(u);
-
-    u->sink_put_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_NORMAL,
-            (pa_hook_cb_t) sink_put_hook_cb, u);
-    u->sink_unlink_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_NORMAL,
-            (pa_hook_cb_t) sink_unlink_hook_cb, u);
-
-    PA_IDXSET_FOREACH(sink, u->core->sinks, idx) {
-        if (pa_sink_is_droid_sink(sink)) {
-            sink_u = sink->userdata;
-            if (pa_droid_stream_is_primary(sink_u->stream)) {
-                sink_put_hook_cb(u->core, sink, u);
-                break;
-            }
-        }
-    }
-}
-
-static bool parse_prewrite_on_resume(struct userdata *u, const char *prewrite_resume, const char *name) {
-    const char *state = NULL;
-    char *entry = NULL;
-    char *devices, *stream, *value;
-    uint32_t devices_len, devices_index, value_index, entry_len;
-    uint32_t b;
-
-    pa_assert(u);
-    pa_assert(prewrite_resume);
-    pa_assert(name);
-
-    /* Argument is string of for example "deep_buffer=AUDIO_DEVICE_OUT_SPEAKER:1,primary=FOO:5" */
-
-    while ((entry = pa_split(prewrite_resume, ",", &state))) {
-        audio_devices_t prewrite_devices = 0;
-        bool prewrite_always = false;
-        char *tmp;
-
-        entry_len = strlen(entry);
-        devices_index = strcspn(entry, "=");
-
-        if (devices_index == 0 || devices_index >= entry_len - 1)
-            goto error;
-
-        entry[devices_index] = '\0';
-        devices = entry + devices_index + 1;
-        stream = entry;
-
-        devices_len = strlen(devices);
-        value_index = strcspn(devices, ":");
-
-        if (value_index == 0 || value_index >= devices_len - 1)
-            goto error;
-
-        devices[value_index] = '\0';
-        value = devices + value_index + 1;
-
-        if (!parse_device_list(devices, &prewrite_devices))
-            goto error;
-
-        if ((tmp = strstr(value, "/always"))) {
-            prewrite_always = true;
-            *tmp = '\0';
-        }
-
-        if (strlen(value) == 0 || pa_atou(value, &b) < 0)
-            goto error;
-
-        if (pa_streq(stream, name)) {
-            pa_log_info("Using requested prewrite%s size for %s: %zu (%u * %zu).",
-                        prewrite_always ? "_always" : "",
-                        name, u->buffer_size * b, b, u->buffer_size);
-            u->prewrite_devices = prewrite_devices;
-            u->prewrite_always = prewrite_always;
-            u->prewrite_silence = b;
-            pa_xfree(entry);
-            return true;
-        }
-
-        pa_xfree(entry);
-    }
-
-return true;
-
-error:
-    pa_xfree(entry);
-    return false;
-}
-
 pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_modargs *ma,
                              const char *driver,
@@ -1052,23 +846,21 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                              pa_card *card) {
 
     struct userdata *u = NULL;
-    const pa_droid_config_device *output = NULL;
+    dm_config_port *mix_port = NULL;
+    dm_config_port *device_port = NULL;
     bool deferred_volume = false;
     char *thread_name = NULL;
     pa_sink_new_data data;
     const char *module_id = NULL;
-    const char *tmp;
     char *list = NULL;
     uint32_t alternate_sample_rate;
     const char *format;
-    audio_devices_t dev_out;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     bool namereg_fail = false;
     pa_usec_t latency;
     uint32_t sink_buffer = 0;
-    const char *prewrite_resume = NULL;
-    bool mix_route = false;
+    char *sink_name = NULL;
 
     pa_assert(m);
     pa_assert(ma);
@@ -1083,8 +875,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     }
 
     if (card && am) {
-        output = am->output;
-        module_id = output->module->name;
+        mix_port = am->mix_port;
+        module_id = mix_port->name;
     } else
         module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
@@ -1093,18 +885,22 @@ pa_sink *pa_droid_sink_new(pa_module *m,
 
     /* First parse both sample spec and channel map, then see if sink_* override some
      * of the values. */
-    if (pa_modargs_get_sample_spec_and_channel_map(ma, &sample_spec, &channel_map, PA_CHANNEL_MAP_AIFF) < 0) {
-        pa_log("Failed to parse sink sample specification and channel map.");
+
+    if (pa_modargs_get_sample_spec(ma, &sample_spec) < 0) {
+        pa_log("Failed to parse sink sample specification.");
         goto fail;
     }
 
-    if (pa_modargs_get_value(ma, "sink_channel_map", NULL)) {
-        if (pa_modargs_get_channel_map(ma, "sink_channel_map", &channel_map) < 0) {
-            pa_log("Failed to parse sink channel map.");
-            goto fail;
-        }
+    if (pa_modargs_get_channel_map(ma, NULL, &channel_map) < 0) {
+        pa_log("Failed to parse sink channel map.");
+        goto fail;
+    }
 
-        sample_spec.channels = channel_map.channels;
+    /* Possible overrides. */
+
+    if (pa_modargs_get_channel_map(ma, "sink_channel_map", &channel_map) < 0) {
+        pa_log("Failed to parse sink channel map.");
+        goto fail;
     }
 
     if ((format = pa_modargs_get_value(ma, "sink_format", NULL))) {
@@ -1112,6 +908,11 @@ pa_sink *pa_droid_sink_new(pa_module *m,
             pa_log("Failed to parse sink format.");
             goto fail;
         }
+    }
+
+    if (pa_modargs_get_value_u32(ma, "rate", &sample_spec.rate) < 0) {
+        pa_log("Failed to parse sink samplerate");
+        goto fail;
     }
 
     if (pa_modargs_get_value_u32(ma, "sink_rate", &sample_spec.rate) < 0) {
@@ -1135,11 +936,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
-    if (pa_modargs_get_value_boolean(ma, "sink_mix_route", &mix_route) < 0) {
-        pa_log("Failed to parse sink_mix_route, expects boolean argument.");
-        goto fail;
-    }
-
     u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->module = m;
@@ -1151,8 +947,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
                                         NULL, (pa_free_cb_t) parameter_free);
     u->voice_property_key   = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_key", DEFAULT_VOICE_CONTROL_PROPERTY_KEY));
     u->voice_property_value = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_value", DEFAULT_VOICE_CONTROL_PROPERTY_VALUE));
-    u->extra_devices_map = pa_hashmap_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
-    u->mix_route = mix_route;
+    u->extra_devices_stack = dm_list_new();
 
     if (card_data) {
         u->card_data = card_data;
@@ -1166,34 +961,25 @@ pa_sink *pa_droid_sink_new(pa_module *m,
             goto fail;
         }
 
-        if (!(output = pa_droid_config_find_output(u->hw_module->enabled_module, output_name))) {
-            pa_log("Could not find output %s from module %s.", output_name, u->hw_module->enabled_module->name);
-            goto fail;
-        }
-
         /* Sink wasn't created from inside card module, so we'll need to open
          * hw module ourself. */
 
         if (!(u->hw_module = pa_droid_hw_module_get2(u->core, ma, module_id)))
             goto fail;
+
+        if (!(mix_port = dm_config_find_port(u->hw_module->enabled_module, output_name)) ||
+             mix_port->port_type != DM_CONFIG_TYPE_MIX_PORT) {
+            pa_log("Could not find output %s from module %s.", output_name, u->hw_module->enabled_module->name);
+            goto fail;
+        }
     }
 
-    /* Default routing */
-    dev_out = output->module->global_config ? output->module->global_config->default_output_device
-                                            : u->hw_module->config->global_config->default_output_device;
+    pa_assert(mix_port);
 
-    if ((tmp = pa_modargs_get_value(ma, "output_devices", NULL))) {
-        audio_devices_t tmp_dev;
+    /* Start with default output device */
+    device_port = dm_config_default_output_device(mix_port->module);
 
-        if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
-            dev_out = tmp_dev;
-
-        pa_log_debug("Set initial devices %s", tmp);
-    }
-
-    flags = output->flags;
-
-    u->stream = pa_droid_open_output_stream(u->hw_module, &sample_spec, &channel_map, output->name, dev_out);
+    u->stream = pa_droid_open_output_stream(u->hw_module, &sample_spec, &channel_map, mix_port, device_port);
 
     if (!u->stream) {
         pa_log("Failed to open output stream.");
@@ -1207,13 +993,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     } else
         pa_log_info("Using buffer size %zu.", u->buffer_size);
 
-    if ((prewrite_resume = pa_modargs_get_value(ma, "prewrite_on_resume", NULL))) {
-        if (!parse_prewrite_on_resume(u, prewrite_resume, output->name)) {
-            pa_log("Failed to parse prewrite_on_resume (%s)", prewrite_resume);
-            goto fail;
-        }
-    }
-
     u->buffer_time = pa_bytes_to_usec(u->buffer_size, &u->stream->output->sample_spec);
     u->write_threshold = u->buffer_time - u->buffer_time / 6;
 
@@ -1225,7 +1004,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     data.module = m;
     data.card = card;
 
-    set_sink_name(ma, &data, output->name);
+    sink_name = dm_config_escape_string(module_id);
+    set_sink_name(ma, &data, am, sink_name);
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, PROP_DROID_API_STRING);
 
@@ -1244,15 +1024,6 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_sink_new_data_set_sample_spec(&data, &u->stream->output->sample_spec);
     pa_sink_new_data_set_channel_map(&data, &u->stream->output->channel_map);
     pa_sink_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
-
-    /*
-    if (!(list = pa_list_string_output_device(dev_out))) {
-        pa_log("Couldn't format device list string.");
-        goto fail;
-    }
-    pa_proplist_sets(data.proplist, PROP_DROID_DEVICES, list);
-    pa_xfree(list);
-    */
 
     if (flags) {
         if (!(list = pa_list_string_flags(flags))) {
@@ -1281,15 +1052,13 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     u->sink->parent.process_msg = sink_process_msg;
     u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
 
-    u->sink->set_port = sink_set_port_cb;
-
     pa_sink_set_asyncmsgq(u->sink, u->thread_mq.inq);
     pa_sink_set_rtpoll(u->sink, u->rtpoll);
 
     /* Rewind internal memblockq */
     pa_sink_set_max_rewind(u->sink, 0);
 
-    thread_name = pa_sprintf_malloc("droid-sink-%s", output->name);
+    thread_name = pa_sprintf_malloc("droid-sink-%s", sink_name);
     if (!(u->thread = pa_thread_new(thread_name, thread_func, u))) {
         pa_log("Failed to create thread.");
         goto fail;
@@ -1306,28 +1075,34 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     if (u->sink->active_port)
         sink_set_port_cb(u->sink, u->sink->active_port);
 
-    /* Hooks to track appearance and disappearance of sink-inputs. */
-    /* Hook a little bit earlier and later than module-role-ducking. */
-    u->sink_input_put_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_PUT], PA_HOOK_LATE+10,
-            (pa_hook_cb_t) sink_input_put_hook_cb, u);
-    u->sink_input_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_EARLY-10,
-            (pa_hook_cb_t) sink_input_unlink_hook_cb, u);
-    u->sink_proplist_changed_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_PROPLIST_CHANGED], PA_HOOK_EARLY,
-            (pa_hook_cb_t) sink_proplist_changed_hook_cb, u);
+    if (pa_droid_stream_is_primary(u->stream)) {
+        /* Hooks to track appearance and disappearance of sink-inputs.
+         * Hook a little bit earlier and later than module-role-ducking.
+         * Used only in primary sink. */
+        u->sink_input_put_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_PUT], PA_HOOK_LATE+10,
+                (pa_hook_cb_t) sink_input_put_hook_cb, u);
+        u->sink_input_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_UNLINK], PA_HOOK_EARLY-10,
+                (pa_hook_cb_t) sink_input_unlink_hook_cb, u);
+        u->sink_proplist_changed_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_PROPLIST_CHANGED], PA_HOOK_EARLY,
+                (pa_hook_cb_t) sink_proplist_changed_hook_cb, u);
+
+        /* Port changes are done only in primary sink. */
+        u->sink->set_port = sink_set_port_cb;
+    }
 
     update_volumes(u);
-
-    if (!pa_droid_stream_is_primary(u->stream))
-        setup_track_primary(u);
 
     pa_droid_stream_suspend(u->stream, false);
     pa_droid_stream_set_data(u->stream, u->sink);
     pa_sink_put(u->sink);
 
+    pa_xfree(sink_name);
+
     return u->sink;
 
 fail:
     pa_xfree(thread_name);
+    pa_xfree(sink_name);
 
     if (u)
         userdata_free(u);
@@ -1353,18 +1128,6 @@ static void parameter_free(droid_parameter_mapping *m) {
 }
 
 static void userdata_free(struct userdata *u) {
-
-    if (u->primary_stream_sink)
-        unset_primary_stream_sink(u);
-
-    if (u->sink_put_hook_slot)
-        pa_hook_slot_free(u->sink_put_hook_slot);
-
-    if (u->sink_unlink_hook_slot)
-        pa_hook_slot_free(u->sink_unlink_hook_slot);
-
-    if (u->sink_port_changed_hook_slot)
-        pa_hook_slot_free(u->sink_port_changed_hook_slot);
 
     if (u->sink)
         pa_sink_unlink(u->sink);
@@ -1411,8 +1174,8 @@ static void userdata_free(struct userdata *u) {
     if (u->voice_property_value)
         pa_xfree(u->voice_property_value);
 
-    if (u->extra_devices_map)
-        pa_hashmap_free(u->extra_devices_map);
+    if (u->extra_devices_stack)
+        dm_list_free(u->extra_devices_stack, NULL);
 
     pa_xfree(u);
 }
