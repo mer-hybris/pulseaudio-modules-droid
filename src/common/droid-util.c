@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Jolla Ltd.
+ * Copyright (C) 2013-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -31,6 +31,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <grp.h>
+#include <stdarg.h>
 
 #ifdef HAVE_VALGRIND_MEMCHECK_H
 #include <valgrind/memcheck.h>
@@ -70,6 +71,7 @@
 #include "droid/droid-config.h"
 #include "droid/conversion.h"
 #include "droid/sllist.h"
+#include "droid/utils.h"
 
 struct droid_option {
     const char *name;
@@ -124,12 +126,15 @@ struct user_options {
 
 static void droid_port_free(pa_droid_port *p);
 
-static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s);
+static int input_stream_set_route(pa_droid_stream *stream, const dm_config_port *device_port);
 static int droid_set_parameters(pa_droid_hw_module *hw, const char *parameters);
-static bool droid_set_audio_source(pa_droid_hw_module *hw_module, audio_source_t audio_source);
+static bool droid_set_audio_source(pa_droid_stream *stream, audio_source_t audio_source);
+static void add_output_ports(pa_droid_mapping *droid_mapping, dm_config_port *device_port);
+static void add_input_ports(pa_droid_mapping *droid_mapping, dm_config_port *device_port);
+static void audio_patch_release(pa_droid_stream *stream);
 
 static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
-                                     const pa_droid_config_hw_module *module,
+                                     dm_config_module *module,
                                      const char *name,
                                      const char *description) {
     pa_droid_profile *p;
@@ -147,82 +152,14 @@ static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
     p->priority = DEFAULT_PRIORITY;
 
     p->output_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    p->input_mappings = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
 
     pa_hashmap_put(ps->profiles, p->name, p);
 
     return p;
 }
 
-static pa_droid_profile *droid_profile_new(pa_droid_profile_set *ps,
-                                           const pa_droid_config_device *primary_output,
-                                           const pa_droid_config_device *output,
-                                           const pa_droid_config_device *inputs) {
-    pa_droid_profile *p;
-    char *name;
-    char *description;
-
-    pa_assert(ps);
-    pa_assert(output);
-    pa_assert(!primary_output || primary_output->direction == PA_DIRECTION_OUTPUT);
-    pa_assert(!inputs || inputs->direction == PA_DIRECTION_INPUT);
-
-    name = pa_sprintf_malloc("%s%s%s", output->name, inputs ? "-" : "", inputs ? inputs->name : "");
-    description = pa_sprintf_malloc("%s output%s%s%s", output->name,
-                                                       inputs ? " and " : "",
-                                                       inputs ? inputs->name : "",
-                                                       inputs ? " inputs." : "");
-
-    p = profile_new(ps, output->module, name, description);
-    pa_xfree(name);
-    pa_xfree(description);
-
-    if (pa_streq(output->name, "primary")) {
-        p->priority += DEFAULT_PRIORITY;
-
-        if (inputs && pa_streq(inputs->name, "primary"))
-            p->priority += DEFAULT_PRIORITY;
-    }
-
-    if (primary_output && primary_output != output)
-        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, primary_output), NULL);
-    if (output)
-        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, output), NULL);
-    if (inputs)
-        p->input_mapping = pa_droid_mapping_get(ps, inputs);
-
-    return p;
-}
-
-void pa_droid_profile_add_mapping(pa_droid_profile *p, pa_droid_mapping *am) {
-    pa_assert(p);
-    pa_assert(am);
-
-    if (am->direction == PA_DIRECTION_OUTPUT)
-        pa_idxset_put(p->output_mappings, am, NULL);
-    else
-        p->input_mapping = am;
-}
-
-static pa_droid_profile *add_profile(pa_droid_profile_set *ps,
-                                     const pa_droid_config_device *primary_output,
-                                     const pa_droid_config_device *output,
-                                     const pa_droid_config_device *input) {
-    pa_droid_profile *ap;
-
-    pa_assert(!primary_output || primary_output->direction == PA_DIRECTION_OUTPUT);
-    pa_assert(output && output->direction == PA_DIRECTION_OUTPUT);
-    pa_assert(!input || input->direction == PA_DIRECTION_INPUT);
-
-    pa_log_debug("New profile: %s-%s", output->name, input ? input->name : "no input");
-
-    ap = droid_profile_new(ps, primary_output, output, input);
-
-    pa_hashmap_put(ps->profiles, ap->name, ap);
-
-    return ap;
-}
-
-static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *module) {
+static pa_droid_profile_set *profile_set_new(dm_config_module *module) {
     pa_droid_profile_set *ps;
 
     pa_assert(module);
@@ -241,118 +178,160 @@ static pa_droid_profile_set *profile_set_new(const pa_droid_config_hw_module *mo
     return ps;
 }
 
-static void add_all_profiles(pa_droid_profile_set *ps,
-                             const pa_droid_config_hw_module *module) {
-    const pa_droid_config_device *primary_output = NULL;
-    const pa_droid_config_device *output;
-    const pa_droid_config_device *input;
+static pa_droid_mapping *mapping_by_name(pa_idxset *idxset, const char *name) {
+    pa_droid_mapping *droid_mapping;
+    uint32_t idx;
 
-    pa_assert(ps);
+    PA_IDXSET_FOREACH(droid_mapping, idxset, idx) {
+        if (pa_streq(droid_mapping->mix_port->name, name))
+            return droid_mapping;
+    }
+
+    return NULL;
+}
+
+static pa_droid_mapping *droid_mapping_update(pa_droid_mapping *droid_mapping,
+                                              pa_droid_profile_set *profile_set,
+                                              dm_config_module *module,
+                                              dm_config_port *mix_port,
+                                              dm_config_port *device_port) {
+    pa_hashmap *map;
+    bool output_mapping = true;
+
+    pa_assert(profile_set);
+    pa_assert(module);
+    pa_assert(mix_port);
+    pa_assert(device_port);
+
+    if (mix_port->role == DM_CONFIG_ROLE_SINK)
+        output_mapping = false;
+
+    map = output_mapping ? profile_set->output_mappings : profile_set->input_mappings;
+
+    if (!(droid_mapping = pa_hashmap_get(map, mix_port->name))) {
+        pa_log_debug("New %s mapping \"%s\"", output_mapping ? "output" : "input", mix_port->name);
+
+        droid_mapping = pa_xnew0(pa_droid_mapping, 1);
+        droid_mapping->module = module;
+        droid_mapping->profile_set = profile_set;
+        droid_mapping->proplist = pa_proplist_new();
+        droid_mapping->direction = output_mapping ? PA_DIRECTION_OUTPUT : PA_DIRECTION_INPUT;
+        droid_mapping->ports = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);;
+        droid_mapping->mix_port = mix_port;
+        droid_mapping->device_ports = dm_list_new();
+        droid_mapping->name = pa_xstrdup(mix_port->name);
+
+        pa_hashmap_put(map, droid_mapping->name, droid_mapping);
+    }
+
+    /* Device ports associated with the mapping */
+    dm_list_push_back(droid_mapping->device_ports, device_port);
+
+    if (droid_mapping->direction == PA_DIRECTION_OUTPUT)
+        add_output_ports(droid_mapping, device_port);
+    else
+        add_input_ports(droid_mapping, device_port);
+
+    return droid_mapping;
+
+}
+
+#define ALLOWED_OUTPUT_TYPES (AUDIO_OUTPUT_FLAG_FAST | AUDIO_OUTPUT_FLAG_PRIMARY | AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+
+static void update_mapping(pa_droid_profile_set *profile_set,
+                           pa_droid_profile *profile,
+                           dm_config_module *module,
+                           dm_config_port *source,
+                           dm_config_port *sink) {
+
+
+    pa_droid_mapping *droid_mapping = NULL;
+    pa_idxset *mappings;
+    bool put = true;
+
+    /*                                    source        sink
+     * For output routes    PulseAudio -> mixPort    -> devicePort
+     *     input routes                   devicePort -> mixPort -> PulseAudio
+     */
+    if (source->port_type == DM_CONFIG_TYPE_MIX_PORT &&
+        sink->port_type == DM_CONFIG_TYPE_DEVICE_PORT) {
+
+        mappings = profile->output_mappings;
+
+        if ((droid_mapping = mapping_by_name(mappings, source->name)))
+            put = false;
+
+        droid_mapping = droid_mapping_update(droid_mapping, profile_set, module, source, sink);
+
+    } else if (source->port_type == DM_CONFIG_TYPE_DEVICE_PORT &&
+               sink->port_type == DM_CONFIG_TYPE_MIX_PORT) {
+
+        mappings = profile->input_mappings;
+
+        if ((droid_mapping = mapping_by_name(mappings, sink->name)))
+            put = false;
+
+        droid_mapping = droid_mapping_update(droid_mapping, profile_set, module, sink, source);
+
+    } else {
+        pa_log("Internal data structures are confused.");
+        pa_assert_not_reached();
+    }
+
+
+    if (put)
+        pa_idxset_put(mappings, droid_mapping, NULL);
+}
+
+static void auto_add_profiles(pa_droid_profile_set *profile_set,
+                              dm_config_module *module) {
+    pa_droid_profile *profile;
+    dm_config_route *route;
+    void *state, *state2;
+
+    pa_assert(profile_set);
     pa_assert(module);
 
-    SLLIST_FOREACH(output, module->outputs) {
-        if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY) {
-            primary_output = output;
-            break;
+    profile = profile_new(profile_set, module, "default", "Default profile");
+
+    /* Droid profiles, mappings and ports are genrated like this:
+     *
+     * 1. route definitions in audio policy configuration are iterated through
+     * 2. for every route, update_mapping is called for every combination of
+     *    sink and source, so practically the function is called many times
+     *    with identical sink and different source
+     *
+     * PulseAudio internals and audio policy configuration are mapped like this:
+     *
+     * For outputs:
+     *
+     * audio policy xml     | port type     | PulseAudio
+     * ---------------------|---------------|------------------------
+     * mixPort              | source        | pa_droid_mapping
+     * devicePort           | sink          | pa_droid_port
+     *
+     * For inputs:
+     *
+     * audio policy xml     | port type     | PulseAudio
+     * ---------------------|---------------|------------------------
+     * mixPort              | sink          | pa_droid_mapping
+     * devicePort           | source        | pa_droid_port
+     *
+     * In other words, for every mixPort there will be one sink or source,
+     * and for every devicePort there will be one output or input port used
+     * by sinks and sources.
+     */
+
+    DM_LIST_FOREACH_DATA(route, module->routes, state) {
+        dm_config_port *source;
+
+        DM_LIST_FOREACH_DATA(source, route->sources, state2) {
+            update_mapping(profile_set, profile, module, source, route->sink);
         }
     }
-
-    /* Each distinct hw module output matches one profile. If there are multiple inputs
-     * combinations are made so that all possible outputs and inputs can be selected.
-     * So for outputs "primary" and "hdmi" and input "primary" profiles
-     * "primary-primary" and "hdmi-primary" are created. */
-
-    SLLIST_FOREACH(output, module->outputs) {
-
-        if (module->inputs) {
-            SLLIST_FOREACH(input, module->inputs)
-                add_profile(ps, primary_output, output, input);
-        } else
-            add_profile(ps, primary_output, output, NULL);
-    }
 }
 
-pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *module) {
-    pa_droid_profile_set *ps;
-
-    ps = profile_set_new(module);
-    add_all_profiles(ps, module);
-
-    return ps;
-}
-
-static void add_default_profile(pa_droid_profile_set *ps,
-                                const pa_droid_config_hw_module *module,
-                                const pa_droid_config_device *primary_output,
-                                const pa_droid_config_device *low_latency_output,
-                                const pa_droid_config_device *media_latency_output,
-                                const pa_droid_config_device *inputs) {
-
-    pa_droid_profile *p;
-
-    pa_assert(ps);
-    pa_assert(module);
-    pa_assert(!primary_output || primary_output->direction == PA_DIRECTION_OUTPUT);
-    pa_assert(!low_latency_output || low_latency_output->direction == PA_DIRECTION_OUTPUT);
-    pa_assert(!media_latency_output || media_latency_output->direction == PA_DIRECTION_OUTPUT);
-
-    pa_log_debug("New default profile");
-
-    p = profile_new(ps, module, "default", "Default profile");
-
-    if (primary_output)
-        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, primary_output), NULL);
-    if (low_latency_output && primary_output != low_latency_output)
-        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, low_latency_output), NULL);
-    if (media_latency_output && primary_output != media_latency_output && low_latency_output != media_latency_output)
-        pa_idxset_put(p->output_mappings, pa_droid_mapping_get(ps, media_latency_output), NULL);
-
-    if (inputs)
-        p->input_mapping = pa_droid_mapping_get(ps, inputs);
-
-    p->priority += DEFAULT_PRIORITY * (pa_idxset_size(p->output_mappings) + p->input_mapping ? 1 : 0);
-    p->priority += primary_output ? DEFAULT_PRIORITY : 0;
-    pa_hashmap_put(ps->profiles, p->name, p);
-}
-
-static void auto_add_profiles(pa_droid_profile_set *ps,
-                              const pa_droid_config_hw_module *module) {
-    const pa_droid_config_device *output;
-    const pa_droid_config_device *primary_output        = NULL;
-    const pa_droid_config_device *low_latency_output    = NULL;
-    const pa_droid_config_device *media_latency_output  = NULL;
-
-    pa_assert(ps);
-    pa_assert(module);
-
-    /* first find different output types */
-    SLLIST_FOREACH(output, module->outputs) {
-        if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
-            primary_output = output;
-
-#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_RAW)
-        else if (output->flags & AUDIO_OUTPUT_FLAG_RAW)
-            pa_log_debug("Ignore output %s with flag AUDIO_OUTPUT_FLAG_RAW", output->name);
-#endif
-
-#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-        else if (output->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-            pa_log_debug("Ignore output %s with flag AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD", output->name);
-#endif
-
-        else if (output->flags & AUDIO_OUTPUT_FLAG_FAST)
-            low_latency_output = output;
-
-        else if (output->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
-            media_latency_output = output;
-    }
-
-    add_default_profile(ps, module,
-                        primary_output, low_latency_output, media_latency_output,
-                        module->inputs);
-}
-
-pa_droid_profile_set *pa_droid_profile_set_default_new(const pa_droid_config_hw_module *module) {
+pa_droid_profile_set *pa_droid_profile_set_default_new(dm_config_module *module) {
     pa_droid_profile_set *ps;
 
     ps = profile_set_new(module);
@@ -367,6 +346,7 @@ void pa_droid_mapping_free(pa_droid_mapping *am) {
     pa_xfree(am->name);
     pa_proplist_free(am->proplist);
     pa_idxset_free(am->ports, NULL);
+    dm_list_free(am->device_ports, NULL);
     pa_xfree(am);
 }
 
@@ -377,6 +357,8 @@ void pa_droid_profile_free(pa_droid_profile *ap) {
     pa_xfree(ap->description);
     if (ap->output_mappings)
         pa_idxset_free(ap->output_mappings, NULL);
+    if (ap->input_mappings)
+        pa_idxset_free(ap->input_mappings, NULL);
     ap->input_mapping = NULL;
     pa_xfree(ap);
 }
@@ -407,14 +389,15 @@ void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
     pa_xfree(ps);
 }
 
-static pa_droid_port *create_o_port(pa_droid_mapping *am, uint32_t device, const char *name, const char *description) {
+static pa_droid_port *create_output_port(pa_droid_mapping *am,
+                                         dm_config_port *device_port,
+                                         const char *name,
+                                         const char *description) {
     pa_droid_port *p;
-    char *desc;
 
     pa_assert(am);
     pa_assert(name);
 
-    pa_log_debug("  New output port %s", name);
     p = pa_xnew0(pa_droid_port, 1);
 
     p->mapping = am;
@@ -422,215 +405,155 @@ static pa_droid_port *create_o_port(pa_droid_mapping *am, uint32_t device, const
     if (description) {
         p->description = pa_xstrdup(description);
     } else {
-        desc = pa_replace(name, "output-", "Output to ");
-        p->description = pa_replace(desc, "_", " ");
-        pa_xfree(desc);
+        p->description = pa_replace(name, "output-", "Output to ");
+        dm_replace_in_place(&p->description, "_", " ");
     }
     p->priority = DEFAULT_PRIORITY;
-    p->device = device;
+    p->device_port = device_port;
 
-    if (am->output->module->global_config ? am->output->module->global_config->attached_output_devices & device
-                                          : am->profile_set->config->global_config->attached_output_devices & device)
-        p->priority += DEFAULT_PRIORITY;
+    if (device_port) {
+        if (am->module->attached_devices) {
+            const dm_config_port *attached_port;
+            void *state;
 
-    if (am->output->module->global_config ? am->output->module->global_config->default_output_device & device
-                                          : am->profile_set->config->global_config->default_output_device & device)
-        p->priority += DEFAULT_PRIORITY;
+            DM_LIST_FOREACH_DATA(attached_port, am->module->attached_devices, state) {
+                if (attached_port->type == device_port->type) {
+                    p->priority += DEFAULT_PRIORITY;
+                    break;
+                }
+            }
+        }
+
+        if (am->module->default_output_device &&
+            am->module->default_output_device->type == device_port->type)
+            p->priority += DEFAULT_PRIORITY;
+    }
 
     return p;
 }
 
-static void add_o_ports(pa_droid_mapping *am) {
-    pa_droid_port *p;
+static void add_output_ports(pa_droid_mapping *droid_mapping, dm_config_port *device_port) {
+    pa_droid_port *port;
     const char *name;
-    uint32_t devices;
-    uint32_t combo_devices;
-    uint32_t i = 0;
+    bool new = false;
 
-    pa_assert(am);
+    pa_assert(droid_mapping);
 
-    devices = am->output->devices;
+    pa_assert_se(pa_droid_output_port_name(device_port->type, &name));
 
-    /* IHF combo devices, these devices are combined with IHF */
-    combo_devices = AUDIO_DEVICE_OUT_SPEAKER | AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+    /* First add parking port */
 
-    while (devices) {
-        uint32_t cur_device = (1 << i++);
-
-        if (devices & cur_device) {
-
-            pa_assert_se(pa_droid_output_port_name(cur_device, &name));
-
-            if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
-
-                p = create_o_port(am, cur_device, name, NULL);
-                pa_hashmap_put(am->profile_set->all_ports, p->name, p);
-            } else
-                pa_log_debug("  Output port %s from cache", name);
-
-            pa_idxset_put(am->ports, p, NULL);
-
-            devices &= ~cur_device;
-        }
-    }
-
-    /* Combo devices, route to multiple routing targets simultaneously. */
-    if (am->output->devices & combo_devices) {
-        pa_assert_se(pa_droid_output_port_name(combo_devices, &name));
-        if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
-            p = create_o_port(am, combo_devices, name, NULL);
-            /* Reset priority to default. */
-            p->priority = DEFAULT_PRIORITY;
-
-            pa_hashmap_put(am->profile_set->all_ports, p->name, p);
-        } else
-            pa_log_debug("  Output port %s from cache", name);
-
-        pa_idxset_put(am->ports, p, NULL);
-    }
-
-    if (!(p = pa_hashmap_get(am->profile_set->all_ports, PA_DROID_OUTPUT_PARKING))) {
+    if (!(port = pa_hashmap_get(droid_mapping->profile_set->all_ports, PA_DROID_OUTPUT_PARKING))) {
         /* Create parking port for output mapping to be used when audio_mode_t changes. */
-        p = create_o_port(am, 0, PA_DROID_OUTPUT_PARKING, "Parking port");
+        port = create_output_port(droid_mapping, NULL, PA_DROID_OUTPUT_PARKING, "Parking port");
         /* Reset priority to half of default */
-        p->priority = DEFAULT_PRIORITY / 2;
+        port->priority = DEFAULT_PRIORITY / 2;
 
-        pa_hashmap_put(am->profile_set->all_ports, p->name, p);
-    } else
-        pa_log_debug("  Output port %s from cache", PA_DROID_OUTPUT_PARKING);
+        pa_hashmap_put(droid_mapping->profile_set->all_ports, port->name, port);
+    }
 
-    pa_idxset_put(am->ports, p, NULL);
+    pa_idxset_put(droid_mapping->ports, port, NULL);
+
+    /* Then add normal port */
+
+    if (!(port = pa_hashmap_get(droid_mapping->profile_set->all_ports, name))) {
+        new = true;
+        port = create_output_port(droid_mapping, device_port, name, NULL);
+        pa_hashmap_put(droid_mapping->profile_set->all_ports, port->name, port);
+    }
+
+    if (new)
+        pa_log_debug("  Mapping %s add new output port %s", droid_mapping->name, name);
+    else
+        pa_log_debug("  Mapping %s add output port %s from cache", droid_mapping->name, name);
+
+    pa_idxset_put(droid_mapping->ports, port, NULL);
 }
 
-static void add_i_port(pa_droid_mapping *am, uint32_t device, const char *name) {
+static pa_droid_port *create_input_port(pa_droid_mapping *am,
+                                        dm_config_port *device_port,
+                                        const char *name,
+                                        const char *description) {
     pa_droid_port *p;
-    char *desc;
 
     pa_assert(am);
     pa_assert(name);
 
-    if (!(p = pa_hashmap_get(am->profile_set->all_ports, name))) {
-        pa_log_debug("  New input port %s", name);
-        p = pa_xnew0(pa_droid_port, 1);
+    p = pa_xnew0(pa_droid_port, 1);
 
-        p->mapping = am;
-        p->name = pa_xstrdup(name);
-        desc = pa_replace(name, "input-", "Input from ");
-        p->description = pa_replace(desc, "_", " ");
-        pa_xfree(desc);
-        p->priority = DEFAULT_PRIORITY;
-        p->device = device;
+    p->mapping = am;
+    p->name = pa_xstrdup(name);
+    if (description) {
+        p->description = pa_xstrdup(description);
+    } else {
+        p->description = pa_replace(name, "input-", "Input from ");
+        dm_replace_in_place(&p->description, "_", " ");
+    }
+    p->priority = DEFAULT_PRIORITY;
+    p->device_port = device_port;
 
-        if (am->inputs->module->global_config ? am->inputs->module->global_config->attached_input_devices & device
-                                              : am->profile_set->config->global_config->attached_input_devices & device)
-            p->priority += DEFAULT_PRIORITY;
+    if (device_port) {
+        if (am->module->attached_devices) {
+            const dm_config_port *attached_port;
+            void *state;
 
-        pa_hashmap_put(am->profile_set->all_ports, p->name, p);
-    } else
-        pa_log_debug("  Input port %s from cache", name);
-
-    pa_idxset_put(am->ports, p, NULL);
-}
-
-static void add_i_ports(pa_droid_mapping *am) {
-    pa_droid_port *p;
-    const char *name;
-    const pa_droid_config_device *input;
-    uint32_t devices = AUDIO_DEVICE_IN_DEFAULT;
-    uint32_t i = 0;
-
-    pa_assert(am);
-
-    SLLIST_FOREACH(input, am->inputs)
-        devices |= input->devices;
-
-#if AUDIO_API_VERSION_MAJ >= 2
-    devices &= ~AUDIO_DEVICE_BIT_IN;
-#endif
-
-    while (devices) {
-        uint32_t cur_device = (1 << i++);
-
-        if (devices & cur_device) {
-
-#if AUDIO_API_VERSION_MAJ >= 2
-            cur_device |= AUDIO_DEVICE_BIT_IN;
-#endif
-
-            pa_assert_se(pa_droid_input_port_name(cur_device, &name));
-            add_i_port(am, cur_device, name);
-
-            devices &= ~cur_device;
+            DM_LIST_FOREACH_DATA(attached_port, am->module->attached_devices, state) {
+                if (attached_port->type == device_port->type) {
+                    p->priority += DEFAULT_PRIORITY;
+                    break;
+                }
+            }
         }
     }
 
-#if AUDIO_API_VERSION_MAJ == 1
-    /* HAL v1 has default input device defined as another input device,
-     * so we need to add it by hand here. */
-    add_i_port(am, AUDIO_DEVICE_IN_DEFAULT, "input-default");
-#endif
-
-    if (!(p = pa_hashmap_get(am->profile_set->all_ports, PA_DROID_INPUT_PARKING))) {
-        pa_log_debug("  New input port %s", PA_DROID_INPUT_PARKING);
-        /* Create parking port for input mapping to be used when audio_mode_t changes. */
-        p = pa_xnew0(pa_droid_port, 1);
-        p->mapping = am;
-        p->name = pa_sprintf_malloc(PA_DROID_INPUT_PARKING);
-        p->description = pa_sprintf_malloc("Parking port");
-        p->priority = 50;
-        p->device = 0; /* No routing */
-
-        pa_hashmap_put(am->profile_set->all_ports, p->name, p);
-    } else
-        pa_log_debug("  Input port %s from cache", PA_DROID_INPUT_PARKING);
-
-    pa_idxset_put(am->ports, p, NULL);
+    return p;
 }
 
-pa_droid_mapping *pa_droid_mapping_get(pa_droid_profile_set *ps, const pa_droid_config_device *device) {
-    pa_droid_mapping *am;
-    pa_hashmap *map;
+static void add_input_ports(pa_droid_mapping *droid_mapping, dm_config_port *device_port) {
+    pa_droid_port *port;
+    const char *name;
+    bool new = false;
 
-    pa_assert(ps);
-    pa_assert(device);
+    pa_assert(droid_mapping);
+    pa_assert(device_port);
 
-    map = device->direction == PA_DIRECTION_OUTPUT ? ps->output_mappings : ps->input_mappings;
+    pa_assert_se(pa_droid_input_port_name(device_port->type, &name));
 
-    if ((am = pa_hashmap_get(map, device->name))) {
-        pa_log_debug("  %s mapping %s from cache", pa_direction_to_string(device->direction), device->name);
-        return am;
-    }
-    pa_log_debug("  New %s mapping %s", pa_direction_to_string(device->direction), device->name);
+    /* First add parking port */
 
-    am = pa_xnew0(pa_droid_mapping, 1);
-    am->profile_set = ps;
-    am->proplist = pa_proplist_new();
-    am->direction = device->direction;
-    am->ports = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);;
+    if (!(port = pa_hashmap_get(droid_mapping->profile_set->all_ports, PA_DROID_INPUT_PARKING))) {
+        /* Create parking port for input mapping to be used when audio_mode_t changes. */
+        port = create_input_port(droid_mapping, NULL, PA_DROID_INPUT_PARKING, "Parking port");
+        /* Reset priority to half of default */
+        port->priority = DEFAULT_PRIORITY / 2;
 
-    if (am->direction == PA_DIRECTION_OUTPUT) {
-        am->name = pa_xstrdup(device->name);
-        am->output = device;
-        add_o_ports(am);
-    } else {
-        /* Use common name */
-        am->name = pa_xstrdup("droid");
-        /* Use all inputs as a list */
-        am->inputs = device;
-        add_i_ports(am);
+        pa_hashmap_put(droid_mapping->profile_set->all_ports, port->name, port);
     }
 
-    pa_hashmap_put(map, am->name, am);
+    pa_idxset_put(droid_mapping->ports, port, NULL);
 
-    return am;
+    /* Then add normal port */
+
+    if (!(port = pa_hashmap_get(droid_mapping->profile_set->all_ports, name))) {
+        new = true;
+        port = create_input_port(droid_mapping, device_port, name, NULL);
+        pa_hashmap_put(droid_mapping->profile_set->all_ports, port->name, port);
+    }
+
+    if (new)
+        pa_log_debug("  Mapping %s add new input port %s", droid_mapping->name, name);
+    else
+        pa_log_debug("  Mapping %s add input port %s from cache", droid_mapping->name, name);
+
+    pa_idxset_put(droid_mapping->ports, port, NULL);
 }
 
 bool pa_droid_mapping_is_primary(pa_droid_mapping *am) {
     pa_assert(am);
 
     if (am->direction == PA_DIRECTION_OUTPUT) {
-        pa_assert(am->output);
-        return am->output->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
+        pa_assert(am->mix_port);
+        return am->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
     }
 
     return true;
@@ -658,6 +581,11 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
     uint32_t idx;
     int count = 0;
 
+    if (am->direction == PA_DIRECTION_OUTPUT && !(am->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY)) {
+        /* Don't create ports for other than primary sink. */
+        return 0;
+    }
+
     pa_log_debug("Ports for %s%s: %s", cp ? "card " : "", am->direction == PA_DIRECTION_OUTPUT ? "output" : "input", am->name);
 
     PA_IDXSET_FOREACH(p, am->ports, idx) {
@@ -678,7 +606,7 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
             dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
             data = PA_DEVICE_PORT_DATA(dp);
-            data->device = p->device;
+            data->device_port = p->device_port;
         } else
             pa_log_debug("  Port %s from cache", p->name);
 
@@ -788,6 +716,7 @@ static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
     pa_sink *low_latency_sink   = NULL;
     pa_sink *media_latency_sink = NULL;
     pa_sink *offload_sink       = NULL;
+    pa_sink *voip_sink          = NULL;
 
     pa_droid_stream *s;
     uint32_t idx;
@@ -803,17 +732,22 @@ static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
         if (sink == ignore_sink)
             continue;
 
-        if (s->output->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
+        if (s->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
             primary_sink = sink;
 
-        if (pa_droid_quirk(hw, QUIRK_OUTPUT_FAST) && s->output->flags & AUDIO_OUTPUT_FLAG_FAST)
+        if (pa_droid_option(hw, DM_OPTION_OUTPUT_FAST) && s->mix_port->flags & AUDIO_OUTPUT_FLAG_FAST)
             low_latency_sink = sink;
 
-        if (pa_droid_quirk(hw, QUIRK_OUTPUT_DEEP_BUFFER) && s->output->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+        if (pa_droid_option(hw, DM_OPTION_OUTPUT_DEEP_BUFFER) && s->mix_port->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
             media_latency_sink = sink;
 
+#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_VOIP_RX)
+        if (pa_droid_option(hw, DM_OPTION_OUTPUT_VOIP_RX) && s->mix_port->flags & AUDIO_OUTPUT_FLAG_VOIP_RX)
+            voip_sink = sink;
+#endif
+
 #if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
-        if (s->output->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
+        if (s->mix_port->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
             offload_sink = sink;
 #endif
     }
@@ -824,6 +758,9 @@ static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
     if (primary_sink == media_latency_sink)
         media_latency_sink = NULL;
 
+    if (primary_sink == voip_sink)
+        voip_sink = NULL;
+
     if (low_latency_sink)
         pa_proplist_sets(low_latency_sink->proplist, PROP_DROID_OUTPUT_LOW_LATENCY, "true");
 
@@ -833,10 +770,14 @@ static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
     if (offload_sink)
         pa_proplist_sets(offload_sink->proplist, PROP_DROID_OUTPUT_OFFLOAD, "true");
 
+    if (voip_sink)
+        pa_proplist_sets(voip_sink->proplist, PROP_DROID_OUTPUT_VOIP, "true");
+
     if (primary_sink) {
         pa_proplist_sets(primary_sink->proplist, PROP_DROID_OUTPUT_PRIMARY, "true");
         pa_proplist_sets(primary_sink->proplist, PROP_DROID_OUTPUT_LOW_LATENCY, low_latency_sink ? "false" : "true");
         pa_proplist_sets(primary_sink->proplist, PROP_DROID_OUTPUT_MEDIA_LATENCY, media_latency_sink ? "false" : "true");
+        pa_proplist_sets(primary_sink->proplist, PROP_DROID_OUTPUT_VOIP, voip_sink ? "false" : "true");
     }
 }
 
@@ -964,9 +905,9 @@ static char *droid_get_parameters_v1_cb(void *handle, const char *keys) {
     return key_value_pairs;
 }
 
-static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_config_audio *config,
-    const pa_droid_config_hw_module *module;
+static pa_droid_hw_module *droid_hw_module_open(pa_core *core, dm_config_device *config,
                                                 const char *module_id, const struct user_options *user_options) {
+    const dm_config_module *module;
     pa_droid_hw_module *hw = NULL;
     struct hw_module_t *hwmod = NULL;
     audio_hw_device_t *device = NULL;
@@ -982,7 +923,7 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
 
     pa_log_info("Droid hw module %s", VERSION);
 
-    if (!(module = pa_droid_config_find_module(config, module_id))) {
+    if (!(module = dm_config_find_module(config, module_id))) {
         pa_log("Couldn't find module with id %s", module_id);
         goto fail;
     }
@@ -1021,8 +962,8 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, const pa_droid_co
     hw->output_mutex = pa_mutex_new(true, false);
     hw->input_mutex = pa_mutex_new(true, false);
     hw->device = device;
-    hw->config = pa_droid_config_dup(config);
-    hw->enabled_module = pa_droid_config_find_module(hw->config, module_id);
+    hw->config = dm_config_dup(config);
+    hw->enabled_module = dm_config_find_module(hw->config, module_id);
     hw->module_id = hw->enabled_module->name;
     hw->shared_name = shared_name_get(hw->module_id);
     hw->outputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
@@ -1074,7 +1015,7 @@ static pa_droid_hw_module *droid_hw_module_shared_get(pa_core *core, const char 
 
 pa_droid_hw_module *pa_droid_hw_module_get2(pa_core *core, pa_modargs *ma, const char *module_id) {
     pa_droid_hw_module *hw = NULL;
-    pa_droid_config_audio *config = NULL;
+    dm_config_device *config = NULL;
     struct user_options user_options;
 
     pa_assert(core);
@@ -1086,23 +1027,23 @@ pa_droid_hw_module *pa_droid_hw_module_get2(pa_core *core, pa_modargs *ma, const
     if ((hw = droid_hw_module_shared_get(core, module_id)))
         return hw;
 
-    /* No hw module object in shared object db, let's parse quirks and config and
+    /* No hw module object in shared object db, let's parse options and config and
      * open the module now. */
 
     if (!droid_options_parse(&user_options, ma))
         return NULL;
 
-    if (!(config = pa_droid_config_load(ma)))
+    if (!(config = dm_config_load(ma)))
         return NULL;
 
-    hw = droid_hw_module_open(core, config, module_id, &quirks);
+    hw = droid_hw_module_open(core, config, module_id, &user_options);
 
-    pa_droid_config_free(config);
+    dm_config_free(config);
 
     return hw;
 }
 
-pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, const pa_droid_config_audio *config, const char *module_id) {
+pa_droid_hw_module *pa_droid_hw_module_get(pa_core *core, dm_config_device *config, const char *module_id) {
     pa_droid_hw_module *hw;
 
     if (!(hw = droid_hw_module_shared_get(core, module_id)))
@@ -1136,7 +1077,7 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         pa_hook_slot_free(hw->sink_unlink_hook_slot);
 
     if (hw->config)
-        pa_droid_config_free(hw->config);
+        dm_config_free(hw->config);
 
     if (hw->device) {
         if (pa_droid_option(hw, DM_OPTION_UNLOAD_CALL_EXIT))
@@ -1201,14 +1142,14 @@ void pa_droid_hw_module_unlock(pa_droid_hw_module *hw) {
 }
 
 static pa_droid_stream *droid_stream_new(pa_droid_hw_module *module,
-                                         const pa_droid_config_device *device_def) {
+                                         dm_config_port *mix_port) {
     pa_droid_stream *s;
 
     s = pa_xnew0(pa_droid_stream, 1);
     PA_REFCNT_INIT(s);
 
     s->module = pa_droid_hw_module_ref(module);
-    s->device_def = device_def;
+    s->mix_port = mix_port;
 
     return s;
 }
@@ -1217,9 +1158,16 @@ static pa_droid_output_stream *droid_output_stream_new(void) {
     return pa_xnew0(pa_droid_output_stream, 1);
 }
 
-static pa_droid_input_stream *droid_input_stream_new(void) {
-    pa_droid_input_stream *input = pa_xnew0(pa_droid_input_stream, 1);
+static pa_droid_input_stream *droid_input_stream_new(dm_config_port *default_mix_port,
+                                                     const pa_sample_spec *default_sample_spec,
+                                                     const pa_channel_map *default_channel_map) {
+    pa_droid_input_stream *input;
+
+    input = pa_xnew0(pa_droid_input_stream, 1);
     input->first = true;
+    input->default_mix_port    =  default_mix_port;
+    input->default_sample_spec = *default_sample_spec;
+    input->default_channel_map = *default_channel_map;
 
     return input;
 }
@@ -1247,148 +1195,220 @@ static int stream_standby(pa_droid_stream *s) {
     return ret;
 }
 
-static bool stream_config_fill(const pa_droid_config_device *device_def,
-                               audio_devices_t devices,
+static bool compatible_port(const dm_config_port *port,
+                            const pa_sample_spec *sample_spec,
+                            const pa_channel_map *channel_map,
+                            const dm_config_profile **compatible_profile,
+                            pa_sample_spec *compatible_sample_spec,
+                            pa_channel_map *compatible_channel_map,
+                            audio_channel_mask_t *compatible_channel_mask) {
+    const dm_config_profile *profile;
+    void *state;
+
+    pa_assert(port);
+    pa_assert(port->port_type != DM_CONFIG_TYPE_MIX);
+    pa_assert(sample_spec);
+    pa_assert(compatible_sample_spec);
+    pa_assert(compatible_channel_map);
+    pa_assert(compatible_channel_mask);
+
+    *compatible_sample_spec = *sample_spec;
+    *compatible_channel_map = *channel_map;
+
+    DM_LIST_FOREACH_DATA(profile, port->profiles, state) {
+        uint32_t format = 0;
+        bool sample_rate_compatible = false;
+        bool channel_count_compatible = false;
+        int i;
+
+        if (!pa_convert_format(profile->format, CONV_FROM_HAL, &format))
+            continue;
+
+        if (sample_spec->format != (pa_sample_format_t) format)
+            continue;
+
+        if (profile->sampling_rates[0] == 0) {
+            sample_rate_compatible = true;
+            pa_log_info("%s port \"%s\" profile has dynamic sample rate.",
+                        port->port_type == DM_CONFIG_TYPE_MIX_PORT ? "Mix" : "Device", port->name);
+        } else {
+            /* Rate count is used for reverse iteration if no direct matching sample rate is found. */
+            uint32_t rate_count = 0;
+
+            for (i = 0; profile->sampling_rates[i]; i++) {
+                if (profile->sampling_rates[i] == sample_spec->rate) {
+                    sample_rate_compatible = true;
+                    break;
+                }
+                rate_count++;
+            }
+
+            if (!sample_rate_compatible) {
+                /* Search from highest sample rate to lowest. */
+                for (i = rate_count - 1; i >= 0; i--) {
+                    if (profile->sampling_rates[i] % sample_spec->rate == 0) {
+                        sample_rate_compatible = true;
+                        compatible_sample_spec->rate = profile->sampling_rates[i];
+                        break;
+                    }
+
+                }
+            }
+
+            if (!sample_rate_compatible) {
+                for (i = 0; profile->sampling_rates[i]; i++) {
+                    compatible_sample_spec->rate = profile->sampling_rates[i];
+                    if (compatible_sample_spec->rate > sample_spec->rate) {
+                        break;
+                    }
+                }
+            }
+
+            /* Sample rate is compatible if at least one sample rate is found. */
+            sample_rate_compatible = true;
+        }
+
+        if (profile->channel_masks[0] == 0) {
+            channel_count_compatible = true;
+            *compatible_channel_mask = 0;
+        } else {
+            for (i = 0; profile->channel_masks[i]; i++) {
+                if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == channel_map->channels) {
+                    channel_count_compatible = true;
+                    *compatible_channel_mask = profile->channel_masks[i];
+                    break;
+                }
+            }
+
+            if (!channel_count_compatible) {
+                /* We support only mono and stereo anyway at the moment so just choose either.
+                 * If we wanted mono and mono wasn't available above then use stereo if found,
+                 * and same if we wanted stereo and stereo wasn't available then use mono if found. */
+                for (i = 0; profile->channel_masks[i]; i++) {
+                    if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 2 &&
+                        channel_map->channels == 1) {
+                        channel_count_compatible = true;
+                        pa_channel_map_init_stereo(compatible_channel_map);
+                        *compatible_channel_mask = profile->channel_masks[i];
+                        break;
+                    } else if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 1 &&
+                               channel_map->channels == 2) {
+                        channel_count_compatible = true;
+                        pa_channel_map_init_mono(compatible_channel_map);
+                        *compatible_channel_mask = profile->channel_masks[i];
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (sample_rate_compatible && channel_count_compatible) {
+            if (compatible_profile)
+                *compatible_profile = profile;
+
+            compatible_sample_spec->channels = compatible_channel_map->channels;
+
+            return true;
+        }
+    } /* DM_LIST_FOREACH_DATA */
+
+    return false;
+}
+
+static bool stream_config_fill(pa_droid_hw_module *hw,
+                               const dm_config_port *mix_port,
+                               const dm_config_port *device_port,
                                pa_sample_spec *sample_spec,
                                pa_channel_map *channel_map,
                                struct audio_config *config) {
     audio_format_t hal_audio_format = 0;
     audio_channel_mask_t hal_channel_mask = 0;
-    bool voicecall_record = false;
     bool output = true;
+    pa_sample_spec compatible_sample_spec;
+    pa_channel_map compatible_channel_map;
+    char tmp[64];
     int i;
 
+    pa_assert(mix_port);
+    pa_assert(mix_port->port_type == DM_CONFIG_TYPE_MIX_PORT);
+    pa_assert(device_port);
     pa_assert(sample_spec);
     pa_assert(channel_map);
     pa_assert(config);
 
-#if AUDIO_API_VERSION_MAJ >= 2
-    if (devices & AUDIO_DEVICE_BIT_IN) {
-        output = false;
-        devices &= ~AUDIO_DEVICE_BIT_IN;
-    }
-#else
-    output = !(devices & AUDIO_DEVICE_IN_ALL);
-#endif
-
-    if (devices & AUDIO_DEVICE_IN_VOICE_CALL) {
-        pa_log_debug("Fill config: Use voice call");
-        voicecall_record = true;
-    }
-
-    for (i = 0; i < channel_map->channels; i++) {
-        bool found;
-        audio_channel_mask_t c;
-
-        found = output ? pa_convert_output_channel(channel_map->map[i], CONV_FROM_PA, &c)
-                       : pa_convert_input_channel(channel_map->map[i], CONV_FROM_PA, &c);
-
-        if (!found) {
-            pa_log("Failed to convert %s channel map.", output ? "output" : "input");
-            goto fail;
-        }
-
-        hal_channel_mask |= c;
-    }
-
-    if (voicecall_record) {
-        /* Only allow recording both downlink and uplink. */
-#if defined(QCOM_HARDWARE)
-        pa_channel_map_init_mono(channel_map);
-        sample_spec->channels = 1;
-  #if (ANDROID_VERSION_MAJOR <= 4) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_CALL_MONO)
-        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
-  #else
-        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
-  #endif
-#elif defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_UPLINK) && defined(HAVE_ENUM_AUDIO_CHANNEL_IN_VOICE_DNLINK)
-        pa_channel_map_init_stereo(channel_map);
-        sample_spec->channels = 2;
-        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
-#else
-        pa_channel_map_init_mono(channel_map);
-        sample_spec->channels = 1;
-        hal_channel_mask = AUDIO_CHANNEL_IN_MONO;
-#endif
-        pa_log_debug("Fill config: Use %d channel(s) for voice call.", sample_spec->channels);
-    }
+    output = mix_port->role == DM_CONFIG_ROLE_SOURCE ? true : false;
 
     if (!pa_convert_format(sample_spec->format, CONV_FROM_PA, &hal_audio_format)) {
         pa_log_warn("Sample spec format %u not supported.", sample_spec->format);
         goto fail;
     }
 
-    /* As input sample metrics are based on user request we need to make sure that the sample
-     * format requested is actually usable with the input route. */
-    if (!output) {
-        const pa_droid_config_device *ddef;
-        uint32_t tmp;
-        const char *fmt;
-        uint32_t format_found = 0;
+    if (!output && pa_droid_option(hw, DM_OPTION_RECORD_VOICE_16K) && hw->state.mode == AUDIO_MODE_IN_CALL) {
+        pa_log_debug("Suggest sample rate of 16kHz for voice call input stream.");
+        sample_spec->rate = 16000;
+    }
 
-        pa_log_debug("Fill config: Try to use format %s, sample rate %u",
-            pa_string_convert_num_to_str(CONV_STRING_FORMAT, hal_audio_format, &fmt) ? fmt : "<unknown>",
-            sample_spec->rate);
-
-        SLLIST_FOREACH(ddef, device_def) {
-            format_found |= ddef->formats & hal_audio_format;
-
-            if (!(ddef->formats & hal_audio_format) ||
-                !(ddef->devices & devices))
-                continue;
-
-            for (i = 0; i < AUDIO_MAX_SAMPLING_RATES && ddef->sampling_rates[i]; i++) {
-                if (ddef->sampling_rates[i] == (uint32_t) -1 ||
-                    ddef->sampling_rates[i] == sample_spec->rate) {
-                    goto format_found;
-                }
-            }
-        }
-
-        if (!format_found && hal_audio_format != DEFAULT_AUDIO_FORMAT) {
-            hal_audio_format = DEFAULT_AUDIO_FORMAT;
-            pa_assert_se(pa_convert_format(hal_audio_format, CONV_FROM_HAL, &tmp));
-            sample_spec->format = tmp;
-            pa_log_debug("Fill config: Override sample format, use default %s.",
-                pa_string_convert_num_to_str(CONV_STRING_FORMAT, hal_audio_format, &fmt) ? fmt : "<unknown>");
-        }
-
-        SLLIST_FOREACH(ddef, device_def) {
-            if (!(ddef->devices & devices) ||
-                !ddef->sampling_rates[0])
-                continue;
-
-            if (ddef->sampling_rates[0] == (uint32_t) -1)
-                goto format_found;
-
-            for (i = 0; i < AUDIO_MAX_SAMPLING_RATES && ddef->sampling_rates[i]; i++) {
-                if (ddef->sampling_rates[i] == sample_spec->rate)
-                    goto format_found;
-            }
-
-            /* Start from highest sample rate value */
-            for (i = 0; i < AUDIO_MAX_SAMPLING_RATES && ddef->sampling_rates[i]; i++)
-                ;
-
-            for (i -= 1; i >= 0; i--) {
-                if ((ddef->sampling_rates[i] % 11025 == 0 && sample_spec->rate % 11025 == 0) ||
-                    (ddef->sampling_rates[i] % 4000 == 0 && sample_spec->rate % 4000 == 0)) {
-                    sample_spec->rate = ddef->sampling_rates[i];
-                    pa_log_debug("Fill config: Override sample rate, use %u.", sample_spec->rate);
-                    goto format_found;
-                }
-            }
-        }
-
-        /* Format not found, fail */
+    if (!compatible_port(mix_port, sample_spec, channel_map,
+                         NULL, &compatible_sample_spec, &compatible_channel_map, &hal_channel_mask)) {
+        pa_log("Couldn't find compatible configuration for mix port \"%s\"", mix_port->name);
         goto fail;
     }
-format_found:
+
+    /* Dynamic channel mask, so let's just convert our pa_channel_map. */
+    if (hal_channel_mask == 0) {
+        for (i = 0; i < channel_map->channels; i++) {
+            bool found;
+            audio_channel_mask_t c;
+
+            found = output ? pa_convert_output_channel(channel_map->map[i], CONV_FROM_PA, &c)
+                           : pa_convert_input_channel(channel_map->map[i], CONV_FROM_PA, &c);
+
+            if (!found) {
+                pa_log("Failed to convert %s channel map.", output ? "output" : "input");
+                goto fail;
+            }
+
+            hal_channel_mask |= c;
+        }
+    }
+
+    if (!pa_sample_spec_equal(sample_spec, &compatible_sample_spec)) {
+        pa_log_debug("With mix port \"%s\" requested sample spec: %s %uch %uHz",
+                     mix_port->name,
+                     pa_sample_format_to_string(sample_spec->format),
+                     sample_spec->channels,
+                     sample_spec->rate);
+
+        *sample_spec = compatible_sample_spec;
+    }
+
+    pa_log_info("Using mix port \"%s\" with sample spec: %s %uch, %uHz",
+                mix_port->name,
+                pa_sample_format_to_string(compatible_sample_spec.format),
+                compatible_sample_spec.channels,
+                compatible_sample_spec.rate);
+
+    if (!pa_channel_map_equal(channel_map, &compatible_channel_map)) {
+        pa_channel_map_snprint(tmp, sizeof(tmp), channel_map);
+        pa_log_debug("With mix port \"%s\" requested channel map: %s",
+                     mix_port->name,
+                     tmp);
+
+        *channel_map = compatible_channel_map;
+    }
+
+    pa_channel_map_snprint(tmp, sizeof(tmp), &compatible_channel_map);
+    pa_log_info("Using mix port \"%s\" with channel map: %s",
+                mix_port->name,
+                tmp);
 
     memset(config, 0, sizeof(*config));
-    config->sample_rate = sample_spec->rate;
+    config->sample_rate = compatible_sample_spec.rate;
     config->channel_mask = hal_channel_mask;
     config->format = hal_audio_format;
+
+    *sample_spec = compatible_sample_spec;
+    *channel_map = compatible_channel_map;
 
     return true;
 
@@ -1396,17 +1416,63 @@ fail:
     return false;
 }
 
+static dm_config_port *stream_select_mix_port(pa_droid_stream *stream) {
+    dm_config_port *selected_port;
+
+    pa_assert(stream);
+    pa_assert(stream->mix_port);
+    pa_assert(stream->input);
+
+    selected_port = stream->input->default_mix_port;
+
+    if (stream->input && stream->module->state.mode == AUDIO_MODE_IN_COMMUNICATION) {
+        dm_config_port *port;
+        void *state;
+
+        DM_LIST_FOREACH_DATA(port, stream->module->enabled_module->mix_ports, state) {
+            if (port->role != DM_CONFIG_ROLE_SINK)
+                continue;
+
+            if (port->flags & AUDIO_INPUT_FLAG_VOIP_TX) {
+                selected_port = port;
+                goto done;
+            }
+        }
+    }
+
+    if (stream->input && stream->module->state.mode == AUDIO_MODE_IN_CALL) {
+        dm_config_route *route;
+        dm_config_port *port;
+        void *state1, *state2;
+
+        DM_LIST_FOREACH_DATA(route, stream->module->enabled_module->routes, state1) {
+            DM_LIST_FOREACH_DATA(port, route->sources, state2) {
+                if (port->role != DM_CONFIG_ROLE_SOURCE)
+                    continue;
+
+                if (port->type == AUDIO_DEVICE_IN_TELEPHONY_RX) {
+                    selected_port = route->sink;
+                    goto done;
+                }
+            }
+        }
+    }
+
+done:
+    pa_log_debug("Select input mix port \"%s\"", selected_port->name);
+
+    return selected_port;
+}
+
 pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              const pa_sample_spec *spec,
                                              const pa_channel_map *map,
-                                             const char *module_output_name,
-                                             audio_devices_t devices) {
-    const pa_droid_config_device *module_output = NULL;
-    pa_droid_stream *s = NULL;
+                                             dm_config_port *mix_port,
+                                             dm_config_port *device_port) {
+    pa_droid_stream *stream = NULL;
     pa_droid_output_stream *output = NULL;
     pa_droid_stream *primary_stream = NULL;
     int ret;
-    struct audio_stream_out *stream;
     pa_channel_map channel_map;
     pa_sample_spec sample_spec;
     struct audio_config config_out;
@@ -1414,80 +1480,77 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
     pa_assert(module);
     pa_assert(spec);
     pa_assert(map);
-    pa_assert(module_output_name);
+    pa_assert(mix_port);
+    pa_assert(device_port);
 
     sample_spec = *spec;
     channel_map = *map;
 
-    if (!(module_output = pa_droid_config_find_output(module->enabled_module, module_output_name))) {
-        pa_log("Could not find output %s from module %s.", module_output_name, module->enabled_module->name);
+    stream = droid_stream_new(module, mix_port);
+    stream->output = output = droid_output_stream_new();
+
+    if (mix_port != dm_config_find_mix_port(module->enabled_module, mix_port->name)) {
+        pa_log("Could not find mix port \"%s\" from module %s.", mix_port->name, module->enabled_module->name);
         goto fail;
     }
 
-    pa_log_info("Open output stream %s", module_output_name);
-
-    if (!stream_config_fill(module_output, devices, &sample_spec, &channel_map, &config_out))
+    if (device_port != dm_config_find_device_port(mix_port, device_port->type)) {
+        pa_log("Could not find device port \"%s\" (%#010x) usable with mix port \"%s\".",
+               device_port->name, device_port->type, mix_port->name);
         goto fail;
-
-    if (pa_idxset_size(module->outputs) == 0)
-        pa_log_debug("Set initial output device to %#010x", devices);
-    else if ((primary_stream = pa_droid_hw_primary_output_stream(module))) {
-        pa_log_debug("Primary output with device %#010x already open, using as initial device.",
-                     primary_stream->output->device);
-        devices = primary_stream->output->device;
     }
+
+    pa_log_info("Open output stream \"%s\"->\"%s\".", mix_port->name, device_port->name);
+
+    if (!stream_config_fill(module, stream->mix_port, device_port, &sample_spec, &channel_map, &config_out))
+        goto fail;
 
     pa_droid_hw_module_lock(module);
     ret = module->device->open_output_stream(module->device,
-                                             ++module->stream_out_id,
-                                             devices,
-                                             module_output->flags,
+                                             ++module->stream_id,
+                                             device_port->type,
+                                             mix_port->flags,
                                              &config_out,
-                                             &stream
-#if AUDIO_API_VERSION_MAJ >= 3
-                                             /* Go with empty address, should work
-                                              * with most devices for now. */
-                                             , ""
-#endif
+                                             &output->stream,
+                                             device_port->address
                                              );
     pa_droid_hw_module_unlock(module);
 
-    if (ret < 0 || !stream) {
+    if (ret < 0 || !output->stream) {
         pa_log("Failed to open output stream: %d", ret);
         goto fail;
     }
 
-    quirk_audio_cal(module, module_output->flags);
-
-    s = droid_stream_new(module, module_output);
-    s->output = output = droid_output_stream_new();
-    output->stream = stream;
     output->sample_spec = *spec;
     output->channel_map = *map;
-    output->flags = module_output->flags;
-    output->device = devices;
+    stream->active_device_port = NULL;
+    stream->io_handle = module->stream_id;
 
-    if ((output->sample_spec.rate = output->stream->common.get_sample_rate(&output->stream->common)) != spec->rate)
-        pa_log_warn("Requested sample rate %u but got %u instead.", spec->rate, output->sample_spec.rate);
+    if ((output->sample_spec.rate = output->stream->common.get_sample_rate(&output->stream->common)) != sample_spec.rate)
+        pa_log_warn("Requested sample rate %u but got %u instead.", sample_spec.rate, output->sample_spec.rate);
 
-    pa_idxset_put(module->outputs, s, NULL);
+    pa_idxset_put(module->outputs, stream, NULL);
 
-    s->buffer_size = output->stream->common.get_buffer_size(&output->stream->common);
+    stream->buffer_size = output->stream->common.get_buffer_size(&output->stream->common);
+
+    if ((primary_stream = pa_droid_hw_primary_output_stream(module))) {
+        pa_droid_stream_set_route(primary_stream, device_port);
+    }
 
     pa_log_info("Opened droid output stream %p with device: %u flags: %u sample rate: %u channels: %u (%u) format: %u (%u) buffer size: %zu (%" PRIu64 " usec)",
-            (void *) s,
-            devices,
-            output->flags,
+            (void *) output->stream,
+            device_port->type,
+            stream->mix_port->flags,
             output->sample_spec.rate,
             output->sample_spec.channels, config_out.channel_mask,
             output->sample_spec.format, config_out.format,
-            s->buffer_size,
-            pa_bytes_to_usec(s->buffer_size, &output->sample_spec));
+            stream->buffer_size,
+            pa_bytes_to_usec(stream->buffer_size, &output->sample_spec));
 
-    return s;
+    return stream;
 
 fail:
-    pa_xfree(s);
+    pa_xfree(stream);
     pa_xfree(output);
 
     return NULL;
@@ -1502,15 +1565,6 @@ static const char *audio_mode_to_string(audio_mode_t mode) {
     }
 
     return "AUDIO_MODE_NORMAL";
-}
-
-static void set_active_input(pa_droid_hw_module *hw_module, pa_droid_stream *stream) {
-    pa_assert(hw_module);
-
-    if (hw_module->state.active_input != stream) {
-        pa_log_info("Set active input to %p", (void *) stream);
-        hw_module->state.active_input = stream;
-    }
 }
 
 static bool config_diff(const struct audio_config *a, const struct audio_config *b,
@@ -1596,7 +1650,7 @@ static bool stream_config_convert(pa_direction_t direction,
 }
 
 static void log_input_open(pa_log_level_t log_level, const char *prefix,
-                           audio_devices_t device,
+                           const dm_config_port *device_port,
                            audio_source_t source,
                            uint32_t flags,  /* audio_input_flags_t */
                            const pa_sample_spec *sample_spec,
@@ -1605,7 +1659,7 @@ static void log_input_open(pa_log_level_t log_level, const char *prefix,
     pa_logl(log_level,
             "%s input stream with device: %#010x source: %#010x flags: %#010x sample rate: %u (%u) channels: %u (%#010x) format: %u (%#010x) (return code %d)",
             prefix,
-            device,
+            device_port->type,
             source,
             flags,
             sample_spec->rate,
@@ -1617,11 +1671,13 @@ static void log_input_open(pa_log_level_t log_level, const char *prefix,
             return_code);
 }
 
-static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
+
+static int input_stream_open(pa_droid_stream *stream, bool resume_from_suspend) {
     pa_droid_hw_module *hw_module;
     pa_droid_input_stream *input = NULL;
     pa_channel_map channel_map;
     pa_sample_spec sample_spec;
+    dm_config_port *mix_port;
     size_t buffer_size;
     bool try_defaults = true;
     int ret = -1;
@@ -1633,47 +1689,50 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
     bool diff_channel_mask = false;
     bool diff_format = false;
 
-    pa_assert(s);
-    pa_assert(s->input);
-    pa_assert_se((hw_module = s->module));
+    pa_assert(stream);
+    pa_assert(stream->input);
+    pa_assert_se((hw_module = stream->module));
 
-    if (s->input->stream) /* already open */
+    if (stream->input->stream) /* already open */
         return 0;
 
-    pa_assert(!s->module->state.active_input);
-
-    input = s->input;
+    input = stream->input;
     input->stream = NULL;
 
     /* Copy our requested specs */
-    sample_spec = input->req_sample_spec;
-    channel_map = input->req_channel_map;
+    if (input->first) {
+        sample_spec = input->default_sample_spec;
+        channel_map = input->default_channel_map;
+    } else {
+        sample_spec = input->req_sample_spec;
+        channel_map = input->req_channel_map;
+    }
 
-    if (!stream_config_fill(s->device_def, hw_module->state.input_device, &sample_spec, &channel_map, &config_try))
+    mix_port = stream_select_mix_port(stream);
+
+    if (!stream_config_fill(hw_module, mix_port, stream->active_device_port, &sample_spec, &channel_map, &config_try))
         goto done;
 
-    pa_droid_hw_module_lock(s->module);
+    pa_droid_hw_module_lock(stream->module);
     while (true) {
         config_in = config_try;
 
         log_input_open(PA_LOG_INFO, "Trying to open",
-                       hw_module->state.input_device,
-                       hw_module->state.audio_source,
-                       0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
+                       stream->active_device_port,
+                       input->audio_source,
+                       mix_port->flags,
                        &sample_spec,
                        &config_in,
                        0);
 
         ret = hw_module->device->open_input_stream(hw_module->device,
-                                                   ++hw_module->stream_in_id,
-                                                   hw_module->state.input_device,
+                                                   ++hw_module->stream_id,
+                                                   stream->active_device_port->type,
                                                    &config_in,
-                                                   &input->stream
-#if AUDIO_API_VERSION_MAJ >= 3
-                                                   , 0
-                                                   , "" /* Use empty address. */
-                                                   , hw_module->state.audio_source
-#endif
+                                                   &input->stream,
+                                                   mix_port->flags,
+                                                   stream->active_device_port->address,
+                                                   input->audio_source
                                                    );
         if (ret < 0) {
             if (config_diff(&config_in, &config_try, &diff_sample_rate, &diff_channel_mask, &diff_format)) {
@@ -1700,7 +1759,7 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
                 sample_spec = input->default_sample_spec;
                 channel_map = input->default_channel_map;
 
-                if (!stream_config_fill(s->device_def, hw_module->state.input_device, &sample_spec, &channel_map, &config_try))
+                if (!stream_config_fill(hw_module, mix_port, stream->active_device_port, &sample_spec, &channel_map, &config_try))
                     goto done;
 
                 try_defaults = false;
@@ -1726,13 +1785,13 @@ static int input_stream_open(pa_droid_stream *s, bool resume_from_suspend) {
         goto open_done;
     }
 open_done:
-    pa_droid_hw_module_unlock(s->module);
+    pa_droid_hw_module_unlock(stream->module);
 
     if (ret < 0 || !input->stream) {
         log_input_open(resume_from_suspend ? PA_LOG_INFO : PA_LOG_ERROR, "Failed to open",
-                       hw_module->state.input_device,
-                       hw_module->state.audio_source,
-                       0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
+                       stream->active_device_port,
+                       input->audio_source,
+                       mix_port->flags,
                        &sample_spec,
                        &config_in,
                        ret);
@@ -1741,27 +1800,28 @@ open_done:
     }
 
     log_input_open(PA_LOG_INFO, "Opened",
-                   hw_module->state.input_device,
-                   hw_module->state.audio_source,
-                   0, /* AUDIO_INPUT_FLAG_NONE on v3. v1 and v2 don't have input flags. */
+                   stream->active_device_port,
+                   input->audio_source,
+                   mix_port->flags,
                    &sample_spec,
                    &config_in,
                    ret);
 
+    stream->mix_port = mix_port;
     input->req_sample_spec = input->sample_spec = sample_spec;
     input->req_channel_map = input->channel_map = channel_map;
     buffer_size = input->stream->common.get_buffer_size(&input->stream->common);
-    s->buffer_size = buffer_size;
+    stream->buffer_size = buffer_size;
+    stream->io_handle = hw_module->stream_id;
 
     /* Set input stream to standby */
-    stream_standby(s);
+    stream_standby(stream);
 
     /* As audio_source_t may not have any effect when opening the input stream
      * set input parameters immediately after opening the stream. */
-    input_stream_set_route(s->module, s);
+    input_stream_set_route(stream, stream->active_device_port);
 
-    pa_log_debug("Opened input stream %p", (void *) s);
-    set_active_input(s->module, s);
+    pa_log_debug("Opened input stream %p", (void *) stream);
 
 done:
     return ret;
@@ -1774,8 +1834,9 @@ static void input_stream_close(pa_droid_stream *s) {
     if (!s->input->stream)
         return;
 
+    audio_patch_release(s);
+
     pa_mutex_lock(s->module->input_mutex);
-    set_active_input(s->module, NULL);
     s->input->stream->common.standby(&s->input->stream->common);
     s->module->device->close_input_stream(s->module->device, s->input->stream);
     s->input->stream = NULL;
@@ -1783,22 +1844,22 @@ static void input_stream_close(pa_droid_stream *s) {
     pa_mutex_unlock(s->module->input_mutex);
 }
 
-bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
+bool pa_droid_stream_reconfigure_input(pa_droid_stream *stream,
                                        const pa_sample_spec *requested_sample_spec,
                                        const pa_channel_map *requested_channel_map,
                                        const pa_proplist *proplist) {
     /* Use default audio source by default */
     audio_source_t audio_source = AUDIO_SOURCE_DEFAULT;
 
-    pa_assert(s);
-    pa_assert(s->input);
+    pa_assert(stream);
+    pa_assert(stream->input);
     pa_assert(requested_sample_spec);
     pa_assert(requested_channel_map);
 
     /* Copy our requested specs, so we know them when resuming from suspend
      * as well. */
-    s->input->req_sample_spec = *requested_sample_spec;
-    s->input->req_channel_map = *requested_channel_map;
+    stream->input->req_sample_spec = *requested_sample_spec;
+    stream->input->req_channel_map = *requested_channel_map;
 
     if (proplist) {
         const char *source;
@@ -1808,16 +1869,33 @@ bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
     }
 
     /* Update audio source */
-    droid_set_audio_source(s->module, audio_source);
+    droid_set_audio_source(stream, audio_source);
 
-    input_stream_close(s);
+    input_stream_close(stream);
 
-    if (input_stream_open(s, false) < 0) {
-        if (!s->input->first) {
-            pa_log_debug("Input stream reconfigure failed, restore default values.");
-            s->input->req_sample_spec = s->input->default_sample_spec;
-            s->input->req_channel_map = s->input->default_channel_map;
-            input_stream_open(s, false);
+    /* Set some sensible default for device port -> look through attached devices and
+     * select first source port. */
+    if (stream->input->first) {
+        dm_config_port *device_port;
+        void *state;
+
+        DM_LIST_FOREACH_DATA(device_port, stream->module->enabled_module->attached_devices, state) {
+            if (device_port->role == DM_CONFIG_ROLE_SOURCE) {
+                pa_log_debug("Select initial input device port \"%s\".", device_port->name);
+                stream->active_device_port = device_port;
+                break;
+            }
+        }
+
+        pa_assert(stream->active_device_port);
+    }
+
+    if (input_stream_open(stream, false) < 0) {
+        if (!stream->input->first) {
+            pa_log_warn("Input stream reconfigure failed, restore default values.");
+            stream->input->req_sample_spec = stream->input->default_sample_spec;
+            stream->input->req_channel_map = stream->input->default_channel_map;
+            input_stream_open(stream, false);
         }
         return false;
     }
@@ -1825,21 +1903,21 @@ bool pa_droid_stream_reconfigure_input(pa_droid_stream *s,
     return true;
 }
 
-bool pa_droid_stream_reconfigure_input_needed(pa_droid_stream *s,
+bool pa_droid_stream_reconfigure_input_needed(pa_droid_stream *stream,
                                               const pa_sample_spec *requested_sample_spec,
                                               const pa_channel_map *requested_channel_map,
                                               const pa_proplist *proplist) {
     bool reconfigure_needed = false;
 
-    pa_assert(s);
-    pa_assert(s->input);
+    pa_assert(stream);
+    pa_assert(stream->input);
 
-    if (requested_sample_spec && !pa_sample_spec_equal(&s->input->sample_spec, requested_sample_spec)) {
+    if (requested_sample_spec && !pa_sample_spec_equal(&stream->input->sample_spec, requested_sample_spec)) {
         reconfigure_needed = true;
         pa_log_debug("input reconfigure needed: sample specs not equal");
     }
 
-    if (requested_channel_map && !pa_channel_map_equal(&s->input->channel_map, requested_channel_map)) {
+    if (requested_channel_map && !pa_channel_map_equal(&stream->input->channel_map, requested_channel_map)) {
         reconfigure_needed = true;
         pa_log_debug("input reconfigure needed: channel maps not equal");
     }
@@ -1851,14 +1929,14 @@ bool pa_droid_stream_reconfigure_input_needed(pa_droid_stream *s,
         /* If audio source is defined in source-output proplist use that instead. */
         if ((source = pa_proplist_gets(proplist, EXT_PROP_AUDIO_SOURCE))) {
             if (pa_string_convert_str_to_num(CONV_STRING_AUDIO_SOURCE_FANCY, source, &audio_source) &&
-                s->module->state.audio_source != audio_source) {
+                stream->input->audio_source != audio_source) {
 
                 reconfigure_needed = true;
                 pa_log_debug("input reconfigure needed: " EXT_PROP_AUDIO_SOURCE " changes");
             }
         } else {
-            if (pa_input_device_default_audio_source(s->module->state.input_device, &audio_source) &&
-                s->module->state.audio_source != audio_source) {
+            if (pa_input_device_default_audio_source(stream->active_device_port->type, &audio_source) &&
+                stream->input->audio_source != audio_source) {
 
                 reconfigure_needed = true;
                 pa_log_debug("input reconfigure needed: audio source changes");
@@ -1871,32 +1949,33 @@ bool pa_droid_stream_reconfigure_input_needed(pa_droid_stream *s,
 
 pa_droid_stream *pa_droid_open_input_stream(pa_droid_hw_module *hw_module,
                                             const pa_sample_spec *default_sample_spec,
-                                            const pa_channel_map *default_channel_map) {
+                                            const pa_channel_map *default_channel_map,
+                                            const char *mix_port_name) {
 
-    pa_droid_stream *s = NULL;
+    pa_droid_stream *stream = NULL;
     pa_droid_input_stream *input = NULL;
+    dm_config_port *mix_port;
 
     pa_assert(hw_module);
+    pa_assert(hw_module->enabled_module);
     pa_assert(default_sample_spec);
     pa_assert(default_channel_map);
 
-    if (hw_module->state.active_input) {
-        pa_log("Opening input stream while there is already active input stream.");
+    if (!(mix_port = dm_config_find_mix_port(hw_module->enabled_module, mix_port_name))) {
+        pa_log("Could not find mix port \"%s\" from module \"%s\".", mix_port_name, hw_module->enabled_module->name);
         return NULL;
     }
 
-    s = droid_stream_new(hw_module, hw_module->enabled_module->inputs);
-    s->input = input = droid_input_stream_new();
-    s->input->default_sample_spec = *default_sample_spec;
-    s->input->default_channel_map = *default_channel_map;
+    stream = droid_stream_new(hw_module, mix_port);
+    stream->input = input = droid_input_stream_new(mix_port, default_sample_spec, default_channel_map);
 
-    if (!pa_droid_stream_reconfigure_input(s, default_sample_spec, default_channel_map, NULL)) {
-        pa_droid_stream_unref(s);
-        s = NULL;
+    if (!pa_droid_stream_reconfigure_input(stream, default_sample_spec, default_channel_map, NULL)) {
+        pa_droid_stream_unref(stream);
+        stream = NULL;
     } else
-        s->input->first = false;
+        stream->input->first = false;
 
-    return s;
+    return stream;
 }
 
 pa_droid_stream *pa_droid_stream_ref(pa_droid_stream *s) {
@@ -1942,153 +2021,179 @@ pa_droid_stream *pa_droid_hw_primary_output_stream(pa_droid_hw_module *hw) {
     pa_assert(hw->outputs);
 
     PA_IDXSET_FOREACH(s, hw->outputs, idx) {
-        if (s->output->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
+        if (s->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
             return s;
     }
 
     return NULL;
 }
 
-static int droid_output_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
+static void stream_update_bt_sco(pa_droid_hw_module *hw_module, const dm_config_port *device_port) {
+    int set_bt_sco = -1;
+
+    pa_assert(hw_module);
+    pa_assert(device_port);
+
+    if (device_port->type == AUDIO_DEVICE_OUT_BLUETOOTH_SCO ||
+        device_port->type == AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET ||
+        device_port->type == AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT) {
+
+        if (!hw_module->bt_sco_enabled)
+            set_bt_sco = 1;
+
+    } else {
+        if (hw_module->bt_sco_enabled)
+            set_bt_sco = 0;
+    }
+
+    if (set_bt_sco != -1) {
+        hw_module->bt_sco_enabled = set_bt_sco ? true : false;
+        droid_set_parameters(hw_module, set_bt_sco ? AUDIO_PARAMETER_BT_SCO_ON : AUDIO_PARAMETER_BT_SCO_OFF);
+    }
+}
+
+static void audio_patch_release(pa_droid_stream *stream) {
+    int ret;
+
+    pa_assert(stream);
+
+    if (stream->audio_patch != AUDIO_PATCH_HANDLE_NONE) {
+        ret = stream->module->device->release_audio_patch(stream->module->device, stream->audio_patch);
+        stream->audio_patch = AUDIO_PATCH_HANDLE_NONE;
+        if (ret < 0)
+            pa_log_info("Release %s audio patch %s:%s (%d)",
+                        stream->mix_port->role == DM_CONFIG_ROLE_SINK ? "output" : "input",
+                        stream->mix_port->name,
+                        stream->active_device_port->name,
+                        -ret);
+    }
+}
+
+static int audio_patch_update_output(pa_droid_stream *stream, const dm_config_port *device_port) {
     pa_droid_output_stream *output;
-    pa_droid_stream *slave;
-    uint32_t idx;
-    char *parameters = NULL;
-    int ret = 0;
+    struct audio_port_config sink, source;
+    int ret;
 
-    pa_assert(s);
-    pa_assert(s->output);
-    pa_assert(s->module);
-    pa_assert(s->module->output_mutex);
+    output = stream->output;
 
-    output = s->output;
+    memset(&sink, 0, sizeof(sink));
+    memset(&source, 0, sizeof(source));
 
-    pa_mutex_lock(s->module->output_mutex);
+    source.type = AUDIO_PORT_TYPE_MIX;
+    source.role = AUDIO_PORT_ROLE_SOURCE;
+    source.sample_rate = output->sample_spec.rate;
+    source.format = AUDIO_FORMAT_PCM_16_BIT;
+    source.ext.mix.handle = stream->io_handle;
 
-    if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY || pa_droid_hw_primary_output_stream(s->module) == NULL) {
-        int set_bt_sco = -1;
+    sink.role = AUDIO_PORT_ROLE_SINK;
+    sink.type = AUDIO_PORT_TYPE_DEVICE;
+    sink.sample_rate = output->sample_spec.rate;
+    sink.format = AUDIO_FORMAT_PCM_16_BIT;
+    sink.ext.device.address[0] = '\0';
+    if (strlen(device_port->address))
+        strncpy(sink.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN);
+    sink.ext.device.type = device_port->type;
 
-        parameters = pa_sprintf_malloc("%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, device);
+    ret = stream->module->device->create_audio_patch(stream->module->device, 1, &source, 1, &sink, &stream->audio_patch);
+    if (ret < 0)
+        pa_log_warn("Failed to create output audio patch \"%s\"->\"%s\" (%d)", stream->mix_port->name, device_port->name, -ret);
+    else
+        pa_log_info("Created output audio patch \"%s\"->\"%s\"", stream->mix_port->name, device_port->name);
 
-        /* Set BT_SCO parameter for Bluetooth voice/voip call routes. */
-        if (device != output->device &&
-            (device | output->device) & (AUDIO_DEVICE_OUT_BLUETOOTH_SCO |
-                                         AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET |
-                                         AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT)) {
-
-            set_bt_sco = (device & (AUDIO_DEVICE_OUT_BLUETOOTH_SCO |
-                                    AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET |
-                                    AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT)) ? 1 : 0;
-        }
-
-        if (set_bt_sco == 1)
-            droid_set_parameters(s->module, AUDIO_PARAMETER_BT_SCO_ON);
-
-        pa_log_debug("output stream %p set_parameters(%s) %#010x", (void *) s, parameters, device);
-        ret = output->stream->common.set_parameters(&output->stream->common, parameters);
-
-        if (set_bt_sco == 0)
-            droid_set_parameters(s->module, AUDIO_PARAMETER_BT_SCO_OFF);
-
-        if (ret < 0) {
-            if (ret == -ENOSYS)
-                pa_log_warn("output set_parameters(%s) not allowed while stream is active", parameters);
-            else
-                pa_log_warn("output set_parameters(%s) failed", parameters);
-        } else {
-            /* Store last set output device. */
-            output->device = device;
-        }
-    }
-
-    if (output->flags & AUDIO_OUTPUT_FLAG_PRIMARY && pa_idxset_size(s->module->outputs) > 1) {
-        pa_assert(parameters);
-
-        PA_IDXSET_FOREACH(slave, s->module->outputs, idx) {
-            if (slave == s)
-                continue;
-
-            if (pa_droid_quirk(s->module, QUIRK_STANDBY_SET_ROUTE)) {
-                 /* Some devices don't like to receive set_parameters() call while they
-                  * are in write(), even if it seems the mutexes are correctly in place.
-                  * Standby is another synchronization point which seems to work better. */
-                slave->output->stream->common.standby(&slave->output->stream->common);
-            }
-
-            pa_log_debug("slave output stream %p set_parameters(%s)", (void *) slave, parameters);
-            ret = slave->output->stream->common.set_parameters(&slave->output->stream->common, parameters);
-
-            if (ret < 0) {
-                if (ret == -ENOSYS)
-                    pa_log_warn("output set_parameters(%s) not allowed while stream is active", parameters);
-                else
-                    pa_log_warn("output set_parameters(%s) failed", parameters);
-            } else
-                slave->output->device = output->device;
-        }
-    }
-
-    pa_xfree(parameters);
-
-    pa_mutex_unlock(s->module->output_mutex);
+    stream->active_device_port = device_port;
 
     return ret;
 }
 
-static int input_stream_set_route(pa_droid_hw_module *hw_module, pa_droid_stream *s) {
+static int audio_patch_update_input(pa_droid_stream *stream, const dm_config_port *device_port) {
     pa_droid_input_stream *input;
-    audio_devices_t device;
-    audio_source_t source;
-    char *parameters = NULL;
-    int ret = 0;
+    struct audio_port_config sink, source;
+    int ret;
 
-    pa_assert(hw_module);
+    input = stream->input;
 
-    if (!s)
-        s = hw_module->state.active_input;
+    memset(&sink, 0, sizeof(sink));
+    memset(&source, 0, sizeof(source));
 
-    /* No active input, no need for set parameters */
-    if (!s)
-        goto done;
+    sink.type = AUDIO_PORT_TYPE_MIX;
+    sink.role = AUDIO_PORT_ROLE_SINK;
+    sink.sample_rate = input->sample_spec.rate;
+    sink.format = AUDIO_FORMAT_PCM_16_BIT;
+    sink.ext.mix.handle = stream->io_handle;
 
-    input = s->input;
+    source.role = AUDIO_PORT_ROLE_SOURCE;
+    source.type = AUDIO_PORT_TYPE_DEVICE;
+    source.sample_rate = input->sample_spec.rate;
+    source.format = AUDIO_FORMAT_PCM_16_BIT;
+    source.ext.device.address[0] = '\0';
+    if (strlen(device_port->address))
+        strncpy(source.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN);
+    source.ext.device.type = device_port->type;
 
-     /* Input stream closed, no need for set parameters */
-    if (!input->stream)
-        goto done;
-
-    device = hw_module->state.input_device;
-    source = hw_module->state.audio_source;
-#ifdef DROID_DEVICE_I9305
-    device &= ~AUDIO_DEVICE_BIT_IN;
-#endif
-
-    if (pa_droid_quirk(hw_module, QUIRK_INPUT_ATOI))
-        parameters = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) device,
-                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+    ret = stream->module->device->create_audio_patch(stream->module->device, 1, &source, 1, &sink, &stream->audio_patch);
+    if (ret < 0)
+        pa_log_warn("Failed to create input audio patch \"%s\"<-\"%s\" (%d)", stream->mix_port->name, device_port->name, -ret);
     else
-        parameters = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, device,
-                                                      AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
+        pa_log_info("Created input audio patch \"%s\"<-\"%s\"", stream->mix_port->name, device_port->name);
 
-    pa_log_debug("input stream %p set_parameters(%s) %#010x ; %#010x",
-                 (void *) s, parameters, device, source);
+    stream->active_device_port = device_port;
 
-    if (pa_droid_quirk(hw_module, QUIRK_SET_PARAMETERS)) {
-        pa_mutex_lock(hw_module->hw_mutex);
-        ret = hw_module->device->set_parameters(hw_module->device, parameters);
-        pa_mutex_unlock(hw_module->hw_mutex);
-    } else {
-        pa_mutex_lock(hw_module->input_mutex);
-        ret = input->stream->common.set_parameters(&input->stream->common, parameters);
-        pa_mutex_unlock(hw_module->input_mutex);
+    return ret;
+}
+
+static int droid_output_stream_audio_patch_update(pa_droid_stream *primary_stream, dm_config_port *device_port) {
+    pa_droid_stream *stream;
+    uint32_t idx;
+    int ret;
+
+    pa_assert(primary_stream);
+    pa_assert(primary_stream->output);
+    pa_assert(primary_stream->mix_port);
+    pa_assert(primary_stream->mix_port->type == DM_CONFIG_TYPE_MIX);
+    pa_assert(primary_stream->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY);
+    pa_assert(device_port);
+    pa_assert(device_port->role == DM_CONFIG_ROLE_SINK);
+
+    PA_IDXSET_FOREACH(stream, primary_stream->module->outputs, idx) {
+        audio_patch_release(stream);
+    }
+
+    ret = audio_patch_update_output(primary_stream, device_port);
+
+    if (ret == 0) {
+        PA_IDXSET_FOREACH(stream, primary_stream->module->outputs, idx) {
+            if (primary_stream == stream)
+                continue;
+
+            audio_patch_update_output(stream, device_port);
+        }
     }
 
     if (ret < 0) {
-        if (ret == -ENOSYS)
-            pa_log_warn("input set_parameters(%s) not allowed while stream is active", parameters);
-        else
-            pa_log_warn("input set_parameters(%s) failed", parameters);
+        pa_log_warn("Failed to update output stream audio patch (%d)", -ret);
     }
+
+    return ret;
+}
+
+static int input_stream_set_route(pa_droid_stream *stream, const dm_config_port *device_port) {
+    pa_droid_input_stream *input;
+    char *parameters = NULL;
+    int ret = 0;
+
+    pa_assert(stream);
+
+    input = stream->input;
+
+     /* Input stream closed, no need for routing changes */
+    if (!input->stream)
+        goto done;
+
+    audio_patch_release(stream);
+    ret = audio_patch_update_input(stream, device_port);
+
+    if (ret < 0)
+        pa_log_warn("input_stream_set_route(%s) failed", device_port->name);
 
     pa_xfree(parameters);
 
@@ -2096,14 +2201,21 @@ done:
     return ret;
 }
 
-int pa_droid_stream_set_route(pa_droid_stream *s, audio_devices_t device) {
+int pa_droid_stream_set_route(pa_droid_stream *s, dm_config_port *device_port) {
     pa_assert(s);
 
-    if (s->output)
-        return droid_output_stream_set_route(s, device);
-    else {
-        pa_droid_hw_set_input_device(s->module, device);
-        return input_stream_set_route(s->module, NULL);
+    if (s->output) {
+        int ret;
+
+        if (pa_droid_stream_is_primary(s))
+            stream_update_bt_sco(s->module, device_port);
+
+        ret = droid_output_stream_audio_patch_update(s, device_port);
+
+        return ret;
+    } else {
+        pa_droid_hw_set_input_device(s, device_port);
+        return 0;
     }
 }
 
@@ -2166,7 +2278,7 @@ bool pa_droid_stream_is_primary(pa_droid_stream *s) {
     pa_assert(s->output || s->input);
 
     if (s->output)
-        return s->output->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
+        return s->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY;
 
     /* Even though earlier (< 3) HALs don't have input flags,
      * input flags don't have anything similar as output stream's
@@ -2312,15 +2424,17 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
 
     pa_log_info("Set mode to %s.", audio_mode_to_string(mode));
 
-    if (pa_droid_quirk(hw_module, QUIRK_SPEAKER_BEFORE_VOICE) &&
+    if (pa_droid_option(hw_module, DM_OPTION_SPEAKER_BEFORE_VOICE) &&
         hw_module->state.mode != mode && mode == AUDIO_MODE_IN_CALL) {
         pa_droid_stream *primary_output;
+        dm_config_port *device_port;
 
         /* Set route to speaker before changing audio mode to AUDIO_MODE_IN_CALL.
          * Some devices don't get routing right if the route is something else
          * (like AUDIO_DEVICE_OUT_WIRED_HEADSET) before calling set_mode().*/
-        if ((primary_output = pa_droid_hw_primary_output_stream(hw_module)))
-            pa_droid_stream_set_route(primary_output, AUDIO_DEVICE_OUT_SPEAKER);
+        if ((primary_output = pa_droid_hw_primary_output_stream(hw_module)) &&
+            (device_port = dm_config_find_device_port(primary_output->mix_port, AUDIO_DEVICE_OUT_SPEAKER)))
+            pa_droid_stream_set_route(primary_output, device_port);
     }
 
     pa_droid_hw_module_lock(hw_module);
@@ -2330,35 +2444,41 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
     } else {
         if (hw_module->state.mode != mode && mode == AUDIO_MODE_IN_CALL) {
             pa_droid_stream *primary_output;
+            dm_config_port *device_port;
 
             /* Always start call mode with earpiece. This helps some devices which cannot
              * start call directly with headset and doesn't cause any harm with devices
              * which can either. */
-            if ((primary_output = pa_droid_hw_primary_output_stream(hw_module)))
-                pa_droid_stream_set_route(primary_output, AUDIO_DEVICE_OUT_EARPIECE);
+            if ((primary_output = pa_droid_hw_primary_output_stream(hw_module)) &&
+                (device_port = dm_config_find_device_port(primary_output->mix_port, AUDIO_DEVICE_OUT_EARPIECE)))
+                pa_droid_stream_set_route(primary_output, device_port);
         }
 
         hw_module->state.mode = mode;
     }
     pa_droid_hw_module_unlock(hw_module);
 
-    /* Update possible audio source. */
-    pa_droid_hw_set_input_device(hw_module, hw_module->state.input_device);
-
     return ret;
 }
 
 /* Return true if audio source changes */
-static bool droid_set_audio_source(pa_droid_hw_module *hw_module, audio_source_t audio_source) {
+static bool droid_set_audio_source(pa_droid_stream *stream, audio_source_t audio_source) {
     audio_source_t audio_source_override = AUDIO_SOURCE_DEFAULT;
 
-    pa_assert(hw_module);
+    pa_assert(stream);
 
-    if (audio_source == AUDIO_SOURCE_DEFAULT)
-        pa_input_device_default_audio_source(hw_module->state.input_device, &audio_source);
+    if (audio_source == AUDIO_SOURCE_DEFAULT) {
+        if (!stream->active_device_port) {
+            /* Default to mic source if there is no active device_port. */
+            audio_source = AUDIO_SOURCE_MIC;
+        } else {
+            pa_input_device_default_audio_source(stream->active_device_port->type, &audio_source);
+
+        }
+    }
 
     /* Override audio source based on mode. */
-    switch (hw_module->state.mode) {
+    switch (stream->module->state.mode) {
         case AUDIO_MODE_IN_CALL:
             audio_source_override = AUDIO_SOURCE_VOICE_CALL;
             break;
@@ -2373,21 +2493,22 @@ static bool droid_set_audio_source(pa_droid_hw_module *hw_module, audio_source_t
     if (audio_source != audio_source_override) {
         const char *from = NULL, *to = NULL;
         pa_string_convert_num_to_str(CONV_STRING_AUDIO_SOURCE_FANCY, audio_source, &from);
-        pa_string_convert_num_to_str(CONV_STRING_AUDIO_SOURCE_FANCY, audio_source, &to);
+        pa_string_convert_num_to_str(CONV_STRING_AUDIO_SOURCE_FANCY, audio_source_override, &to);
         pa_log_info("Audio mode %s, overriding audio source %s with %s",
-                    audio_mode_to_string(hw_module->state.mode),
+                    audio_mode_to_string(stream->module->state.mode),
                     from ? from : "<unknown>",
                     to ? to : "<unknown>");
         audio_source = audio_source_override;
     }
 
-    if (audio_source != hw_module->state.audio_source) {
+    if (audio_source != stream->input->audio_source) {
         const char *name = NULL;
-        pa_log_debug("Set global audio source to %s (%#010x)",
+        pa_log_debug("Set mix port \"%s\" audio source to %s (%#010x)",
+                     stream->mix_port->name,
                      pa_string_convert_num_to_str(CONV_STRING_AUDIO_SOURCE_FANCY, audio_source, &name)
                        ? name : "<unknown>",
                      audio_source);
-        hw_module->state.audio_source = audio_source;
+        stream->input->audio_source = audio_source;
 
         /* audio source changed */
         return true;
@@ -2397,27 +2518,35 @@ static bool droid_set_audio_source(pa_droid_hw_module *hw_module, audio_source_t
     return false;
 }
 
-bool pa_droid_hw_set_input_device(pa_droid_hw_module *hw_module,
-                                  audio_devices_t device) {
+
+bool pa_droid_hw_set_input_device(pa_droid_stream *stream,
+                                  dm_config_port *device_port) {
     bool device_changed = false;
     bool source_changed = false;
 
-    pa_assert(hw_module);
+    pa_assert(stream);
+    pa_assert(stream->input);
+    pa_assert(device_port);
+    pa_assert(device_port->port_type == DM_CONFIG_TYPE_DEVICE_PORT);
 
-    if (hw_module->state.input_device != device) {
+    if (!stream->active_device_port ||
+        !dm_config_port_equal(stream->active_device_port, device_port)) {
+
         const char *name = NULL;
-        pa_log_debug("Set global input to %s (%#010x)",
-                     pa_string_convert_input_device_num_to_str(device, &name)
+        pa_log_debug("Set mix port \"%s\" input to %s (%#010x, %s)",
+                     stream->mix_port->name,
+                     pa_string_convert_input_device_num_to_str(device_port->type, &name)
                        ? name : "<unknown>",
-                     device);
-        hw_module->state.input_device = device;
+                     device_port->type,
+                     device_port->name);
+        stream->active_device_port = device_port;
         device_changed = true;
     }
 
-    source_changed = droid_set_audio_source(hw_module, hw_module->state.audio_source);
+    source_changed = droid_set_audio_source(stream, stream->input->audio_source);
 
-    if (hw_module->state.active_input && (device_changed || source_changed))
-        input_stream_set_route(hw_module, NULL);
+    if (stream->active_device_port && (device_changed || source_changed))
+        input_stream_set_route(stream, device_port);
 
     return true;
 }
