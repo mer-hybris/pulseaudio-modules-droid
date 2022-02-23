@@ -77,6 +77,9 @@
 #define ATTRIBUTE_sources                   "sources"
 #define ATTRIBUTE_type                      "type"
 #define ATTRIBUTE_href                      "href"
+#define ATTRIBUTE_maxOpenCount              "maxOpenCount"
+#define ATTRIBUTE_maxActiveCount            "maxActiveCount"
+#define ATTRIBUTE_address                   "address"
 
 #define PORT_TYPE_sink                      "sink"
 #define PORT_TYPE_source                    "source"
@@ -281,6 +284,8 @@ struct mix_port {
     char *name;
     char *role;
     uint32_t flags;
+    int max_open_count;
+    int max_active_count;
     struct profile *profiles;
     struct mix_port *next;
 };
@@ -289,6 +294,7 @@ struct device_port {
     char *tag_name;
     audio_devices_t type;
     char *role;
+    char *address;
     struct profile *profiles;
     struct device_port *next;
 };
@@ -394,6 +400,7 @@ static void device_port_list_free(struct device_port *list) {
         profile_list_free(p->profiles);
         pa_xfree(p->tag_name);
         pa_xfree(p->role);
+        pa_xfree(p->address);
         pa_xfree(p);
     }
 }
@@ -688,6 +695,8 @@ static bool parse_mix_port(struct parser_data *data, const char *element_name, c
     struct mix_port *p;
     bool parsed = false;
     char *flags = NULL;
+    char *max_open_count = NULL;
+    char *max_active_count = NULL;
 
     p = pa_xmalloc0(sizeof(*p));
 
@@ -704,6 +713,14 @@ static bool parse_mix_port(struct parser_data *data, const char *element_name, c
               : pa_conversion_parse_input_flags(data->fn, data->lineno, flags, &p->flags)))
             goto done;
     }
+
+    /* maxOpenCount is not mandatory element attribute */
+    if (get_element_attr(data, attributes, false, ATTRIBUTE_maxOpenCount, &max_open_count))
+        pa_atoi(max_open_count, &p->max_open_count);
+
+    /* maxActiveCount is not mandatory element attribute */
+    if (get_element_attr(data, attributes, false, ATTRIBUTE_maxActiveCount, &max_active_count))
+        pa_atoi(max_open_count, &p->max_active_count);
 
     parsed = true;
 done:
@@ -834,6 +851,9 @@ static bool parse_device_port(struct parser_data *data, const char *element_name
             pa_conversion_parse_output_devices(data->fn, data->lineno, type, false, false, &d->type)
           : pa_conversion_parse_input_devices(data->fn, data->lineno, type, false, false, &d->type)))
         unknown_device = true;
+
+    /* address is not mandatory element attribute */
+    get_element_attr(data, attributes, false, ATTRIBUTE_address, &d->address);
 
     parsed = true;
 done:
