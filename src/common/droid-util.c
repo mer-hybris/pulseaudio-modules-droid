@@ -667,9 +667,7 @@ static void set_options(pa_droid_options *options,
     options->enabled[DM_OPTION_OUTPUT_FAST] = true;
     options->enabled[DM_OPTION_OUTPUT_DEEP_BUFFER] = true;
     options->enabled[DM_OPTION_HW_VOLUME] = true;
-#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_VOIP_RX)
     options->enabled[DM_OPTION_OUTPUT_VOIP_RX] = true;
-#endif
 
 #if (ANDROID_VERSION_MAJOR >= 5) || defined(DROID_AUDIO_HAL_ATOI_FIX)
     options->enabled[DM_OPTION_INPUT_ATOI] = true;
