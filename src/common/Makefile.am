@@ -29,6 +29,7 @@ libdroid_util_la_SOURCES = droid-util.c             \
                            droid-config.c           \
                            conversion.c             \
                            config-parser-xml.c      \
+                           config-parser-xml.h      \
                            sllist.c                 \
                            utils.c                  \
                            droid-util-audio.h
