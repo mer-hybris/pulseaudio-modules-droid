@@ -26,15 +26,6 @@
 
 #include "droid/droid-config.h"
 
-#ifndef HAVE_EXPAT
-#include <unistd.h>
-pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
-    if (access(filename, F_OK) == 0)
-        pa_log_warn("Could not parse %s, xml configuration parsing support not compiled in", filename);
-    return NULL;
-}
-#else
-
 #include <stdarg.h>
 #include <string.h>
 #include <expat.h>
@@ -1152,5 +1143,3 @@ done:
 
     return config;
 }
-
-#endif
