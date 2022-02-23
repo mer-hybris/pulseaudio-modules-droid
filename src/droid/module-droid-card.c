@@ -268,16 +268,6 @@ static pa_card_profile* add_virtual_profile(struct userdata *u, const char *name
     return cp;
 }
 
-static int set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
-    struct userdata *u;
-
-    pa_assert(card_data);
-    pa_assert_se((u = card_data->userdata));
-    pa_assert(str);
-
-    return pa_droid_set_parameters(u->hw_module, str);
-}
-
 static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *module_id) {
     const char *tmp;
     char *name;
@@ -752,7 +742,6 @@ int pa__init(pa_module *m) {
 
     pa_droid_quirk_log(u->hw_module);
 
-    u->card_data.set_parameters = set_parameters_cb;
     u->card_data.module_id = pa_xstrdup(module_id);
     u->card_data.userdata = u;
 
