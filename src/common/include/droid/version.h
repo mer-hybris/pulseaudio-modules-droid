@@ -2,7 +2,7 @@
 #define foodroidversionfoo
 
 /*
- * Copyright (C) 2018 Jolla Ltd.
+ * Copyright (C) 2018-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -34,8 +34,8 @@
 #error "ANDROID_VERSION_* not defined. Did you get your headers via extract-headers.sh?"
 #endif
 
-/* We currently support API version up-to 3.0 */
-#define DROID_API_VERSION_SUPPORT       HARDWARE_DEVICE_API_VERSION(3, 0)
+/* We currently support API version up to 3.1 */
+#define DROID_API_VERSION_SUPPORT       HARDWARE_DEVICE_API_VERSION(3, 1)
 
 #if AUDIO_DEVICE_API_VERSION_CURRENT > DROID_API_VERSION_SUPPORT
 #warning Compiling against higher audio device API version than currently supported!
@@ -47,5 +47,9 @@
 
 #define AUDIO_API_VERSION_GET_MAJ(x)    ((x >> 8) & 0xff)
 #define AUDIO_API_VERSION_GET_MIN(x)    (x & 0xff)
+
+#if AUDIO_API_VERSION_MAJ < 3
+#error This module only supports audio API version 3 and upwards.
+#endif
 
 #endif
