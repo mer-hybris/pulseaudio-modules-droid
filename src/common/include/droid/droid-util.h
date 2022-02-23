@@ -56,7 +56,6 @@ typedef struct pa_droid_stream pa_droid_stream;
 typedef struct pa_droid_output_stream pa_droid_output_stream;
 typedef struct pa_droid_input_stream pa_droid_input_stream;
 typedef struct pa_droid_card_data pa_droid_card_data;
-typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
 typedef struct pa_droid_options pa_droid_options;
 
@@ -153,9 +152,7 @@ struct pa_droid_stream {
 
 struct pa_droid_card_data {
     void *userdata;
-    /* General functions */
     char *module_id;
-    common_set_parameters_cb_t set_parameters;
 };
 
 
