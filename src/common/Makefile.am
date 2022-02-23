@@ -18,7 +18,8 @@ includedir = @includedir@/pulsecore/modules/droid
 include_HEADERS = include/droid/version.h           \
                   include/droid/conversion.h        \
                   include/droid/droid-config.h      \
-                  include/droid/droid-util.h
+                  include/droid/droid-util.h        \
+                  include/droid/sllist.h
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libdroid-util.pc
@@ -27,6 +28,7 @@ libdroid_util_la_SOURCES = droid-util.c             \
                            droid-config.c           \
                            conversion.c             \
                            config-parser-xml.c      \
+                           sllist.c                 \
                            droid-util-audio.h
 libdroid_util_la_LDFLAGS = -avoid-version -Wl,-z,noexecstack -lhybris-common $(SBJ_DEVICE_LDFLAGS)
 libdroid_util_la_LIBADD = $(AM_LIBADD)
