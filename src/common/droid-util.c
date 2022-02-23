@@ -739,10 +739,8 @@ static void update_sink_types(pa_droid_hw_module *hw, pa_sink *ignore_sink) {
         if (pa_droid_option(hw, DM_OPTION_OUTPUT_DEEP_BUFFER) && s->mix_port->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
             media_latency_sink = sink;
 
-#if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_VOIP_RX)
         if (pa_droid_option(hw, DM_OPTION_OUTPUT_VOIP_RX) && s->mix_port->flags & AUDIO_OUTPUT_FLAG_VOIP_RX)
             voip_sink = sink;
-#endif
 
 #if defined(HAVE_ENUM_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
         if (s->mix_port->flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
