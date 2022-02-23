@@ -37,6 +37,7 @@
 
 #include "droid/conversion.h"
 #include "droid/sllist.h"
+#include "droid/utils.h"
 
 #ifdef XML_UNICODE_WCHAR_T
 # include <wchar.h>
@@ -737,18 +738,6 @@ done:
     return parsed;
 }
 
-static void replace_in_place(char **string, const char *a, const char *b) {
-    char *tmp;
-
-    pa_assert(*string);
-    pa_assert(a);
-    pa_assert(b);
-
-    tmp = pa_replace(*string, a, b);
-    pa_xfree(*string);
-    *string = tmp;
-}
-
 static bool parse_profile(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
     struct profile *p;
     int channel_count = -1;
@@ -784,12 +773,12 @@ static bool parse_profile(struct parser_data *data, const char *element_name, co
         if (output && pa_startswith(channelMasks, "AUDIO_CHANNEL_IN_")) {
             pa_log_info("[%s:%u] Output has wrong direction channel mask (%s), reversing.",
                         data->fn, data->lineno, channelMasks);
-            replace_in_place(&channelMasks, "AUDIO_CHANNEL_IN_", "AUDIO_CHANNEL_OUT_");
+            dm_replace_in_place(&channelMasks, "AUDIO_CHANNEL_IN_", "AUDIO_CHANNEL_OUT_");
         }
         else if (!output && pa_startswith(channelMasks, "AUDIO_CHANNEL_OUT_")) {
             pa_log_info("[%s:%u] Input has wrong direction channel mask (%s), reversing.",
                         data->fn, data->lineno, channelMasks);
-            replace_in_place(&channelMasks, "AUDIO_CHANNEL_OUT_", "AUDIO_CHANNEL_IN_");
+            dm_replace_in_place(&channelMasks, "AUDIO_CHANNEL_OUT_", "AUDIO_CHANNEL_IN_");
         }
     }
 
