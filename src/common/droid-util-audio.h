@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Jolla Ltd.
+ * Copyright (C) 2017-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -28,7 +28,6 @@
 #endif
 
 #include <hardware/audio.h>
-#include <hardware_legacy/audio_policy_conf.h>
 
 #include <pulse/channelmap.h>
 
@@ -102,18 +101,33 @@ uint32_t conversion_table_default_audio_source[][2] = {
     { AUDIO_DEVICE_IN_WIRED_HEADSET,                AUDIO_SOURCE_MIC                        },
     { AUDIO_DEVICE_IN_AUX_DIGITAL,                  AUDIO_SOURCE_MIC                        },
     { AUDIO_DEVICE_IN_VOICE_CALL,                   AUDIO_SOURCE_VOICE_CALL                 },
+    { AUDIO_DEVICE_IN_TELEPHONY_RX,                 AUDIO_SOURCE_VOICE_CALL                 },
     { AUDIO_DEVICE_IN_BACK_MIC,                     AUDIO_SOURCE_MIC                        },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                AUDIO_SOURCE_REMOTE_SUBMIX              },
+    { AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET,            AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET,            AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_USB_ACCESSORY,                AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_USB_DEVICE,                   AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_FM_TUNER,                     AUDIO_SOURCE_FM_TUNER                   },
+    { AUDIO_DEVICE_IN_TV_TUNER,                     AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_LINE,                         AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_SPDIF,                        AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_BLUETOOTH_A2DP,               AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_LOOPBACK,                     AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_IP,                           AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_BUS,                          AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_PROXY,                        AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_USB_HEADSET,                  AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_BLUETOOTH_BLE,                AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_HDMI_ARC,                     AUDIO_SOURCE_MIC                        },
+    { AUDIO_DEVICE_IN_ECHO_REFERENCE,               AUDIO_SOURCE_MIC                        },
+
 #if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_RX)
     { AUDIO_DEVICE_IN_FM_RX,                        AUDIO_SOURCE_FM_RX                      },
-#endif
-#if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_TUNER) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_TUNER)
-    { AUDIO_DEVICE_IN_FM_TUNER,                     AUDIO_SOURCE_FM_TUNER                   },
 #endif
 #if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX_A2DP) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_RX_A2DP)
     { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP                 },
 #endif
-    { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT                    }
 };
 
 /* Output devices */
@@ -136,30 +150,30 @@ struct string_conversion string_conversion_table_output_device[] = {
     STRING_ENTRY( AUDIO_DEVICE_OUT_USB_ACCESSORY                    ),
     STRING_ENTRY( AUDIO_DEVICE_OUT_USB_DEVICE                       ),
     STRING_ENTRY( AUDIO_DEVICE_OUT_REMOTE_SUBMIX                    ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_TELEPHONY_TX                     ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_LINE                             ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_HDMI_ARC                         ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_SPDIF                            ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_FM                               ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_AUX_LINE                         ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_SPEAKER_SAFE                     ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_IP                               ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_BUS                              ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_PROXY                            ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_USB_HEADSET                      ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_HEARING_AID                      ),
+    STRING_ENTRY( AUDIO_DEVICE_OUT_ECHO_CANCELLER                   ),
     STRING_ENTRY( AUDIO_DEVICE_OUT_DEFAULT                          ),
 
-    /* Devices which may or may not be defined for all devices,
-     * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI_ARC
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_TELEPHONY_TX
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_LINE
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_SPDIF
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_AUX_LINE
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_SPEAKER_SAFE
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_FM
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_FM_TX
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADSET
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADPHONE
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_PROXY
-    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_IP
+    { 0, NULL }
+};
 
-    /* Combination entries consisting of multiple devices defined above.
-     * These don't require counterpart in string_conversion_table_output_device_fancy. */
-    STRING_ENTRY( AUDIO_DEVICE_OUT_ALL                              ),
-    STRING_ENTRY( AUDIO_DEVICE_OUT_ALL_A2DP                         ),
-    STRING_ENTRY( AUDIO_DEVICE_OUT_ALL_SCO                          ),
-    STRING_ENTRY( AUDIO_DEVICE_OUT_ALL_USB                          ),
+struct string_conversion string_conversion_table_audio_mode_fancy[] = {
+    { AUDIO_MODE_NORMAL,                                "normal"                            },
+    { AUDIO_MODE_RINGTONE,                              "ringtone"                          },
+    { AUDIO_MODE_IN_CALL,                               "in call"                           },
+    { AUDIO_MODE_IN_COMMUNICATION,                      "in communication"                  },
+    { AUDIO_MODE_CALL_SCREEN,                           "call screen"                       },
 
     { 0, NULL }
 };
@@ -167,8 +181,6 @@ struct string_conversion string_conversion_table_output_device[] = {
 struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_EARPIECE,                        "output-earpiece"                   },
     { AUDIO_DEVICE_OUT_SPEAKER,                         "output-speaker"                    },
-    { AUDIO_DEVICE_OUT_SPEAKER
-        | AUDIO_DEVICE_OUT_WIRED_HEADPHONE,             "output-speaker+wired_headphone"    },
     { AUDIO_DEVICE_OUT_WIRED_HEADSET,                   "output-wired_headset"              },
     { AUDIO_DEVICE_OUT_WIRED_HEADPHONE,                 "output-wired_headphone"            },
     { AUDIO_DEVICE_OUT_BLUETOOTH_SCO,                   "output-bluetooth_sco"              },
@@ -183,22 +195,20 @@ struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_USB_ACCESSORY,                   "output-usb_accessory"              },
     { AUDIO_DEVICE_OUT_USB_DEVICE,                      "output-usb_device"                 },
     { AUDIO_DEVICE_OUT_REMOTE_SUBMIX,                   "output-remote_submix"              },
+    { AUDIO_DEVICE_OUT_TELEPHONY_TX,                    "output-telephony_tx"               },
+    { AUDIO_DEVICE_OUT_LINE,                            "output-line"                       },
+    { AUDIO_DEVICE_OUT_HDMI_ARC,                        "output-hdmi_arc"                   },
+    { AUDIO_DEVICE_OUT_SPDIF,                           "output-spdif"                      },
+    { AUDIO_DEVICE_OUT_FM,                              "output-fm"                         },
+    { AUDIO_DEVICE_OUT_AUX_LINE,                        "output-aux_line"                   },
+    { AUDIO_DEVICE_OUT_SPEAKER_SAFE,                    "output-speaker_safe"               },
+    { AUDIO_DEVICE_OUT_IP,                              "output-ip"                         },
+    { AUDIO_DEVICE_OUT_BUS,                             "output-bus"                        },
+    { AUDIO_DEVICE_OUT_PROXY,                           "output-proxy"                      },
+    { AUDIO_DEVICE_OUT_USB_HEADSET,                     "output-usb_headset"                },
+    { AUDIO_DEVICE_OUT_HEARING_AID,                     "output-hearing_aid"                },
+    { AUDIO_DEVICE_OUT_ECHO_CANCELLER,                  "output-echo_canceller"             },
     { AUDIO_DEVICE_OUT_DEFAULT,                         "output-default"                    },
-
-    /* Devices which may or may not be defined for all devices, */
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI              ( "output-hdmi"                       )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_HDMI_ARC          ( "output-hdmi_arc"                   )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_TELEPHONY_TX      ( "output-telephony_tx"               )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_LINE              ( "output-line"                       )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_SPDIF             ( "output-spdif"                      )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_AUX_LINE          ( "output-aux_line"                   )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_SPEAKER_SAFE      ( "output-speaker_safe"               )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_FM                ( "output-fm"                         )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_FM_TX             ( "output-fm_tx"                      )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADSET       ( "output-and_headset"                )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_ANC_HEADPHONE     ( "output-anc_headphone"              )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_PROXY             ( "output-proxy"                      )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_IP                ( "output-ip"                         )
 
     { 0, NULL }
 };
@@ -213,39 +223,33 @@ struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY( AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET             ),
     STRING_ENTRY( AUDIO_DEVICE_IN_WIRED_HEADSET                     ),
     STRING_ENTRY( AUDIO_DEVICE_IN_AUX_DIGITAL                       ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_HDMI                              ), /* Same as AUDIO_DEVICE_IN_AUX_DIGITAL */
     STRING_ENTRY( AUDIO_DEVICE_IN_VOICE_CALL                        ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_TELEPHONY_RX                      ), /* Same as AUDIO_DEVICE_IN_VOICE_CALL */
     STRING_ENTRY( AUDIO_DEVICE_IN_BACK_MIC                          ),
     STRING_ENTRY( AUDIO_DEVICE_IN_REMOTE_SUBMIX                     ),
     STRING_ENTRY( AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET                 ),
     STRING_ENTRY( AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET                 ),
     STRING_ENTRY( AUDIO_DEVICE_IN_USB_ACCESSORY                     ),
     STRING_ENTRY( AUDIO_DEVICE_IN_USB_DEVICE                        ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_FM_TUNER                          ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_TV_TUNER                          ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_LINE                              ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_SPDIF                             ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_BLUETOOTH_A2DP                    ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_LOOPBACK                          ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_IP                                ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_BUS                               ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_PROXY                             ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_USB_HEADSET                       ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_BLUETOOTH_BLE                     ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_HDMI_ARC                          ),
+    STRING_ENTRY( AUDIO_DEVICE_IN_ECHO_REFERENCE                    ),
     STRING_ENTRY( AUDIO_DEVICE_IN_DEFAULT                           ),
 
-    /* Devices which may or may not be defined for all devices,
-     * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_HDMI
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_TELEPHONY_RX
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_TUNER
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_TV_TUNER
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_LINE
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_SPDIF
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_BLUETOOTH_A2DP
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_LOOPBACK
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_PROXY
+    /* Devices which may or may not be defined for all devices. */
     STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX
     STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX_A2DP
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_IP
-
-#ifdef DROID_AUDIO_HAL_SECONDARY_MIC
-    STRING_ENTRY( AUDIO_DEVICE_IN_SECONDARY_MIC                     ),
-#endif
-
-    /* Combination entries consisting of multiple devices defined above.
-     * These don't require counterpart in string_conversion_table_input_device_fancy. */
-    STRING_ENTRY( AUDIO_DEVICE_IN_ALL                               ),
-    STRING_ENTRY( AUDIO_DEVICE_IN_ALL_SCO                           ),
-    STRING_ENTRY_IF_AUDIO_DEVICE_IN_ALL_USB
 
     { 0, NULL }
 };
@@ -258,31 +262,31 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_WIRED_HEADSET,                    "input-wired_headset"               },
     { AUDIO_DEVICE_IN_AUX_DIGITAL,                      "input-aux_digital"                 },
     { AUDIO_DEVICE_IN_VOICE_CALL,                       "input-voice_call"                  },
+    { AUDIO_DEVICE_IN_TELEPHONY_RX,                     "input-telephony_rx",               },
     { AUDIO_DEVICE_IN_BACK_MIC,                         "input-back_mic"                    },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                    "input-remote_submix"               },
     { AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET,                "input-analog_dock_headset"         },
     { AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET,                "input-digital_dock_headset"        },
     { AUDIO_DEVICE_IN_USB_ACCESSORY,                    "input-usb_accessory"               },
     { AUDIO_DEVICE_IN_USB_DEVICE,                       "input-usb_device"                  },
+    { AUDIO_DEVICE_IN_FM_TUNER,                         "input-fm_tuner"                    },
+    { AUDIO_DEVICE_IN_TV_TUNER,                         "input-tv_tuner"                    },
+    { AUDIO_DEVICE_IN_LINE,                             "input-line"                        },
+    { AUDIO_DEVICE_IN_SPDIF,                            "input-spdif"                       },
+    { AUDIO_DEVICE_IN_BLUETOOTH_A2DP,                   "input-bluetooth_a2dp"              },
+    { AUDIO_DEVICE_IN_LOOPBACK,                         "input-loopback"                    },
+    { AUDIO_DEVICE_IN_IP,                               "input-ip"                          },
+    { AUDIO_DEVICE_IN_BUS,                              "input-bus"                         },
+    { AUDIO_DEVICE_IN_PROXY,                            "input-proxy"                       },
+    { AUDIO_DEVICE_IN_USB_HEADSET,                      "input-usb_headset"                 },
+    { AUDIO_DEVICE_IN_BLUETOOTH_BLE,                    "input-bluetooth_ble"               },
+    { AUDIO_DEVICE_IN_HDMI_ARC,                         "input-hdmi_arc"                    },
+    { AUDIO_DEVICE_IN_ECHO_REFERENCE,                   "input-echo_reference"              },
     { AUDIO_DEVICE_IN_DEFAULT,                          "input-default"                     },
 
-    /* Devices which may or may not be defined for all devices, */
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_HDMI               ( "input-hdmi"                        )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_TELEPHONY_RX       ( "input-telephony_rx"                )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_TUNER           ( "input-fm_tuner"                    )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_TV_TUNER           ( "input-tv_tuner"                    )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_LINE               ( "input-line"                        )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_SPDIF              ( "input-spdif"                       )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_BLUETOOTH_A2DP     ( "input-bluetooth_a2dp"              )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_LOOPBACK           ( "input-loopback"                    )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_PROXY              ( "input-proxy"                       )
+    /* Devices which may or may not be defined for all devices. */
     FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX              ( "input-fm_rx"                       )
     FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX_A2DP         ( "input-fm_rx_a2dp"                  )
-    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_IP                 ( "input-ip"                          )
-
-#ifdef DROID_AUDIO_HAL_SECONDARY_MIC
-    { AUDIO_DEVICE_IN_SECONDARY_MIC,                    "input-secondary_mic"               },
-#endif
 
     { 0, NULL }
 };
@@ -298,8 +302,11 @@ struct string_conversion string_conversion_table_audio_source_fancy[] = {
     { AUDIO_SOURCE_VOICE_RECOGNITION,                   "voice recognition"                 },
     { AUDIO_SOURCE_VOICE_COMMUNICATION,                 "voice communication"               },
     { AUDIO_SOURCE_REMOTE_SUBMIX,                       "remote submix"                     },
+    { AUDIO_SOURCE_UNPROCESSED,                         "unprocessed"                       },
+    { AUDIO_SOURCE_VOICE_PERFORMANCE,                   "voice performance"                 },
 
-    /* Audio sources which may or may not be defined for all devices, */
+    /* Audio sources which may or may not be defined for all devices. */
+    FANCY_ENTRY_IF_AUDIO_SOURCE_ECHO_REFERENCE        ( "echo reference"                    )
     FANCY_ENTRY_IF_AUDIO_SOURCE_FM_TUNER              ( "fm tuner"                          )
     FANCY_ENTRY_IF_AUDIO_SOURCE_FM_RX                 ( "fm rx"                             )
     FANCY_ENTRY_IF_AUDIO_SOURCE_FM_RX_A2DP            ( "fm rx a2dp"                        )
@@ -314,33 +321,34 @@ struct string_conversion string_conversion_table_output_flag[] = {
     STRING_ENTRY( AUDIO_OUTPUT_FLAG_PRIMARY                         ),
     STRING_ENTRY( AUDIO_OUTPUT_FLAG_FAST                            ),
     STRING_ENTRY( AUDIO_OUTPUT_FLAG_DEEP_BUFFER                     ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD                ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_NON_BLOCKING                    ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_HW_AV_SYNC                      ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_TTS                             ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_RAW                             ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_SYNC                            ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO                 ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_DIRECT_PCM                      ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_MMAP_NOIRQ                      ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_VOIP_RX                         ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_INCALL_MUSIC                    ),
 
-    /* Audio output flags which may or may not be defined for all devices,
-     * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_NON_BLOCKING
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_HW_AV_SYNC
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_VOIP_RX
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_INCALL_MUSIC
+    /* Audio output flags which may or may not be defined for all devices. */
     STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_TTS
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_RAW
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_SYNC
-    STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO
 
     { 0, NULL }
 };
 
 struct string_conversion string_conversion_table_input_flag[] = {
-    /* Audio output flags which may or may not be defined for all devices,
-     * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_NONE
-    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_FAST
-    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_HW_HOTWORD
-    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_RAW
-    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_SYNC
-    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_MMAP_NOIRQ
-    STRING_ENTRY_IF_AUDIO_INPUT_FLAG_VOIP_TX
+    STRING_ENTRY( AUDIO_INPUT_FLAG_NONE                             ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_FAST                             ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_HW_HOTWORD                       ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_RAW                              ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_SYNC                             ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_MMAP_NOIRQ                       ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_VOIP_TX                          ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_HW_AV_SYNC                       ),
+    STRING_ENTRY( AUDIO_INPUT_FLAG_DIRECT                           ),
 
     { 0, NULL }
 };
@@ -369,13 +377,6 @@ struct string_conversion string_conversion_table_output_channels[] = {
     STRING_ENTRY( AUDIO_CHANNEL_OUT_STEREO                          ),
     STRING_ENTRY( AUDIO_CHANNEL_OUT_QUAD                            ),
 
-    STRING_ENTRY_IF_AUDIO_CHANNEL_OUT_SURROUND
-    STRING_ENTRY( AUDIO_CHANNEL_OUT_5POINT1                         ),
-    STRING_ENTRY_IF_AUDIO_CHANNEL_OUT_5POINT1_BACK
-    STRING_ENTRY_IF_AUDIO_CHANNEL_OUT_5POINT1_SIDE
-    STRING_ENTRY(AUDIO_CHANNEL_OUT_7POINT1                          ),
-    STRING_ENTRY(AUDIO_CHANNEL_OUT_ALL                              ),
-
     { 0, NULL }
 };
 
@@ -397,7 +398,6 @@ struct string_conversion string_conversion_table_input_channels[] = {
     STRING_ENTRY( AUDIO_CHANNEL_IN_MONO                             ),
     STRING_ENTRY( AUDIO_CHANNEL_IN_STEREO                           ),
     STRING_ENTRY( AUDIO_CHANNEL_IN_FRONT_BACK                       ),
-    STRING_ENTRY( AUDIO_CHANNEL_IN_ALL                              ),
     STRING_ENTRY_IF_AUDIO_CHANNEL_IN_VOICE_UPLINK_MONO
     STRING_ENTRY_IF_AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO
     STRING_ENTRY_IF_AUDIO_CHANNEL_IN_VOICE_CALL_MONO
@@ -409,26 +409,21 @@ struct string_conversion string_conversion_table_input_channels[] = {
 struct string_conversion string_conversion_table_format[] = {
     /* Omit most formats as we aren't usually interested in
      * other than the pcm formats anyway. */
+    STRING_ENTRY( AUDIO_FORMAT_INVALID                              ),
     STRING_ENTRY( AUDIO_FORMAT_DEFAULT                              ),
     STRING_ENTRY( AUDIO_FORMAT_PCM                                  ),
-    STRING_ENTRY( AUDIO_FORMAT_MP3                                  ),
     STRING_ENTRY( AUDIO_FORMAT_AMR_NB                               ),
     STRING_ENTRY( AUDIO_FORMAT_AMR_WB                               ),
-    STRING_ENTRY( AUDIO_FORMAT_AAC                                  ),
-    STRING_ENTRY( AUDIO_FORMAT_HE_AAC_V1                            ),
-    STRING_ENTRY( AUDIO_FORMAT_HE_AAC_V2                            ),
+    STRING_ENTRY( AUDIO_FORMAT_FLAC                                 ),
+    STRING_ENTRY( AUDIO_FORMAT_MP3                                  ),
+    STRING_ENTRY( AUDIO_FORMAT_OPUS                                 ),
+    STRING_ENTRY( AUDIO_FORMAT_SBC                                  ),
     STRING_ENTRY( AUDIO_FORMAT_VORBIS                               ),
 
     STRING_ENTRY( AUDIO_FORMAT_PCM_16_BIT                           ),
     STRING_ENTRY( AUDIO_FORMAT_PCM_8_BIT                            ),
     STRING_ENTRY( AUDIO_FORMAT_PCM_32_BIT                           ),
     STRING_ENTRY( AUDIO_FORMAT_PCM_8_24_BIT                         ),
-
-    /* Audio formats which may or may not be defined for all devices,
-     * update configure.ac CC_CHECK_DROID_ENUM list if you encounter new ones. */
-    STRING_ENTRY_IF_AUDIO_FORMAT_PCM_OFFLOAD
-    STRING_ENTRY_IF_AUDIO_FORMAT_FLAC
-    STRING_ENTRY_IF_AUDIO_FORMAT_OPUS
 
     { 0, NULL }
 };
