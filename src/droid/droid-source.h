@@ -2,7 +2,7 @@
 #define foodroidsourcefoo
 
 /*
- * Copyright (C) 2013-2018 Jolla Ltd.
+ * Copyright (C) 2013-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -43,11 +43,9 @@
 
 #include <droid/droid-util.h>
 
-/* If device is non-zero, it will override whatever is set in modargs for input device. */
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
-                                 audio_devices_t device,
                                  pa_droid_card_data *card_data,
                                  pa_droid_mapping *am,
                                  pa_card *card);

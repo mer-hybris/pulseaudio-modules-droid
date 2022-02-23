@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Jolla Ltd.
+ * Copyright (C) 2013-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -69,7 +69,6 @@ struct userdata {
     pa_rtpoll *rtpoll;
 
     pa_memchunk memchunk;
-    audio_devices_t primary_devices;
 
     size_t source_buffer_size;
     size_t buffer_size;
@@ -95,59 +94,12 @@ static void source_reconfigure(struct userdata *u,
                                const pa_sample_spec *reconfigure_sample_spec,
                                const pa_channel_map *reconfigure_channel_map,
                                const pa_proplist *proplist,
-                               audio_devices_t update_device);
+                               dm_config_port *update_device_port);
 
 /* Our droid source may be left in a state of not having an input stream
  * if reconfiguration fails and fallback to previously active values fails
  * as well. In this case just avoid using the stream but don't die. */
 #define assert_stream(x, action) if (!x) do { pa_log_warn("Assert " #x " failed."); action; } while(0)
-
-static int do_routing(struct userdata *u, audio_devices_t devices) {
-    int ret;
-    audio_devices_t old_device;
-
-    pa_assert(u);
-    assert_stream(u->stream, return 0);
-
-    if (u->primary_devices == devices)
-        pa_log_debug("Refresh active device routing.");
-
-    old_device = u->primary_devices;
-    u->primary_devices = devices;
-
-    ret = pa_droid_stream_set_route(u->stream, devices);
-
-    if (ret < 0)
-        u->primary_devices = old_device;
-
-    return ret;
-}
-
-static bool parse_device_list(const char *str, audio_devices_t *dst) {
-    pa_assert(str);
-    pa_assert(dst);
-
-    char *dev;
-    const char *state = NULL;
-
-    *dst = 0;
-
-    while ((dev = pa_split(str, "|", &state))) {
-        audio_devices_t d;
-
-        if (!pa_string_convert_input_device_str_to_num(dev, &d)) {
-            pa_log_warn("Unknown device %s", dev);
-            pa_xfree(dev);
-            return false;
-        }
-
-        *dst |= d;
-
-        pa_xfree(dev);
-    }
-
-    return true;
-}
 
 static int thread_read(struct userdata *u) {
     void *p;
@@ -335,7 +287,7 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
 
     data = PA_DEVICE_PORT_DATA(p);
 
-    if (!data->device) {
+    if (!data->device_port) {
         /* If there is no device defined, just return 0 to say everything is ok.
          * Then next port change can be whatever source port, even the one enabled
          * before parking. */
@@ -343,12 +295,12 @@ static int source_set_port_cb(pa_source *s, pa_device_port *p) {
         return 0;
     }
 
-    pa_log_debug("Source set port %#010x", data->device);
+    pa_log_debug("Source set port %#010x (%s)", data->device_port->type, data->device_port->name);
 
     if (!PA_SOURCE_IS_OPENED(u->source->state))
-        do_routing(u, data->device);
+        pa_droid_stream_set_route(u->stream, data->device_port);
     else
-        source_reconfigure(u, NULL, NULL, NULL, data->device);
+        source_reconfigure(u, NULL, NULL, NULL, data->device_port);
 
     return 0;
 }
@@ -431,7 +383,7 @@ static void source_reconfigure(struct userdata *u,
                                const pa_sample_spec *reconfigure_sample_spec,
                                const pa_channel_map *reconfigure_channel_map,
                                const pa_proplist *proplist,
-                               audio_devices_t update_device) {
+                               dm_config_port *update_device_port) {
     pa_channel_map old_channel_map;
     pa_sample_spec old_sample_spec;
     pa_channel_map new_channel_map;
@@ -452,8 +404,8 @@ static void source_reconfigure(struct userdata *u,
     new_channel_map = reconfigure_channel_map ? *reconfigure_channel_map : old_channel_map;
     new_sample_spec = reconfigure_sample_spec ? *reconfigure_sample_spec : old_sample_spec;
 
-    if (update_device)
-        do_routing(u, update_device);
+    if (update_device_port)
+        pa_droid_stream_set_route(u->stream, update_device_port);
 
     if (pa_droid_stream_reconfigure_input(u->stream, &new_sample_spec, &new_channel_map, proplist))
         pa_log_info("Source reconfigured.");
@@ -505,10 +457,10 @@ static pa_hook_result_t source_output_new_hook_callback(void *hook_data,
                            pa_droid_stream_sample_spec(primary_output),
                            pa_droid_stream_channel_map(primary_output),
                            new_data->proplist,
-                           0);
+                           NULL);
 
     } else
-        source_reconfigure(u, &new_data->sample_spec, &new_data->channel_map, new_data->proplist, 0);
+        source_reconfigure(u, &new_data->sample_spec, &new_data->channel_map, new_data->proplist, NULL);
 
     return PA_HOOK_OK;
 }
@@ -533,7 +485,7 @@ static void source_reconfigure_after_changes(struct userdata *u) {
                                                        &so->channel_map,
                                                        so->proplist)) {
         pa_log_info("Source-output disconnected and our source needs to be reconfigured.");
-        source_reconfigure(u, &so->sample_spec, &so->channel_map, so->proplist, 0);
+        source_reconfigure(u, &so->sample_spec, &so->channel_map, so->proplist, NULL);
     }
 }
 
@@ -547,7 +499,6 @@ static pa_hook_result_t source_output_unlink_post_hook_callback(void *hook_data,
 pa_source *pa_droid_source_new(pa_module *m,
                                  pa_modargs *ma,
                                  const char *driver,
-                                 audio_devices_t device,
                                  pa_droid_card_data *card_data,
                                  pa_droid_mapping *am,
                                  pa_card *card) {
@@ -556,9 +507,7 @@ pa_source *pa_droid_source_new(pa_module *m,
     char *thread_name = NULL;
     pa_source_new_data data;
     const char *module_id = NULL;
-    const char *tmp;
     uint32_t alternate_sample_rate;
-    audio_devices_t dev_in;
     pa_sample_spec sample_spec;
     pa_channel_map channel_map;
     const char *format;
@@ -573,7 +522,7 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     /* When running under card use hw module name for source by default. */
     if (am)
-        module_id = am->inputs->module->name;
+        module_id = am->mix_port->name;
     else
         module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
 
@@ -644,28 +593,7 @@ pa_source *pa_droid_source_new(pa_module *m,
             goto fail;
     }
 
-    /* Default routing */
-    if (device)
-        dev_in = device;
-    else {
-        /* FIXME So while setting routing through stream with HALv2 API fails, creation of stream
-         * requires HALv2 style device to work properly. So until that oddity is resolved we always
-         * set AUDIO_DEVICE_IN_BUILTIN_MIC as initial device here. */
-        pa_log_info("FIXME: Setting AUDIO_DEVICE_IN_BUILTIN_MIC as initial device.");
-        pa_assert_se(pa_string_convert_input_device_str_to_num("AUDIO_DEVICE_IN_BUILTIN_MIC", &dev_in));
-
-        if ((tmp = pa_modargs_get_value(ma, "input_devices", NULL))) {
-            audio_devices_t tmp_dev;
-
-            if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
-                dev_in = tmp_dev;
-
-            pa_log_debug("Set initial devices %s", tmp);
-        }
-    }
-
-    pa_droid_hw_set_input_device(u->hw_module, dev_in);
-    u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map);
+    u->stream = pa_droid_open_input_stream(u->hw_module, &sample_spec, &channel_map, am->mix_port->name);
 
     if (!u->stream) {
         pa_log("Failed to open input stream.");
