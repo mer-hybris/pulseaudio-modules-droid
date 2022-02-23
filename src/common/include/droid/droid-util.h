@@ -35,10 +35,6 @@
 #include <droid/version.h>
 #include <droid/droid-config.h>
 
-#if defined(QCOM_BSP) && (AUDIO_API_VERSION_MAJ >= 3)
-#define DROID_AUDIO_HAL_USE_VSID
-#endif
-
 #define PROP_DROID_DEVICES    "droid.devices"
 #define PROP_DROID_FLAGS      "droid.flags"
 #define PROP_DROID_HW_MODULE  "droid.hw_module"
