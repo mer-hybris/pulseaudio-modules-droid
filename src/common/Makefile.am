@@ -26,7 +26,6 @@ pkgconfig_DATA = libdroid-util.pc
 libdroid_util_la_SOURCES = droid-util.c             \
                            droid-config.c           \
                            conversion.c             \
-                           config-parser-legacy.c   \
                            config-parser-xml.c      \
                            droid-util-audio.h       \
                            droid-util-41qc.h
