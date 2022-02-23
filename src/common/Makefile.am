@@ -27,8 +27,7 @@ libdroid_util_la_SOURCES = droid-util.c             \
                            droid-config.c           \
                            conversion.c             \
                            config-parser-xml.c      \
-                           droid-util-audio.h       \
-                           droid-util-41qc.h
+                           droid-util-audio.h
 libdroid_util_la_LDFLAGS = -avoid-version -Wl,-z,noexecstack -lhybris-common $(SBJ_DEVICE_LDFLAGS)
 libdroid_util_la_LIBADD = $(AM_LIBADD)
 libdroid_util_la_CFLAGS = $(AM_CFLAGS)
