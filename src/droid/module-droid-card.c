@@ -482,6 +482,38 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
     return true;
 }
 
+static bool in_communication_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
+    pa_droid_profile *dp;
+
+    pa_assert(u);
+    pa_assert(u->real_profile);
+
+    dp = card_get_droid_profile(u->real_profile);
+
+    if (pa_idxset_size(dp->output_mappings) > 0) {
+        pa_droid_mapping *am;
+        uint32_t idx;
+
+        PA_IDXSET_FOREACH(am, dp->output_mappings, idx) {
+
+            if (am->mix_port->flags & AUDIO_OUTPUT_FLAG_VOIP_RX) {
+                if (enabling && !am->sink) {
+                    pa_log_info("in communication: enable VOIP sink");
+                    am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
+                } else if (!enabling && am->sink) {
+                    /* Don't rescue sink-inputs. */
+                    pa_log_info("in communication: disable VOIP sink");
+                    pa_droid_sink_free(am->sink);
+                    am->sink = NULL;
+                }
+                break;
+            }
+        }
+    }
+
+    return true;
+}
+
 #ifdef DROID_AUDIO_HAL_DEBUG_VSID
 static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsid, bool enabling)
 {
@@ -813,7 +845,7 @@ int pa__init(pa_module *m) {
                         AUDIO_MODE_IN_CALL, NULL,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
     add_virtual_profile(u, COMMUNICATION_PROFILE_NAME, COMMUNICATION_PROFILE_DESC,
-                        AUDIO_MODE_IN_COMMUNICATION, NULL,
+                        AUDIO_MODE_IN_COMMUNICATION, in_communication_profile_event_cb,
                         PA_AVAILABLE_YES, NULL, data.profiles);
     add_virtual_profile(u, RINGTONE_PROFILE_NAME, RINGTONE_PROFILE_DESC,
                         AUDIO_MODE_RINGTONE, NULL,
