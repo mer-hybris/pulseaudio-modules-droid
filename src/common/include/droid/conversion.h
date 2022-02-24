@@ -2,7 +2,7 @@
 #define foodroidconversionfoo
 
 /*
- * Copyright (C) 2018 Jolla Ltd.
+ * Copyright (C) 2018-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -71,8 +71,6 @@ bool pa_string_convert_input_device_str_to_num(const char *str, audio_devices_t 
 bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str);
 bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value);
 
-char *pa_list_string_output_device(audio_devices_t devices);
-char *pa_list_string_input_device(audio_devices_t devices);
 char *pa_list_string_flags(audio_output_flags_t flags);
 
 /* Get default audio source associated with input device.
@@ -87,22 +85,22 @@ int pa_conversion_parse_list(pa_conversion_string_t type, const char *separator,
                              const char *str, uint32_t *dst, char **unknown_entries);
 
 bool pa_conversion_parse_sampling_rates(const char *fn, const unsigned ln,
-                                        const char *str, bool legacy,
+                                        const char *str,
                                         uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]);
 bool pa_conversion_parse_formats(const char *fn, const unsigned ln,
-                                 const char *str, bool legacy,
+                                 const char *str,
                                  audio_format_t *formats);
 int pa_conversion_parse_output_channels(const char *fn, const unsigned ln,
-                                         const char *str, bool legacy,
-                                         audio_channel_mask_t *channels);
+                                         const char *str,
+                                         audio_channel_mask_t channel_masks[AUDIO_MAX_CHANNEL_MASKS]);
 int pa_conversion_parse_input_channels(const char *fn, const unsigned ln,
-                                        const char *str, bool legacy,
-                                        audio_channel_mask_t *channels);
+                                        const char *str,
+                                        audio_channel_mask_t channel_masks[AUDIO_MAX_CHANNEL_MASKS]);
 bool pa_conversion_parse_output_devices(const char *fn, const unsigned ln,
-                                        char *str, bool legacy, bool must_recognize_all,
+                                        char *str, bool must_recognize_all,
                                         audio_devices_t *devices);
 bool pa_conversion_parse_input_devices(const char *fn, const unsigned ln,
-                                       char *str, bool legacy, bool must_recognize_all,
+                                       char *str, bool must_recognize_all,
                                        audio_devices_t *devices);
 bool pa_conversion_parse_output_flags(const char *fn, const unsigned ln,
                                       const char *str, audio_output_flags_t *flags);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Jolla Ltd.
+ * Copyright (C) 2013-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -55,7 +55,7 @@ CONVERT_FUNC(format);
 CONVERT_FUNC(output_channel);
 CONVERT_FUNC(input_channel);
 
-#define value_separator(legacy) (legacy ? "|" : ",")
+#define VALUE_SEPARATOR ","
 
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
@@ -88,18 +88,7 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
     char *str = NULL;
     char *tmp;
 
-#if AUDIO_API_VERSION_MAJ >= 2
-    if (flags & AUDIO_DEVICE_BIT_IN)
-        flags &= ~AUDIO_DEVICE_BIT_IN;
-#endif
-
     for (unsigned int i = 0; list[i].str; i++) {
-#if AUDIO_API_VERSION_MAJ >= 2
-        if (list[i].value & AUDIO_DEVICE_BIT_IN) {
-            if (popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN) != 1)
-                continue;
-        } else
-#endif
         if (popcount(list[i].value) != 1)
             continue;
 
@@ -189,10 +178,6 @@ bool pa_string_convert_output_device_str_to_num(const char *str, audio_devices_t
     return string_convert_str_to_num(string_conversion_table_output_device, str, (uint32_t*) to_value);
 }
 
-char *pa_list_string_output_device(audio_devices_t devices) {
-    return list_string(string_conversion_table_output_device, devices);
-}
-
 /* Input device */
 bool pa_string_convert_input_device_num_to_str(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_input_device, (uint32_t) value, to_str);
@@ -200,10 +185,6 @@ bool pa_string_convert_input_device_num_to_str(audio_devices_t value, const char
 
 bool pa_string_convert_input_device_str_to_num(const char *str, audio_devices_t *to_value) {
     return string_convert_str_to_num(string_conversion_table_input_device, str, (uint32_t*) to_value);
-}
-
-char *pa_list_string_input_device(audio_devices_t devices) {
-    return list_string(string_conversion_table_input_device, devices);
 }
 
 /* Flags */
@@ -221,13 +202,9 @@ char *pa_list_string_flags(audio_output_flags_t flags) {
 
 bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
 {
-#if AUDIO_API_VERSION_MAJ >= 2
-    input_device &= ~AUDIO_DEVICE_BIT_IN;
-#endif
-
     /* Note converting HAL values to different HAL values! */
     for (unsigned int i = 0; i < sizeof(conversion_table_default_audio_source) / (sizeof(uint32_t) * 2); i++) {
-        if (conversion_table_default_audio_source[i][0] & input_device) {
+        if (conversion_table_default_audio_source[i][0] == input_device) {
             *default_source = conversion_table_default_audio_source[i][1];
             return true;
         }
@@ -321,7 +298,7 @@ int pa_conversion_parse_list(pa_conversion_string_t type, const char *separator,
 }
 
 bool pa_conversion_parse_sampling_rates(const char *fn, const unsigned ln,
-                                        const char *str, bool legacy,
+                                        const char *str,
                                         uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]) {
     pa_assert(fn);
     pa_assert(str);
@@ -330,16 +307,14 @@ bool pa_conversion_parse_sampling_rates(const char *fn, const unsigned ln,
     const char *state = NULL;
 
     uint32_t pos = 0;
-    while ((entry = pa_split(str, value_separator(legacy), &state))) {
+    while ((entry = pa_split(str, VALUE_SEPARATOR, &state))) {
         int32_t val;
 
-#if AUDIO_API_VERSION_MAJ >= 3
         if (pos == 0 && pa_streq(entry, "dynamic")) {
             sampling_rates[pos++] = (uint32_t) -1;
             pa_xfree(entry);
             break;
         }
-#endif
 
         if (pos == AUDIO_MAX_SAMPLING_RATES) {
             pa_log("[%s:%u] Too many sample rate entries (> %d)", fn, ln, AUDIO_MAX_SAMPLING_RATES);
@@ -389,7 +364,7 @@ static bool check_and_log(const char *fn, const unsigned ln, const char *field,
 }
 
 bool pa_conversion_parse_formats(const char *fn, const unsigned ln,
-                                 const char *str, bool legacy,
+                                 const char *str,
                                  audio_format_t *formats) {
     int count;
     char *unknown = NULL;
@@ -398,18 +373,13 @@ bool pa_conversion_parse_formats(const char *fn, const unsigned ln,
     pa_assert(str);
     pa_assert(formats);
 
-#if AUDIO_API_VERSION_MAJ >= 3
     /* Needs to be probed later */
     if (pa_streq(str, "dynamic")) {
         *formats = 0;
         return true;
     }
-#endif
 
-    count = pa_conversion_parse_list(CONV_STRING_FORMAT, value_separator(legacy), str, formats, &unknown);
-
-    if (legacy)
-        return check_and_log(fn, ln, "formats", count, str, unknown, false);
+    count = pa_conversion_parse_list(CONV_STRING_FORMAT, VALUE_SEPARATOR, str, formats, &unknown);
 
     /* As the new XML configuration lists formats as one per profile, unknown
      * formats will cause the parser to quit. As a workaround for non-legacy
@@ -420,23 +390,46 @@ bool pa_conversion_parse_formats(const char *fn, const unsigned ln,
 
 static int parse_channels(const char *fn, const unsigned ln,
                           const char *str, bool in_output,
-                          bool legacy, audio_channel_mask_t *channels) {
-    int count;
+                          audio_channel_mask_t channel_masks[AUDIO_MAX_CHANNEL_MASKS]) {
     bool success;
+    int count = 0;
     char *unknown = NULL;
+    char *entry;
+    const char *state = NULL;
 
     pa_assert(fn);
     pa_assert(str);
-    pa_assert(channels);
 
     /* Needs to be probed later */
     if (pa_streq(str, "dynamic")) {
-        *channels = 0;
+        channel_masks[0] = 0;
         return 1;
     }
 
-    count = pa_conversion_parse_list(in_output ? CONV_STRING_OUTPUT_CHANNELS : CONV_STRING_INPUT_CHANNELS,
-                                     value_separator(legacy), str, channels, &unknown);
+    while ((entry = pa_split(str, VALUE_SEPARATOR, &state))) {
+        uint32_t val;
+
+        if (count == AUDIO_MAX_CHANNEL_MASKS) {
+            pa_log("[%s:%u] Too many channel mask entries (> %d)", fn, ln, AUDIO_MAX_CHANNEL_MASKS);
+            pa_xfree(entry);
+            return false;
+        }
+
+        if (!string_convert_str_to_num(in_output ? string_conversion_table_output_channels
+                                                 : string_conversion_table_input_channels,
+                                       entry,
+                                       &val)) {
+            pa_log_debug("[%s:%u] Ignore unknown channel mask value %s", fn, ln, entry);
+            pa_xfree(entry);
+            continue;
+        }
+
+        channel_masks[count++] = val;
+
+        pa_xfree(entry);
+    }
+
+    channel_masks[count] = 0;
 
     /* Avoid aborting parsing when no supported channel is found */
     success = check_and_log(fn, ln, in_output ? "output channel_masks" : "input channel_masks",
@@ -445,20 +438,20 @@ static int parse_channels(const char *fn, const unsigned ln,
 }
 
 int pa_conversion_parse_output_channels(const char *fn, const unsigned ln,
-                                        const char *str, bool legacy,
-                                        audio_channel_mask_t *channels) {
-    return parse_channels(fn, ln, str, true, legacy, channels);
+                                        const char *str,
+                                        audio_channel_mask_t channel_masks[AUDIO_MAX_CHANNEL_MASKS]) {
+    return parse_channels(fn, ln, str, true, channel_masks);
 }
 
 int pa_conversion_parse_input_channels(const char *fn, const unsigned ln,
-                                        const char *str, bool legacy,
-                                        audio_channel_mask_t *channels) {
-    return parse_channels(fn, ln, str, false, legacy, channels);
+                                        const char *str,
+                                        audio_channel_mask_t channel_masks[AUDIO_MAX_CHANNEL_MASKS]) {
+    return parse_channels(fn, ln, str, false, channel_masks);
 }
 
 static bool parse_devices(const char *fn, const unsigned ln,
                           const char *str, bool in_output,
-                          bool legacy, bool must_recognize_all,
+                          bool must_recognize_all,
                           audio_devices_t *devices) {
     int count;
     char *unknown = NULL;
@@ -468,11 +461,7 @@ static bool parse_devices(const char *fn, const unsigned ln,
     pa_assert(devices);
 
     count = pa_conversion_parse_list(in_output ? CONV_STRING_OUTPUT_DEVICE : CONV_STRING_INPUT_DEVICE,
-                                     value_separator(legacy), str, devices, &unknown);
-
-    if (legacy)
-        return check_and_log(fn, ln, in_output ? "output devices" : "input devices",
-                             count, str, unknown, must_recognize_all);
+                                     VALUE_SEPARATOR, str, devices, &unknown);
 
     /* As the new XML configuration lists devices as one per devicePort, unknown
      * devices will cause the parser to quit. As a workaround for non-legacy
@@ -483,15 +472,15 @@ static bool parse_devices(const char *fn, const unsigned ln,
 }
 
 bool pa_conversion_parse_output_devices(const char *fn, const unsigned ln,
-                                        char *str, bool legacy, bool must_recognize_all,
+                                        char *str, bool must_recognize_all,
                                         audio_devices_t *devices) {
-    return parse_devices(fn, ln, str, true, legacy, must_recognize_all, devices);
+    return parse_devices(fn, ln, str, true, must_recognize_all, devices);
 }
 
 bool pa_conversion_parse_input_devices(const char *fn, const unsigned ln,
-                                       char *str, bool legacy, bool must_recognize_all,
+                                       char *str, bool must_recognize_all,
                                        audio_devices_t *devices) {
-    return parse_devices(fn, ln, str, false, legacy, must_recognize_all, devices);
+    return parse_devices(fn, ln, str, false, must_recognize_all, devices);
 }
 
 bool pa_conversion_parse_output_flags(const char *fn, const unsigned ln,

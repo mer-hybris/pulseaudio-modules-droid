@@ -1,25 +1,23 @@
 PulseAudio Droid modules
 ========================
 
+For adapdations for Android versions 4 to 10,
+see [pulseaudio-modules-droid-jb2q](https://github.com/mer-hybris/pulseaudio-modules-droid-jb2q)
+
 Building of droid modules is split to two packages
 * **common** (and **common-devel**) which contains shared library code for use in
   PulseAudio modules in this package and for inclusion in other projects
 * **droid** with actual PulseAudio modules
 
+Linking to libdroid is **not encouraged**, usually only HAL functions are needed
+which can be accessed using the pulsecore shared API (see below).
+
 Supported Android versions:
 
-* 4.1.x with Qualcomm extensions (tested with 4.1.2)
-* 4.2.x
-* 4.4.x
-* 5.x
-* 6.0.x
-* 7.x
-* 8.x
-* 9.x
-* 10.x
+* 11.x
 
 Headers for defining devices and strings for different droid versions are in
-src/common/droid-util-audio.h (legacy headers for Jolla 1 in droid-util-41qc.h).
+src/common/droid-util-audio.h.
 
 When new devices with relevant new enums appear, add enum check to configure.ac.
 CC_CHECK_DROID_ENUM macro will create macros HAVE_ENUM_FOO, STRING_ENTRY_IF_FOO
@@ -66,28 +64,19 @@ most operations towards audio HAL.
 
 ### Audio policy configuration parsing
 
-To populate our configuration structs there exists two parsers, legacy parser
-for old .conf format present in Android versions 7.0 and older and new xml
-format present from version 7.0 upwards. The legacy format is obsoleted in
-version 7.0 but by default still in use and most 7.0 adaptations probably
-contain the legacy format. But 8.0 adaptations and up start to include only
-the new style xml format configuration files.
+Configuration parser reads audio policy xml files.
 
 ### Configuration files
 
-By default new style xml format is tried first and if it is not found old
-config is read next. If the configuration is in non-default location for
-some reason "config" module argument (available for all modules, card, sink,
-and source) can be used to point to the configuration file location.
+If the configuration is in non-default location for some reason "config"
+module argument can be used to point to the configuration file location.
 
 By default files are tried in following order,
 
-    /odm/etc/audio_policy_configuration.xml           (new xml format)
-    /vendor/etc/audio/audio_policy_configuration.xml  (new xml format)
-    /vendor/etc/audio_policy_configuration.xml        (new xml format)
-    /vendor/etc/audio_policy.conf                     (legacy format)
-    /system/etc/audio_policy_configuration.xml        (new xml format)
-    /system/etc/audio_policy.conf                     (legacy format)
+    /odm/etc/audio_policy_configuration.xml
+    /vendor/etc/audio/audio_policy_configuration.xml
+    /vendor/etc/audio_policy_configuration.xml
+    /system/etc/audio_policy_configuration.xml
 
 module-droid-card
 -----------------
@@ -99,48 +88,21 @@ selected profile.
 default profile
 ---------------
 
-When module-droid-card is loaded with default arguments, droid-card will try
-to create a default profile (called surprisingly "default"). The default
-profile will try to merge useful output and input streams to one profile,
+When module-droid-card is loaded with default arguments, droid-card will
+create a default profile (called unsurprisingly "default"). The default
+profile will merge supported output and input streams to one profile,
 to allow use of possible low latency or deep buffer outputs.
-
-For example configuration with
-
-    audio_hw_modules {
-        primary {
-            outputs {
-                primary {}
-                deep_buffer {}
-            }
-            inputs {
-                primary {}
-                voice_rx {}
-            }
-        }
-        other {
-            ...
-        }
-    }
-
-The default profile would contain two sinks, sink.primary and sink.deep_buffer
-and one source, source.droid.
-
-Usually this default profile is everything that is needed in normal use, and
-additional profiles created should be needed only for testing things out etc.
 
 virtual profiles
 ----------------
 
-In addition to aforementioned card profiles, droid-card creates some additional
+In addition to aforementioned card profile, droid-card creates some additional
 virtual profiles. These virtual profiles are used when enabling voicecall
 routings etc. When virtual profile is enabled, possible sinks and sources
 previously active profile had are not removed.
 
 As an illustration, following command line sequence enables voicecall mode and
 routes audio to internal handsfree (ihf - "handsfree speaker"):
-
-(Before starting, droid_card.primary is using profile primary-primary and
-sink.primary port output-speaker)
 
     pactl set-card-profile droid_card.primary voicecall
     pactl set-sink-port sink.primary output-parking
@@ -151,11 +113,11 @@ voice audio starts to flow between modem and audio chip.
 
 To disable voicecall and return to media audio:
 
-    pactl set-card-profile droid_card.primary primary-primary
+    pactl set-card-profile droid_card.primary default
     pactl set-sink-port sink.primary output-parking
     pactl set-sink-port sink.primary output-speaker
 
-With this example sequence sinks and sources are the ones from primary-primary
+With this example sequence sinks and sources are the ones from default
 card profile, and they are maintained for the whole duration of the voicecall
 and after.
 
@@ -177,32 +139,9 @@ should be used when ringtone is playing, to again enable possible loudness
 related optimizations etc. Voicecall-record profile can be enabled when
 voicecall profile is active.
 
-debugging profiles
-------------------
-
-If needed in favour of default profile one can opt to creating combinations
-of all output and input definitions in a module definition. This can be
-done by passing "default=false" to module-droid-card. Module argument
-module_id will then defines which module to load (by default "primary").
-Without default profile all input and output definitions are translated
-to PulseAudio card profiles. For example configuration with
-
-    audio_hw_modules {
-        primary {
-            outputs {
-                primary {}
-                lpa {}
-            }
-            inputs {
-                primary {}
-            }
-        }
-        other {
-            ...
-        }
-    }
-
-Would map to card profiles ([output]-[input]) primary-primary and lpa-primary.
+If mix port with flag AUDIO_OUTPUT_FLAG_VOIP_RX exists when communication
+virtual profile is enabled additional droid-sink is created with the config
+defined in the mix port. Voip audio should then be played to this new sink.
 
 module-droid-sink and module-droid-source
 -----------------------------------------
@@ -211,49 +150,15 @@ Normally user should not need to load droid-sink or droid-source modules by
 hand, but droid-card loads appropriate modules based on the active card
 profile.
 
-Output and input ports for droid-sink and droid-source are generated from the
-audio_policy_configuration.xml (where available) or audio_policy.conf (legacy),
-where each device generates (usually) one port, for example:
-
-    audio_hw_modules {
-        primary {
-            outputs {
-                primary {
-                    devices = AUDIO_DEVICE_OUT_SPEAKER|AUDIO_DEVICE_OUT_EARPIECE|AUDIO_DEVICE_OUT_WIRED_HEADPHONE
-                    }
-                lpa {}
-            }
-            inputs {
-                primary {
-                    devices = AUDIO_DEVICE_IN_BUILTIN_MIC
-                    }
-            }
-        }
-    }
-
-Would create following ports for sink.primary:
- * output-speaker
- * output-earpiece
- * output-wired_headphone
- * output-speaker+wired_headphone
-
-And for source.primary:
- * input-builtin_mic
-
-Only exception to one device one port rule is if output device list has both
-OUT_SPEAKER and OUT_WIRED_HEADPHONE, then one additional combination port is
-generated. How the devices are called in sink and source ports are defined in
-droid-util-XXX.h
-
-Changing output routing is then as simple as
+Changing output routing is as simple as
 
     pactl set-sink-port sink.primary output-wired_headphone
 
-Sink or source do not track possible headphone/other wired accessory plugging,
-but this needs to be handled elsewhere and then that other entity needs to
-control sinks and sources. (For example in SailfishOS this entity is OHM with
-accessory-plugin and pulseaudio-policy-enforcement module for actually making
-the port switching)
+Sinks or sources do not track possible headphone/other wired accessory
+plugging, but this needs to be handled elsewhere and then that other entity
+needs to control sinks and sources. (For example in SailfishOS this entity is
+OHM with accessory-plugin and pulseaudio-policy-enforcement module for
+actually making the port switching)
 
 Droid source automatic reconfiguration
 --------------------------------------
@@ -303,6 +208,7 @@ Currently following properties are set:
     * droid.output.low_latency
     * droid.output.media_latency
     * droid.output.offload
+    * droid.output.voip
 * For droid sources
     * droid.input.builtin
     * droid.input.external
@@ -326,24 +232,20 @@ and so on.
 Right now there exists only one source (input device) which will always have
 both properties as true.
 
-Quirks
-------
+Options
+-------
 
 There are some adaptations that require hacks to get things working. These
-hacks can be enabled or disabled with module argument "quirks". Some quirks
-are enabled by default with some adaptations etc.
+hacks can be enabled or disabled with module argument "options". Some options
+are enabled by default with some adaptations etc. There are also some more
+generic options.
 
-Currently there are following quirks:
+Currently there are following options:
 
 * input_atoi
     * Enabled by default with Android versions 5 and up.
     * Due to how atoi works in bionic vs libc we need to pass the input
       route a bit funny. If input routing doesn't work switch this on or off.
-* set_parameters
-    * Disabled by default.
-    * Some adaptations need to use hw module's generic set_parameters call
-      to change input routing. If input routing doesn't work switch this
-      on or off. (mostly just older adaptations)
 * close_input
     * Enabled by default.
     * Close input stream when not in use instead of suspending the stream.
@@ -352,22 +254,16 @@ Currently there are following quirks:
     * Disabled by default.
     * Don't call audio_hw_device_close() for the hw module when unloading.
       Mostly useful for tracking module unload issues.
-* no_hw_volume
-    * Disabled by default.
+* hw_volume
+    * Enabled by default.
     * Some broken implementations are incorrectly probed for supporting hw
       volume control. This is manifested by always full volume with volume
-      control not affecting volume level. To fix this enable this quirk.
-* output_make_writable
-    * Disabled by default.
-    * Some implementations modify write buffer in-place when this should
-      not be done. This can result in random segfaults when playing audio.
-      As a workaround make the buffer memchunk writable before passing to
-      audio HAL.
+      control not affecting volume level. To fix this disable this option.
 * realcall
     * Disabled by default.
     * Some vendors apply custom realcall parameter to HAL device when
       doing voicecall routing. If there is no voicecall audio you can
-      try enabling this quirk so that the realcall parameter is applied
+      try enabling this option so that the realcall parameter is applied
       when switching to voicecall profile.
 * unload_call_exit
     * Disabled by default.
@@ -377,36 +273,39 @@ Currently there are following quirks:
 * output_fast
     * Enabled by default.
     * Create separate sink if AUDIO_OUTPUT_FLAG_FAST is found. If this sink
-      is misbehaving try disabling this quirk.
+      is misbehaving try disabling this option.
 * output_deep_buffer
     * Enabled by default.
     * Create separate sink if AUDIO_OUTPUT_FLAG_DEEP_BUFFER is found. If
-      this sink is misbehaving try disabling this quirk.
+      this sink is misbehaving try disabling this option.
 * audio_cal_wait
     * Disabled by default.
     * Certain devices do audio calibration during hw module open and
       writing audio too early will break the calibration. In these cases
-      this quirk can be enabled and 10 seconds of sleep is added after
+      this option can be enabled and 10 seconds of sleep is added after
       opening hw module.
-* standby_set_route
-    * Disabled by default.
-    * Some devices don't like to receive set_parameters() call while they
-      are in write(), even if it seems the mutexes are correctly in place.
-      Standby is another synchronization point which seems to work better.
-      If there are hiccups like long delays when setting route during
-      voice call start try enabling this quirk.
 * speaker_before_voice
     * Disabled by default.
     * Set route to speaker before changing audio mode to AUDIO_MODE_IN_CALL.
       Some devices don't get routing right if the route is something else
       (like AUDIO_DEVICE_OUT_WIRED_HEADSET) before calling set_mode().
       If routing is wrong when call starts with wired accessory connected
-      try enabling this quirk.
+      try enabling this option.
+* output_voip_rx
+    * Enabled by default.
+    * When audio configuration has AUDIO_OUTPUT_FLAG_VOIP_RX special voip
+      sink is created when AUDIO_MODE_IN_COMMUNICATION is active and the
+      sink is classified as droid.output.voip. If this is not desired then
+      by disabling this option the voip sink is not classified but is still
+      created normally.
+* record_voice_16k
+    * Disabled by default.
+    * When enabled voice call recording source is forced to sample rate
+      of 16kHz.
 
-For example, to disable input_atoi and enable close_input quirks, use module
-argument
+Options can be enabled or disabled normally as module arguments, for example:
 
-    quirks=-input_atoi,+close_input
+    load-module module-droid-card hw_volume=false record_voice_16k=true
 
 Volume control during voicecall
 -------------------------------
@@ -455,8 +354,3 @@ way as defined in Android audio.h. For example:
 
     set_parameters(handle, "route=2;");
     char *value = get_parameters(handle, "connected");
-
-module-droid-keepalive
-----------------------
-
-Module relocated to its own package pulseaudio-module-keepalive.

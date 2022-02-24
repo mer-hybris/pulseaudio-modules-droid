@@ -1,8 +1,8 @@
-#ifndef foodroidsourcefoo
-#define foodroidsourcefoo
+#ifndef foodroidcommonutilsfoo
+#define foodroidcommonutilsfoo
 
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -26,29 +26,7 @@
 #include <config.h>
 #endif
 
-#ifdef HAVE_VALGRIND_MEMCHECK_H
-#include <valgrind/memcheck.h>
-#endif
-
-#include <pulse/xmalloc.h>
-
-#include <pulsecore/core.h>
-#include <pulsecore/i18n.h>
-#include <pulsecore/module.h>
-#include <pulsecore/source.h>
-#include <pulsecore/modargs.h>
-#include <pulsecore/log.h>
-#include <pulsecore/macro.h>
-#include <pulsecore/card.h>
-
-#include <droid/droid-util.h>
-
-pa_source *pa_droid_source_new(pa_module *m,
-                                 pa_modargs *ma,
-                                 const char *driver,
-                                 pa_droid_card_data *card_data,
-                                 pa_droid_mapping *am,
-                                 pa_card *card);
-void pa_droid_source_free(pa_source *s);
+void dm_replace_in_place(char **string, const char *a, const char *b);
+bool dm_strcasestr(const char *haystack, const char *needle);
 
 #endif

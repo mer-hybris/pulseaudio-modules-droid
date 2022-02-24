@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Jolla Ltd.
+ * Copyright (C) 2018-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -26,15 +26,6 @@
 
 #include "droid/droid-config.h"
 
-#ifndef HAVE_EXPAT
-#include <unistd.h>
-pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
-    if (access(filename, F_OK) == 0)
-        pa_log_warn("Could not parse %s, xml configuration parsing support not compiled in", filename);
-    return NULL;
-}
-#else
-
 #include <stdarg.h>
 #include <string.h>
 #include <expat.h>
@@ -46,6 +37,9 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 
 #include "droid/conversion.h"
 #include "droid/sllist.h"
+#include "droid/utils.h"
+#include "droid/droid-config.h"
+#include "config-parser-xml.h"
 
 #ifdef XML_UNICODE_WCHAR_T
 # include <wchar.h>
@@ -86,6 +80,9 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
 #define ATTRIBUTE_sources                   "sources"
 #define ATTRIBUTE_type                      "type"
 #define ATTRIBUTE_href                      "href"
+#define ATTRIBUTE_maxOpenCount              "maxOpenCount"
+#define ATTRIBUTE_maxActiveCount            "maxActiveCount"
+#define ATTRIBUTE_address                   "address"
 
 #define PORT_TYPE_sink                      "sink"
 #define PORT_TYPE_source                    "source"
@@ -282,7 +279,7 @@ struct profile {
     char *name;
     audio_format_t format;
     uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES];
-    audio_channel_mask_t channel_masks;
+    audio_channel_mask_t channel_masks[AUDIO_MAX_CHANNEL_MASKS];
     struct profile *next;
 };
 
@@ -290,6 +287,8 @@ struct mix_port {
     char *name;
     char *role;
     uint32_t flags;
+    int max_open_count;
+    int max_active_count;
     struct profile *profiles;
     struct mix_port *next;
 };
@@ -298,6 +297,7 @@ struct device_port {
     char *tag_name;
     audio_devices_t type;
     char *role;
+    char *address;
     struct profile *profiles;
     struct device_port *next;
 };
@@ -403,6 +403,7 @@ static void device_port_list_free(struct device_port *list) {
         profile_list_free(p->profiles);
         pa_xfree(p->tag_name);
         pa_xfree(p->role);
+        pa_xfree(p->address);
         pa_xfree(p);
     }
 }
@@ -697,6 +698,8 @@ static bool parse_mix_port(struct parser_data *data, const char *element_name, c
     struct mix_port *p;
     bool parsed = false;
     char *flags = NULL;
+    char *max_open_count = NULL;
+    char *max_active_count = NULL;
 
     p = pa_xmalloc0(sizeof(*p));
 
@@ -714,6 +717,14 @@ static bool parse_mix_port(struct parser_data *data, const char *element_name, c
             goto done;
     }
 
+    /* maxOpenCount is not mandatory element attribute */
+    if (get_element_attr(data, attributes, false, ATTRIBUTE_maxOpenCount, &max_open_count))
+        pa_atoi(max_open_count, &p->max_open_count);
+
+    /* maxActiveCount is not mandatory element attribute */
+    if (get_element_attr(data, attributes, false, ATTRIBUTE_maxActiveCount, &max_active_count))
+        pa_atoi(max_open_count, &p->max_active_count);
+
     parsed = true;
 done:
     pa_xfree(flags);
@@ -727,18 +738,6 @@ done:
     }
 
     return parsed;
-}
-
-static void replace_in_place(char **string, const char *a, const char *b) {
-    char *tmp;
-
-    pa_assert(*string);
-    pa_assert(a);
-    pa_assert(b);
-
-    tmp = pa_replace(*string, a, b);
-    pa_xfree(*string);
-    *string = tmp;
 }
 
 static bool parse_profile(struct parser_data *data, const char *element_name, const XML_Char **attributes) {
@@ -776,24 +775,24 @@ static bool parse_profile(struct parser_data *data, const char *element_name, co
         if (output && pa_startswith(channelMasks, "AUDIO_CHANNEL_IN_")) {
             pa_log_info("[%s:%u] Output has wrong direction channel mask (%s), reversing.",
                         data->fn, data->lineno, channelMasks);
-            replace_in_place(&channelMasks, "AUDIO_CHANNEL_IN_", "AUDIO_CHANNEL_OUT_");
+            dm_replace_in_place(&channelMasks, "AUDIO_CHANNEL_IN_", "AUDIO_CHANNEL_OUT_");
         }
         else if (!output && pa_startswith(channelMasks, "AUDIO_CHANNEL_OUT_")) {
             pa_log_info("[%s:%u] Input has wrong direction channel mask (%s), reversing.",
                         data->fn, data->lineno, channelMasks);
-            replace_in_place(&channelMasks, "AUDIO_CHANNEL_OUT_", "AUDIO_CHANNEL_IN_");
+            dm_replace_in_place(&channelMasks, "AUDIO_CHANNEL_OUT_", "AUDIO_CHANNEL_IN_");
         }
     }
 
-    if (!pa_conversion_parse_sampling_rates(data->fn, data->lineno, samplingRates, false, p->sampling_rates))
+    if (!pa_conversion_parse_sampling_rates(data->fn, data->lineno, samplingRates, p->sampling_rates))
         goto done;
 
-    if (!pa_conversion_parse_formats(data->fn, data->lineno, format, false, &p->format))
+    if (!pa_conversion_parse_formats(data->fn, data->lineno, format, &p->format))
         unknown_format = true;
 
     if (!unknown_format && channelMasks && (channel_count = output ?
-            pa_conversion_parse_output_channels(data->fn, data->lineno, channelMasks, false, &p->channel_masks)
-          : pa_conversion_parse_input_channels(data->fn, data->lineno, channelMasks, false, &p->channel_masks)) == -1)
+            pa_conversion_parse_output_channels(data->fn, data->lineno, channelMasks, p->channel_masks)
+          : pa_conversion_parse_input_channels(data->fn, data->lineno, channelMasks, p->channel_masks)) == -1)
         goto done;
 
     parsed = true;
@@ -840,9 +839,12 @@ static bool parse_device_port(struct parser_data *data, const char *element_name
         goto done;
 
     if (!(pa_streq(d->role, ATTRIBUTE_sink) ?
-            pa_conversion_parse_output_devices(data->fn, data->lineno, type, false, false, &d->type)
-          : pa_conversion_parse_input_devices(data->fn, data->lineno, type, false, false, &d->type)))
+            pa_conversion_parse_output_devices(data->fn, data->lineno, type, false, &d->type)
+          : pa_conversion_parse_input_devices(data->fn, data->lineno, type, false, &d->type)))
         unknown_device = true;
+
+    /* address is not mandatory element attribute */
+    get_element_attr(data, attributes, false, ATTRIBUTE_address, &d->address);
 
     parsed = true;
 done:
@@ -953,133 +955,184 @@ done:
     return ret;
 }
 
-static struct device_port *find_device_port(struct module *module, const char *name) {
-    struct device_port *port;
-
-    SLLIST_FOREACH(port, module->device_ports) {
-        if (pa_streq(port->tag_name, name))
-            return port;
-    }
-
-    return NULL;
-}
-
-static bool device_in_list(struct device *list, const char *name) {
-    struct device *dev;
-
-    pa_assert(name);
-
-    SLLIST_FOREACH(dev, list) {
-        if (pa_streq(name, dev->name))
-            return true;
-    }
-
-    return false;
-}
-
-static void add_output(struct module *module, struct mix_port *mix_port, pa_droid_config_hw_module *hw_module) {
-    pa_droid_config_device *output;
+static void generate_config_profiles(struct profile *profiles, dm_list *list) {
     struct profile *profile;
-    struct route *route;
-    struct device_port *device_port;
 
-    output = pa_droid_config_device_new(hw_module, PA_DIRECTION_OUTPUT, mix_port->name);
-    output->flags = mix_port->flags;
-    SLLIST_FOREACH(profile, mix_port->profiles) {
-        memcpy(output->sampling_rates, profile->sampling_rates, sizeof(output->sampling_rates));
-        output->channel_masks |= profile->channel_masks;
-        output->formats |= profile->format;
+    SLLIST_FOREACH(profile, profiles) {
+        dm_config_profile *c_profile = pa_xnew0(dm_config_profile, 1);
+        c_profile->name = pa_xstrdup(profile->name ? profile->name : "");
+        c_profile->format = profile->format;
+        memcpy(c_profile->sampling_rates,
+               profile->sampling_rates,
+               sizeof(c_profile->sampling_rates));
+        memcpy(c_profile->channel_masks,
+               profile->channel_masks,
+               sizeof(c_profile->channel_masks));
+        dm_list_push_back(list, c_profile);
     }
-
-    SLLIST_FOREACH(route, module->routes) {
-        struct device *source;
-        SLLIST_FOREACH(source, route->sources) {
-            if (pa_streq(source->name, mix_port->name)) {
-                if ((device_port = find_device_port(module, route->sink))) {
-                    output->devices |= device_port->type;
-                    if (device_in_list(module->attached_devices, device_port->tag_name))
-                        hw_module->global_config->attached_output_devices |= device_port->type;
-                    if (device_in_list(module->default_output, device_port->tag_name))
-                        hw_module->global_config->default_output_device |= device_port->type;
-                    break;
-                } else
-                    pa_log_info("Couldn't find matching <" ELEMENT_devicePort " tagName=%s> for <" ELEMENT_mixPort " name=%s>",
-                                route->sink, source->name);
-            }
-        }
-    }
-
-    pa_log_debug("config: %s: New output: %s", hw_module->name, output->name);
-    SLLIST_APPEND(pa_droid_config_device, hw_module->outputs, output);
 }
 
-static void add_input(struct module *module, struct mix_port *mix_port, pa_droid_config_hw_module *hw_module) {
-    pa_droid_config_device *input;
-    struct profile *profile;
-    struct route *route;
-    struct device_port *device_port;
+static dm_config_port *config_device_port_new(dm_config_module *module,
+                                              struct device_port *device_port) {
+    dm_config_port *c_device_port = pa_xnew0(dm_config_port, 1);
 
-    input = pa_droid_config_device_new(hw_module, PA_DIRECTION_INPUT, mix_port->name);
-    input->flags = mix_port->flags;
-    SLLIST_FOREACH(profile, mix_port->profiles) {
-        memcpy(input->sampling_rates, profile->sampling_rates, sizeof(input->sampling_rates));
-        input->channel_masks |= profile->channel_masks;
-        input->formats |= profile->format;
-    }
+    c_device_port->module = module;
+    c_device_port->port_type = DM_CONFIG_TYPE_DEVICE_PORT;
+    c_device_port->name = pa_xstrdup(device_port->tag_name);
+    c_device_port->type = device_port->type;
+    c_device_port->role = pa_safe_streq(device_port->role, "sink") ? DM_CONFIG_ROLE_SINK : DM_CONFIG_ROLE_SOURCE;
+    c_device_port->address = pa_xstrdup(device_port->address ? device_port->address : "");
+    c_device_port->profiles = dm_list_new();
+    if (device_port->profiles->next)
+        pa_log("More than 1 profile for devicePort %s, ignoring extra profiles.", device_port->tag_name);
+    generate_config_profiles(device_port->profiles, c_device_port->profiles);
 
-    SLLIST_FOREACH(route, module->routes) {
-        if (pa_streq(route->sink, mix_port->name)) {
-            struct device *source;
-            SLLIST_FOREACH(source, route->sources) {
-                if ((device_port = find_device_port(module, source->name))) {
-                    input->devices |= device_port->type;
-                    if (device_in_list(module->attached_devices, device_port->tag_name))
-                        hw_module->global_config->attached_input_devices |= device_port->type;
-                } else
-                    pa_log_info("Couldn't find matching <" ELEMENT_mixPort " name=%s> for <" ELEMENT_devicePort " tagName=%s>",
-                                source->name, route->sink);
-
-            }
-        }
-    }
-
-    pa_log_debug("config: %s: New input: %s", hw_module->name, input->name);
-    SLLIST_APPEND(pa_droid_config_device, hw_module->inputs, input);
+    return c_device_port;
 }
 
-static void generate_config_for_module(struct module *module, pa_droid_config_audio *config) {
-    pa_droid_config_hw_module *hw_module;
+static dm_config_port *config_mix_port_new(dm_config_module *module,
+                                           struct mix_port *mix_port) {
+    dm_config_port *c_mix_port = pa_xnew0(dm_config_port, 1);
+
+    c_mix_port->module = module;
+    c_mix_port->port_type = DM_CONFIG_TYPE_MIX_PORT;
+    c_mix_port->name = pa_xstrdup(mix_port->name);
+    c_mix_port->role = pa_safe_streq(mix_port->role, "sink") ? DM_CONFIG_ROLE_SINK : DM_CONFIG_ROLE_SOURCE;
+    c_mix_port->flags = mix_port->flags;
+    c_mix_port->max_open_count = mix_port->max_open_count;
+    c_mix_port->max_active_count = mix_port->max_active_count;
+    c_mix_port->profiles = dm_list_new();
+    generate_config_profiles(mix_port->profiles, c_mix_port->profiles);
+
+    return c_mix_port;
+}
+
+static void generate_config_for_module(struct module *module, dm_config_device *config) {
+    dm_config_module *c_module;
     struct mix_port *mix_port;
+    struct device_port *device_port;
+    struct device *device;
+    struct route *route;
 
     pa_assert(module);
     pa_assert(config);
-    pa_assert(config->global_config);
 
-    hw_module = pa_droid_config_hw_module_new(config, module->name);
-    if (module->attached_devices || module->default_output)
-        hw_module->global_config = pa_xnew0(pa_droid_config_global, 1);
-    SLLIST_APPEND(pa_droid_config_hw_module, config->hw_modules, hw_module);
+    c_module = pa_xnew0(dm_config_module, 1);
+    c_module->config = config;
+    c_module->name = pa_xstrdup(module->name);
+    c_module->version_major = 0; /* Not used */
+    c_module->version_minor = 0; /* Not used */
+    c_module->attached_devices = dm_list_new();
+    c_module->mix_ports = dm_list_new();
+    c_module->device_ports = dm_list_new();
+    c_module->ports = dm_list_new();
+    c_module->routes = dm_list_new();
+
+    /* Device ports */
+
+    SLLIST_FOREACH(device_port, module->device_ports) {
+        dm_config_port *c_device_port;
+
+        if (!device_port->profiles) {
+            pa_log("No profile defined for devicePort %s", device_port->tag_name);
+            continue;
+        }
+
+        c_device_port = config_device_port_new(c_module, device_port);
+        dm_list_push_back(c_module->ports, c_device_port);
+        dm_list_push_back(c_module->device_ports, c_device_port);
+    }
+
+    /* Attached devices */
+
+    SLLIST_FOREACH(device, module->attached_devices) {
+        dm_config_port *c_device_port;
+        void *state;
+
+        DM_LIST_FOREACH_DATA(c_device_port, c_module->device_ports, state) {
+            if (pa_safe_streq(c_device_port->name, device->name)) {
+                dm_list_push_back(c_module->attached_devices, c_device_port);
+                break;
+            }
+        }
+    }
+
+    /* Default output device */
+
+    if (module->default_output) {
+        dm_config_port *c_device_port;
+        void *state;
+
+        DM_LIST_FOREACH_DATA(c_device_port, c_module->device_ports, state) {
+            if (pa_safe_streq(c_device_port->name, module->default_output->name)) {
+                c_module->default_output_device = c_device_port;
+                break;
+            }
+        }
+    }
+
+    /* Mix ports */
 
     SLLIST_FOREACH(mix_port, module->mix_ports) {
-        if (pa_streq(mix_port->role, PORT_TYPE_source))
-            add_output(module, mix_port, hw_module);
-        else if (pa_streq(mix_port->role, ATTRIBUTE_sink))
-            add_input(module, mix_port, hw_module);
-        else
-            pa_log_warn("Unknown <" ELEMENT_mixPort "> role \"%s\"", mix_port->role);
+        dm_config_port *c_mix_port = config_mix_port_new(c_module, mix_port);
+        dm_list_push_back(c_module->ports, c_mix_port);
+        dm_list_push_back(c_module->mix_ports, c_mix_port);
     }
+
+    /* Routes */
+
+    SLLIST_FOREACH(route, module->routes) {
+        dm_config_route *c_route = pa_xnew0(dm_config_route, 1);
+        dm_config_port *c_port;
+        void *state;
+        c_route->sources = dm_list_new();
+
+        if (!pa_safe_streq(route->type, "mix"))
+            pa_log("Unknown route type %s.", route->type);
+        c_route->type = DM_CONFIG_TYPE_MIX;
+
+        DM_LIST_FOREACH_DATA(c_port, c_module->ports, state) {
+            if (pa_safe_streq(route->sink, c_port->name)) {
+                c_route->sink = c_port;
+                break;
+            }
+        }
+
+        SLLIST_FOREACH(device, route->sources) {
+            DM_LIST_FOREACH_DATA(c_port, c_module->ports, state) {
+                if (pa_safe_streq(device->name, c_port->name)) {
+                    dm_list_push_back(c_route->sources, c_port);
+                    break;
+                }
+            }
+        }
+
+        dm_list_push_back(c_module->routes, c_route);
+    }
+
+    dm_list_push_back(config->modules, c_module);
 }
 
-static pa_droid_config_audio *convert_config(struct audio_policy_configuration *source) {
-    pa_droid_config_audio *config = NULL;
+static dm_config_device *process_config(struct audio_policy_configuration *source) {
+    dm_config_device *config = NULL;
+    struct global_configuration *global_config;
     struct module *module;
 
     pa_assert(source);
 
-    config = pa_xnew0(pa_droid_config_audio, 1);
-    config->global_config = pa_xnew0(pa_droid_config_global, 1);
+    config = pa_xnew0(dm_config_device, 1);
+    config->global_config = dm_list_new();
+    config->modules = dm_list_new();
 
-    pa_log_debug("Convert configuration ...");
+    pa_log_debug("Process configuration ...");
+
+    SLLIST_FOREACH(global_config, source->global) {
+        dm_config_global *c_global = pa_xnew0(dm_config_global, 1);
+        c_global->key = pa_xstrdup(global_config->key);
+        c_global->value = pa_xstrdup(global_config->value);
+        dm_list_push_back(config->global_config, c_global);
+    };
+
     SLLIST_FOREACH(module, source->modules)
         generate_config_for_module(module, config);
 
@@ -1111,8 +1164,8 @@ static char *build_path(const char *base_file, const char *filename) {
     return fn;
 }
 
-pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
-    pa_droid_config_audio *config = NULL;
+dm_config_device *pa_parse_droid_audio_config_xml(const char *filename) {
+    dm_config_device *config = NULL;
     struct parser_data data;
     bool ret = true;
 
@@ -1144,7 +1197,7 @@ pa_droid_config_audio *pa_parse_droid_audio_config_xml(const char *filename) {
         }
     }
 
-    config = convert_config(data.conf);
+    config = process_config(data.conf);
 
 done:
     if (data.conf)
@@ -1152,5 +1205,3 @@ done:
 
     return config;
 }
-
-#endif

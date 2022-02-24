@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Jolla Ltd.
+ * Copyright (C) 2013-2022 Jolla Ltd.
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -61,6 +61,7 @@
 
 #include <droid/droid-util.h>
 #include <droid/sllist.h>
+#include <droid/utils.h>
 #include "droid-sink.h"
 #include "droid-source.h"
 
@@ -73,16 +74,13 @@ PA_MODULE_USAGE(
         "source_name=<name for the source> "
         "namereg_fail=<when false attempt to synthesise new names if they are already taken> "
         "rate=<sample rate> "
-        "output_flags=<flags for sink> "
         "module_id=<which droid hw module to load, default primary> "
         "voice_source_routing=<always true, parameter left for compatibility> "
         "deferred_volume=<synchronize software and hardware volume changes to avoid momentary jumps?> "
         "config=<location for droid audio configuration> "
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
         "voice_property_value=<proplist value for the key for voice control sink-input> "
-        "default_profile=<boolean. create default profile for primary module or not. defaults to true> "
-        "merge_inputs=<unused, always true> "
-        "quirks=<comma separated list of quirks to enable/disable>"
+        "options=<comma separated list of options to enable/disable>"
 );
 
 static const char* const valid_modargs[] = {
@@ -97,26 +95,18 @@ static const char* const valid_modargs[] = {
     "sink_rate",
     "sink_format",
     "sink_channel_map",
-    "sink_mix_route",
     "source_rate",
     "source_format",
     "source_channel_map",
-    "output_flags",
     "module_id",
     "voice_source_routing",
     "sink_buffer",
     "source_buffer",
     "deferred_volume",
-    "mute_routing_before",
-    "mute_routing_after",
-    "prewrite_on_resume",
     "config",
     "voice_property_key",
     "voice_property_value",
-    "default_profile",
-    "combine",
-    "merge_inputs",
-    "quirks",
+    /* DM_OPTIONS */
     NULL,
 };
 
@@ -171,7 +161,7 @@ struct profile_data {
     struct virtual_profile virtual;
 };
 
-#ifdef DROID_AUDIO_HAL_USE_VSID
+#ifdef DROID_AUDIO_HAL_DEBUG_VSID
 
 /* From hal/voice_extn/voice_extn.c */
 #define AUDIO_PARAMETER_KEY_VSID            "vsid"
@@ -215,7 +205,7 @@ static bool voicecall_vowlan_vsid_profile_event_cb(struct userdata *u, pa_droid_
 static bool voicecall_voicemmode1_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
 static bool voicecall_voicemmode2_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
 
-#endif /* DROID_AUDIO_HAL_USE_VSID */
+#endif /* DROID_AUDIO_HAL_DEBUG_VSID */
 
 static void add_disabled_profile(pa_hashmap *profiles) {
     pa_card_profile *cp;
@@ -268,16 +258,6 @@ static pa_card_profile* add_virtual_profile(struct userdata *u, const char *name
     return cp;
 }
 
-static int set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
-    struct userdata *u;
-
-    pa_assert(card_data);
-    pa_assert_se((u = card_data->userdata));
-    pa_assert(str);
-
-    return pa_droid_set_parameters(u->hw_module, str);
-}
-
 static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *module_id) {
     const char *tmp;
     char *name;
@@ -299,16 +279,57 @@ static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *mo
 }
 
 static bool output_enabled(struct userdata *u, pa_droid_mapping *am) {
+    bool enabled = false;
+
     pa_assert(u);
     pa_assert(am);
 
-    if (!pa_droid_quirk(u->hw_module, QUIRK_OUTPUT_FAST) && am->output->flags & AUDIO_OUTPUT_FLAG_FAST)
-        return false;
 
-    if (!pa_droid_quirk(u->hw_module, QUIRK_OUTPUT_DEEP_BUFFER) && am->output->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
-        return false;
+    if (am->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY)
+        enabled = true;
 
-    return true;
+    else if (am->mix_port->flags & AUDIO_OUTPUT_FLAG_RAW)
+        enabled = false;
+
+    else if (pa_droid_option(u->hw_module, DM_OPTION_OUTPUT_FAST) && am->mix_port->flags & AUDIO_OUTPUT_FLAG_FAST)
+        enabled = true;
+
+    else if (pa_droid_option(u->hw_module, DM_OPTION_OUTPUT_DEEP_BUFFER) && am->mix_port->flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)
+        enabled = true;
+
+    pa_log_debug("Output mix port \"%s\" %s", am->name, enabled ? "enabled" : "disabled");
+
+    return enabled;
+}
+
+static bool input_enabled(struct userdata *u, pa_droid_mapping *am) {
+    bool enabled = false;
+
+    pa_assert(u);
+    pa_assert(am);
+
+    /* Look for primary mix port as the one used for creating droid-source. */
+    if (dm_strcasestr(am->name, "primary"))
+        enabled = true;
+
+    pa_log_debug("Input mix port \"%s\" %s", am->name, enabled ? "enabled" : "disabled");
+
+    return enabled;
+}
+
+static uint32_t max_channels_for_mix_port(dm_config_port *mix_port, uint32_t previous_max_channels) {
+    uint32_t max_channels = 0;
+    dm_config_profile *profile;
+    void *state;
+
+    DM_LIST_FOREACH_DATA(profile, mix_port->profiles, state) {
+        for (int i = 0; profile->channel_masks[i]; i++) {
+            max_channels = audio_channel_count_from_out_mask(profile->channel_masks[i]) > max_channels
+                            ? audio_channel_count_from_out_mask(profile->channel_masks[i]) : max_channels;
+        }
+    }
+
+    return max_channels > previous_max_channels ? max_channels : previous_max_channels;
 }
 
 static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa_droid_profile *ap) {
@@ -329,26 +350,23 @@ static void add_profile(struct userdata *u, pa_hashmap *h, pa_hashmap *ports, pa
     cp->available = PA_AVAILABLE_YES;
     cp->priority = ap->priority;
 
+    /* Output mappings */
+
     max_channels = 0;
     PA_IDXSET_FOREACH(am, ap->output_mappings, idx) {
-        if (!output_enabled(u, am))
-            continue;
-
         cp->n_sinks++;
         pa_droid_add_card_ports(cp, ports, am, u->core);
-        max_channels = popcount(am->output->channel_masks) > max_channels
-                        ? popcount(am->output->channel_masks) : max_channels;
+        max_channels = max_channels_for_mix_port(am->mix_port, max_channels);
     }
     cp->max_sink_channels = max_channels;
 
+    /* Input mappings */
+
     max_channels = 0;
-    if ((am = ap->input_mapping)) {
-        const pa_droid_config_device *input;
+    PA_IDXSET_FOREACH(am, ap->input_mappings, idx) {
         cp->n_sources++;
         pa_droid_add_card_ports(cp, ports, am, u->core);
-        SLLIST_FOREACH(input, am->inputs)
-            max_channels = popcount(input->channel_masks) > max_channels
-                            ? popcount(input->channel_masks) : max_channels;
+        max_channels = max_channels_for_mix_port(am->mix_port, max_channels);
     }
     cp->max_source_channels = max_channels;
 
@@ -394,8 +412,13 @@ static void init_profile(struct userdata *u) {
         }
     }
 
-    if (d->droid_profile && (am = d->droid_profile->input_mapping)) {
-        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+    if (d->droid_profile && pa_idxset_size(d->droid_profile->input_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, d->droid_profile->input_mappings, idx) {
+            if (!input_enabled(u, am))
+                continue;
+
+            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
+        }
     }
 }
 
@@ -447,19 +470,51 @@ static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, 
     if (enabling) {
         pa_droid_sink_set_voice_control(am_output->sink, true);
 
-        if (pa_droid_quirk(u->hw_module, QUIRK_REALCALL))
+        if (pa_droid_option(u->hw_module, DM_OPTION_REALCALL))
             pa_droid_set_parameters(u->hw_module, VENDOR_EXT_REALCALL_ON);
     } else {
         pa_droid_sink_set_voice_control(am_output->sink, false);
 
-        if (pa_droid_quirk(u->hw_module, QUIRK_REALCALL))
+        if (pa_droid_option(u->hw_module, DM_OPTION_REALCALL))
             pa_droid_set_parameters(u->hw_module, VENDOR_EXT_REALCALL_OFF);
     }
 
     return true;
 }
 
-#ifdef DROID_AUDIO_HAL_USE_VSID
+static bool in_communication_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
+    pa_droid_profile *dp;
+
+    pa_assert(u);
+    pa_assert(u->real_profile);
+
+    dp = card_get_droid_profile(u->real_profile);
+
+    if (pa_idxset_size(dp->output_mappings) > 0) {
+        pa_droid_mapping *am;
+        uint32_t idx;
+
+        PA_IDXSET_FOREACH(am, dp->output_mappings, idx) {
+
+            if (am->mix_port->flags & AUDIO_OUTPUT_FLAG_VOIP_RX) {
+                if (enabling && !am->sink) {
+                    pa_log_info("in communication: enable VOIP sink");
+                    am->sink = pa_droid_sink_new(u->module, u->modargs, __FILE__, &u->card_data, 0, am, u->card);
+                } else if (!enabling && am->sink) {
+                    /* Don't rescue sink-inputs. */
+                    pa_log_info("in communication: disable VOIP sink");
+                    pa_droid_sink_free(am->sink);
+                    am->sink = NULL;
+                }
+                break;
+            }
+        }
+    }
+
+    return true;
+}
+
+#ifdef DROID_AUDIO_HAL_DEBUG_VSID
 static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsid, bool enabling)
 {
     char *setparam;
@@ -508,7 +563,7 @@ static bool voicecall_voicemmode2_vsid_profile_event_cb(struct userdata *u, pa_d
 {
     return voicecall_vsid(u, p, VOICEMMODE2_VSID, enabling);
 }
-#endif /* DROID_AUDIO_HAL_USE_VSID */
+#endif /* DROID_AUDIO_HAL_DEBUG_VSID */
 
 static void virtual_event(struct userdata *u, struct profile_data *profile, bool enabling) {
     pa_assert(u);
@@ -691,13 +746,18 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
         }
     }
 
-    if (next->droid_profile && (am = next->droid_profile->input_mapping)) {
-        if (!am->source)
-            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
+    if (next->droid_profile && pa_idxset_size(next->droid_profile->input_mappings) > 0) {
+        PA_IDXSET_FOREACH(am, next->droid_profile->input_mappings, idx) {
+            if (!input_enabled(u, am))
+                continue;
 
-        if (source_outputs && am->source) {
-            pa_source_move_all_finish(am->source, source_outputs, false);
-            source_outputs = NULL;
+            if (!am->source)
+                am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
+
+            if (source_outputs && am->source) {
+                pa_source_move_all_finish(am->source, source_outputs, false);
+                source_outputs = NULL;
+            }
         }
     }
 
@@ -724,20 +784,14 @@ int pa__init(pa_module *m) {
     pa_card_new_data data;
     const char *module_id;
     bool namereg_fail = false;
-    bool default_profile = true;
     pa_card_profile *voicecall = NULL;
 
     pa_assert(m);
 
     pa_log_info("Create new droid-card");
 
-    if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
+    if (!(ma = pa_droid_modargs_new(m->argument, valid_modargs))) {
         pa_log("Failed to parse module arguments.");
-        goto fail;
-    }
-
-    if (pa_modargs_get_value_boolean(ma, "default_profile", &default_profile) < 0) {
-        pa_log("Failed to parse default_profile argument. Expects boolean value");
         goto fail;
     }
 
@@ -750,16 +804,12 @@ int pa__init(pa_module *m) {
     if (!(u->hw_module = pa_droid_hw_module_get2(u->core, ma, module_id)))
         goto fail;
 
-    pa_droid_quirk_log(u->hw_module);
+    pa_droid_options_log(u->hw_module);
 
-    u->card_data.set_parameters = set_parameters_cb;
     u->card_data.module_id = pa_xstrdup(module_id);
     u->card_data.userdata = u;
 
-    if (default_profile)
-        u->profile_set = pa_droid_profile_set_default_new(u->hw_module->enabled_module);
-    else
-        u->profile_set = pa_droid_profile_set_new(u->hw_module->enabled_module);
+    u->profile_set = pa_droid_profile_set_default_new(u->hw_module->enabled_module);
 
     pa_card_new_data_init(&data);
     data.driver = __FILE__;
@@ -795,19 +845,18 @@ int pa__init(pa_module *m) {
                         AUDIO_MODE_IN_CALL, NULL,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
     add_virtual_profile(u, COMMUNICATION_PROFILE_NAME, COMMUNICATION_PROFILE_DESC,
-                        AUDIO_MODE_IN_COMMUNICATION, NULL,
+                        AUDIO_MODE_IN_COMMUNICATION, in_communication_profile_event_cb,
                         PA_AVAILABLE_YES, NULL, data.profiles);
     add_virtual_profile(u, RINGTONE_PROFILE_NAME, RINGTONE_PROFILE_DESC,
                         AUDIO_MODE_RINGTONE, NULL,
                         PA_AVAILABLE_YES, NULL, data.profiles);
-#ifdef DROID_AUDIO_HAL_USE_VSID
+#ifdef DROID_AUDIO_HAL_DEBUG_VSID
     add_virtual_profile(u, VOICE_SESSION_VOICE1_PROFILE_NAME, VOICE_SESSION_VOICE1_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_voice1_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
     add_virtual_profile(u, VOICE_SESSION_VOICE2_PROFILE_NAME, VOICE_SESSION_VOICE2_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_voice2_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
-    /* TODO: Probably enabled state needs to be determined dynamically for VOLTE and friends. */
     add_virtual_profile(u, VOICE_SESSION_VOLTE_PROFILE_NAME, VOICE_SESSION_VOLTE_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_volte_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
@@ -823,7 +872,7 @@ int pa__init(pa_module *m) {
     add_virtual_profile(u, VOICE_SESSION_VOICEMMODE2_PROFILE_NAME, VOICE_SESSION_VOICEMMODE2_PROFILE_DESC,
                         AUDIO_MODE_IN_CALL, voicecall_voicemmode2_vsid_profile_event_cb,
                         PA_AVAILABLE_YES, voicecall, data.profiles);
-#endif /* DROID_AUDIO_HAL_USE_VSID */
+#endif /* DROID_AUDIO_HAL_DEBUG_VSID */
 
     add_disabled_profile(data.profiles);
 
@@ -870,7 +919,6 @@ void pa__done(pa_module *m) {
 
         if (u->card && u->card->sources)
             pa_idxset_remove_all(u->card->sources, (pa_free_cb_t) pa_droid_source_free);
-
 
         if (u->card)
             pa_card_free(u->card);

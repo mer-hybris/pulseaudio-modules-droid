@@ -40,7 +40,7 @@ Requires:   pulseaudio >= %{pulseversion}
 This contains development files for PulseAudio droid modules.
 
 %prep
-%setup -q -n %{name}-%{version}
+%autosetup -n %{name}-%{version}
 
 %build
 echo "%{moduleversion}" > .tarball-version
@@ -51,10 +51,9 @@ else
 . %{_libdir}/droid-devel/hw-release.vars
 fi
 %reconfigure --disable-static --with-droid-device=$MER_HA_DEVICE
-make %{?jobs:-j%jobs}
+%make_build
 
 %install
-rm -rf %{buildroot}
 %make_install
 
 %files
@@ -72,9 +71,11 @@ rm -rf %{buildroot}
 
 %files devel
 %defattr(-,root,root,-)
-%dir %{_prefix}/include/pulsecore/modules/droid
-%{_prefix}/include/pulsecore/modules/droid/version.h
-%{_prefix}/include/pulsecore/modules/droid/conversion.h
-%{_prefix}/include/pulsecore/modules/droid/droid-config.h
-%{_prefix}/include/pulsecore/modules/droid/droid-util.h
+%dir %{_includedir}/pulsecore/modules/droid
+%{_includedir}/pulsecore/modules/droid/conversion.h
+%{_includedir}/pulsecore/modules/droid/droid-config.h
+%{_includedir}/pulsecore/modules/droid/droid-util.h
+%{_includedir}/pulsecore/modules/droid/sllist.h
+%{_includedir}/pulsecore/modules/droid/utils.h
+%{_includedir}/pulsecore/modules/droid/version.h
 %{_libdir}/pkgconfig/*.pc
