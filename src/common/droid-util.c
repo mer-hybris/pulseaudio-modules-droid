@@ -107,7 +107,7 @@ struct user_options {
 
 #define DEFAULT_PRIORITY            (100)
 #define DEFAULT_AUDIO_FORMAT        (AUDIO_FORMAT_PCM_16_BIT)
-
+#define DROID_VOIP_RX_SAMPLE_RATE   (16000)
 
 #ifndef AUDIO_PARAMETER_VALUE_ON
 #define AUDIO_PARAMETER_VALUE_ON    "on"
@@ -1342,6 +1342,13 @@ static bool stream_config_fill(pa_droid_hw_module *hw,
     if (!output && pa_droid_option(hw, DM_OPTION_RECORD_VOICE_16K) && hw->state.mode == AUDIO_MODE_IN_CALL) {
         pa_log_debug("Suggest sample rate of 16kHz for voice call input stream.");
         sample_spec->rate = 16000;
+    }
+
+    if (output && mix_port->flags & AUDIO_OUTPUT_FLAG_VOIP_RX) {
+        pa_log_info("Override voip_rx channel map (mono) and sample rate (%d)", DROID_VOIP_RX_SAMPLE_RATE);
+        pa_channel_map_init_mono(channel_map);
+        sample_spec->channels = channel_map->channels;
+        sample_spec->rate = DROID_VOIP_RX_SAMPLE_RATE;
     }
 
     if (!compatible_port(mix_port, sample_spec, channel_map,
