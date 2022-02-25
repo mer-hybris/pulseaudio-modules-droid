@@ -1524,6 +1524,8 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
         goto fail;
     }
 
+    option_audio_cal(module, mix_port->flags);
+
     output->sample_spec = *spec;
     output->channel_map = *map;
     stream->active_device_port = NULL;
