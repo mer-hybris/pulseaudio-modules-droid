@@ -1515,14 +1515,15 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
                                              mix_port->flags,
                                              &config_out,
                                              &output->stream,
-                                             device_port->address
-                                             );
+                                             device_port->address);
     pa_droid_hw_module_unlock(module);
 
     if (ret < 0 || !output->stream) {
         pa_log("Failed to open output stream: %d", ret);
         goto fail;
     }
+
+    option_audio_cal(module, mix_port->flags);
 
     output->sample_spec = *spec;
     output->channel_map = *map;
