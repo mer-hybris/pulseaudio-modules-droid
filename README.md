@@ -302,6 +302,12 @@ Currently there are following options:
     * Disabled by default.
     * When enabled voice call recording source is forced to sample rate
       of 16kHz.
+* use_legacy_stream_set_parameters
+    * Disabled by default.
+    * Enable this to fall back to set_parameters on stream. Only For audio 
+      HALs without create_audio_patch implemented, which causes pulse to 
+      segfault attempting to use create_audio_patch on an invalid or null 
+      address.
 
 Options can be enabled or disabled normally as module arguments, for example:
 
