@@ -24,7 +24,7 @@
 
 
 #include <android-config.h>
-#if defined(QCOM_BSP) || defined(DROID_DEVICE_SBJ)
+#if defined(QCOM_BSP)
 #define QCOM_HARDWARE
 #endif
 
