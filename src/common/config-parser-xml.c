@@ -215,6 +215,12 @@ static const struct element_parser element_parse_attached_devices = {
     &element_parse_item
 };
 
+/* Entries like
+ * <modules>
+ *     <module name="primary"> <xi:include href="other.xml"/> </module>
+ * </modules>
+ * Where other.xml contains module elements
+ */
 static const struct element_parser element_parse_module_include = {
     ELEMENT_include,
     parse_module_include,
@@ -223,11 +229,25 @@ static const struct element_parser element_parse_module_include = {
     NULL
 };
 
+/* Entries like
+ * <modules>
+ *     <xi:include href="other.xml"/>
+ * </modules>
+ * Where other.xml contains <module name="primary">...
+ */
+static const struct element_parser element_parse_modules_include = {
+    ELEMENT_include,
+    parse_module_include,
+    NULL,
+    NULL,
+    NULL
+};
+
 static const struct element_parser element_parse_module = {
     ELEMENT_module,
     parse_module,
     NULL,
-    NULL,
+    &element_parse_modules_include,
     &element_parse_module_include
 };
 
@@ -1180,9 +1200,6 @@ dm_config_device *pa_parse_droid_audio_config_xml(const char *filename) {
         /* Only handle module includes for now. */
         SLLIST_FOREACH(data.current_include, data.conf->includes) {
             char *fn = NULL;
-
-            if (!data.current_include->module)
-                continue;
 
             if (data.current_include->href[0] != '/')
                 fn = build_path(filename, data.current_include->href);
