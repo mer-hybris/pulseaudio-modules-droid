@@ -1027,6 +1027,27 @@ static dm_config_port *config_mix_port_new(dm_config_module *module,
     return c_mix_port;
 }
 
+/* If a devicePort doesn't have any profiles defined let's just make something
+ * up that could work. */
+static struct profile *default_profile(const char *role) {
+    struct profile *p;
+    bool output;
+
+    output = pa_safe_streq(role, PORT_TYPE_sink);
+
+    p = pa_xmalloc0(sizeof(*p));
+
+    p->name = pa_sprintf_malloc("generated-default");
+    pa_assert(pa_string_convert_str_to_num(CONV_STRING_FORMAT, "AUDIO_FORMAT_PCM_16_BIT", &p->format));
+    p->sampling_rates[0] = 48000;
+    pa_assert(pa_string_convert_str_to_num(output ? CONV_STRING_OUTPUT_CHANNELS : CONV_STRING_INPUT_CHANNELS,
+                                           output ? "AUDIO_CHANNEL_OUT_STEREO" : "AUDIO_CHANNEL_IN_STEREO",
+                                           &p->channel_masks[0]));
+    p->next = NULL;
+
+    return p;
+}
+
 static void generate_config_for_module(struct module *module, dm_config_device *config) {
     dm_config_module *c_module;
     struct mix_port *mix_port;
@@ -1054,8 +1075,8 @@ static void generate_config_for_module(struct module *module, dm_config_device *
         dm_config_port *c_device_port;
 
         if (!device_port->profiles) {
-            pa_log("No profile defined for devicePort %s", device_port->tag_name);
-            continue;
+            pa_log_info("No profile defined for devicePort %s, generating default.", device_port->tag_name);
+            SLLIST_APPEND(struct profile, device_port->profiles, default_profile(device_port->role));
         }
 
         c_device_port = config_device_port_new(c_module, device_port);
