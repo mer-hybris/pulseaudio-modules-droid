@@ -743,7 +743,7 @@ static bool parse_mix_port(struct parser_data *data, const char *element_name, c
 
     /* maxActiveCount is not mandatory element attribute */
     if (get_element_attr(data, attributes, false, ATTRIBUTE_maxActiveCount, &max_active_count))
-        pa_atoi(max_open_count, &p->max_active_count);
+        pa_atoi(max_active_count, &p->max_active_count);
 
     parsed = true;
 done:
