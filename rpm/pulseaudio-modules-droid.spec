@@ -15,6 +15,7 @@ Requires:   %{name}-common = %{version}-%{release}
 Requires:   pulseaudio-module-keepalive >= 1.0.0
 BuildRequires:  libtool-ltdl-devel
 BuildRequires:  meson
+BuildRequires:  ccache
 BuildRequires:  pkgconfig(pulsecore) >= %{pulsemajorminor}
 BuildRequires:  pkgconfig(android-headers)
 BuildRequires:  pkgconfig(libhardware)
