@@ -55,7 +55,7 @@ CONVERT_FUNC(format);
 CONVERT_FUNC(output_channel);
 CONVERT_FUNC(input_channel);
 
-#define VALUE_SEPARATOR ","
+#define VALUE_SEPARATOR " ,"
 
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
