@@ -614,8 +614,6 @@ pa_source *pa_droid_source_new(pa_module *m,
 
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
     pa_proplist_sets(data.proplist, PA_PROP_DEVICE_API, PROP_DROID_API_STRING);
-    pa_proplist_sets(data.proplist, PROP_DROID_INPUT_EXTERNAL, "true");
-    pa_proplist_sets(data.proplist, PROP_DROID_INPUT_BUILTIN, "true");
 
     /* We need to give pa_modargs_get_value_boolean() a pointer to a local
      * variable instead of using &data.namereg_fail directly, because

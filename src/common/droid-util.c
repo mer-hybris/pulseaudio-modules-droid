@@ -801,6 +801,84 @@ static pa_hook_result_t sink_unlink_hook_cb(void *hook_data, void *call_data, vo
     return PA_HOOK_OK;
 }
 
+static void update_source_types(pa_droid_hw_module *hw, pa_source *ignore_source) {
+    pa_source *source;
+    pa_source *builtin_source   = NULL;
+    pa_source *external_source  = NULL;
+    pa_source *fm_source        = NULL;
+    bool fm_tuner_available     = false;
+
+    void *state;
+    void *state2;
+
+    /* only update primary hw module types for now. */
+    if (!pa_streq(hw->module_id, PA_DROID_PRIMARY_DEVICE))
+        return;
+
+    PA_HASHMAP_FOREACH(source, hw->core->sources, state) {
+        pa_device_port *port;
+
+        if (source == ignore_source)
+            continue;
+
+        if (!pa_source_is_droid_source(source))
+            continue;
+
+        PA_HASHMAP_FOREACH(port, source->ports, state2) {
+            pa_droid_port_data *data = PA_DEVICE_PORT_DATA(port);
+
+            /* Parking port doesn't have device port. */
+            if (!data->device_port)
+                continue;
+
+            if (data->device_port->type == AUDIO_DEVICE_IN_BUILTIN_MIC)
+                builtin_source = source;
+
+            if (data->device_port->type == AUDIO_DEVICE_IN_FM_TUNER) {
+                fm_tuner_available = true;
+                fm_source = source;
+            }
+        }
+    }
+
+    if (builtin_source == fm_source)
+        fm_source = NULL;
+
+    if (fm_source)
+        pa_proplist_sets(fm_source->proplist, PROP_DROID_INPUT_FM, "true");
+
+    if (builtin_source) {
+        pa_proplist_sets(builtin_source->proplist, PROP_DROID_INPUT_BUILTIN, "true");
+        pa_proplist_sets(builtin_source->proplist, PROP_DROID_INPUT_EXTERNAL, "true");
+        /* False if separate fm source exists or if no source has FM_TUNER device port. */
+        pa_proplist_sets(builtin_source->proplist, PROP_DROID_INPUT_FM, (fm_source || !fm_tuner_available) ? "false" : "true");
+    }
+}
+
+static pa_hook_result_t source_put_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_sink *source         = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_source_is_droid_source(source))
+        return PA_HOOK_OK;
+
+    update_source_types(hw, NULL);
+
+    return PA_HOOK_OK;
+}
+
+static pa_hook_result_t source_unlink_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_sink *source         = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_source_is_droid_source(source))
+        return PA_HOOK_OK;
+
+    update_source_types(hw, source);
+
+    return PA_HOOK_OK;
+}
+
 static char *shared_name_get(const char *module_id) {
     pa_assert(module_id);
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
@@ -969,6 +1047,10 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, dm_config_device 
                                                   sink_put_hook_cb, hw);
     hw->sink_unlink_hook_slot   = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY-10,
                                                   sink_unlink_hook_cb, hw);
+    hw->source_put_hook_slot      = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_PUT], PA_HOOK_EARLY-10,
+                                                    source_put_hook_cb, hw);
+    hw->source_unlink_hook_slot   = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_UNLINK], PA_HOOK_EARLY-10,
+                                                    source_unlink_hook_cb, hw);
 
     pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
 
@@ -1071,6 +1153,10 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         pa_hook_slot_free(hw->sink_put_hook_slot);
     if (hw->sink_unlink_hook_slot)
         pa_hook_slot_free(hw->sink_unlink_hook_slot);
+    if (hw->source_put_hook_slot)
+        pa_hook_slot_free(hw->source_put_hook_slot);
+    if (hw->source_unlink_hook_slot)
+        pa_hook_slot_free(hw->source_unlink_hook_slot);
 
     if (hw->config)
         dm_config_free(hw->config);
