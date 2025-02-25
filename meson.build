@@ -23,15 +23,17 @@ hybris_common_dep = cc.find_library('hybris-common', required : true)
 ltdl_dep = cc.find_library('ltdl', required : true)
 pulsecore_dep = dependency('pulsecore', version : '>= 14.2', required : true)
 
-pa_version_str = meson.project_version()
+pa_version_str = pulsecore_dep.version()
 # For tarballs, the first split will do nothing, but for builds in git, we
 # split out suffixes when there are commits since the last tag
 # (e.g.: v11.99.1-3-gad14bdb24 -> v11.99.1)
 version_split = pa_version_str.split('-')[0].split('.')
 pa_version_major = version_split[0].split('v')[0]
 pa_version_minor = version_split[1]
-pa_version_module = version_split[2].split('+')[0]
 pa_version_major_minor = pa_version_major + '.' + pa_version_minor
+project_version_str = meson.project_version()
+project_version_split = project_version_str.split('-')[0].split('.')
+pa_version_module = project_version_split[2].split('+')[0]
 
 modlibexecdir = get_option('modlibexecdir')
 if modlibexecdir == ''
