@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#include <inttypes.h>
 #include <signal.h>
 #include <stdio.h>
 
@@ -59,6 +60,7 @@
 //#include <droid/hardware/audio_policy.h>
 //#include <droid/system/audio_policy.h>
 
+#include <droid/conversion.h>
 #include <droid/droid-util.h>
 #include <droid/sllist.h>
 #include <droid/utils.h>
@@ -784,6 +786,47 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     return 0;
 }
 
+static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
+                                                                void *call_data,
+                                                                void *slot_data) {
+    pa_device_port *port = call_data;
+    struct userdata *u = slot_data;
+
+    /* Not meant for us */
+    if (port->card != u->card)
+        return PA_HOOK_OK;
+
+    /* Track only outputs for now. */
+    if (port->direction != PA_DIRECTION_OUTPUT)
+        return PA_HOOK_OK;
+
+    /* We don't track availability of this port. */
+    if (port->available == PA_AVAILABLE_UNKNOWN)
+        return PA_HOOK_OK;
+
+    const char * verb = port->available == PA_AVAILABLE_YES
+        ? AUDIO_PARAMETER_DEVICE_CONNECT
+        : AUDIO_PARAMETER_DEVICE_DISCONNECT;
+
+    uint32_t device;
+    if (!pa_droid_output_port_name_to_device(port->name, &device)) {
+        pa_log_warn("Can't notify Android of port '%s' as it's unknown.",
+            port->name);
+        return PA_HOOK_OK;
+    }
+
+    pa_log_info("Notifying Android of port '%s' (%" PRIu32 ") becoming %s.",
+        port->name, device,
+        port->available == PA_AVAILABLE_YES ? "available" : "not available");
+
+    char * setparam = pa_sprintf_malloc("%s=%" PRIu32 "", verb, device);
+    pa_droid_set_parameters(u->hw_module, setparam);
+
+    pa_xfree(setparam);
+
+    return PA_HOOK_OK;
+}
+
 
 int pa__init(pa_module *m) {
     struct userdata *u = NULL;
@@ -905,6 +948,11 @@ int pa__init(pa_module *m) {
 
     if (!u->extcon)
         u->extevdev = pa_droid_extevdev_new(u->card);
+
+    pa_module_hook_connect(u->module,
+                           &u->module->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED],
+                           PA_HOOK_NORMAL,
+                           port_availability_changed_hook_callback, u);
 
     pa_card_put(u->card);
 

@@ -79,6 +79,7 @@ bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_so
 
 /* Pretty port names */
 bool pa_droid_output_port_name(audio_devices_t value, const char **to_str);
+bool pa_droid_output_port_name_to_device(const char *str, audio_devices_t *to_value);
 bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 
 int pa_conversion_parse_list(pa_conversion_string_t type, const char *separator,
