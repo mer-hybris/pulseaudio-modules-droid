@@ -333,6 +333,10 @@ struct string_conversion string_conversion_table_output_flag[] = {
     STRING_ENTRY( AUDIO_OUTPUT_FLAG_MMAP_NOIRQ                      ),
     STRING_ENTRY( AUDIO_OUTPUT_FLAG_VOIP_RX                         ),
     STRING_ENTRY( AUDIO_OUTPUT_FLAG_INCALL_MUSIC                    ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_GAPLESS_OFFLOAD                 ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_SPATIALIZER                     ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_ULTRASOUND                      ),
+    STRING_ENTRY( AUDIO_OUTPUT_FLAG_BIT_PERFECT                     ),
 
     /* Audio output flags which may or may not be defined for all devices. */
     STRING_ENTRY_IF_AUDIO_OUTPUT_FLAG_COMPRESS_PASSTHROUGH
