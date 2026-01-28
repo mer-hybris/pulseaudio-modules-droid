@@ -273,6 +273,12 @@ static void update_mapping(pa_droid_profile_set *profile_set,
 
         droid_mapping = droid_mapping_update(droid_mapping, profile_set, module, sink, source);
 
+    } else if (source->port_type == DM_CONFIG_TYPE_DEVICE_PORT &&
+               sink->port_type == DM_CONFIG_TYPE_DEVICE_PORT) {
+
+        pa_log_warn("Audio patch from '%s' to '%s' not implemented.",
+               source->name, sink->name);
+        return;
     } else {
         pa_log("Internal data structures are confused.");
         pa_assert_not_reached();
