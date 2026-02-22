@@ -1415,6 +1415,8 @@ static bool stream_config_fill(pa_droid_hw_module *hw,
     config->sample_rate = compatible_sample_spec.rate;
     config->channel_mask = hal_channel_mask;
     config->format = hal_audio_format;
+    config->offload_info.version = AUDIO_OFFLOAD_INFO_VERSION_CURRENT;
+    config->offload_info.size = sizeof(audio_offload_info_t);
 
     *sample_spec = compatible_sample_spec;
     *channel_map = compatible_channel_map;
