@@ -866,6 +866,17 @@ static bool parse_device_port(struct parser_data *data, const char *element_name
     /* address is not mandatory element attribute */
     get_element_attr(data, attributes, false, ATTRIBUTE_address, &d->address);
 
+    /* microphone input ports have default address values */
+#if ANDROID_VERSION_MAJOR >= 9
+    if (!d->address) {
+        if (d->type == AUDIO_DEVICE_IN_BUILTIN_MIC) {
+            d->address = pa_sprintf_malloc(AUDIO_BOTTOM_MICROPHONE_ADDRESS);
+        } else if (d->type == AUDIO_DEVICE_IN_BACK_MIC) {
+            d->address = pa_sprintf_malloc(AUDIO_BACK_MICROPHONE_ADDRESS);
+        }
+    }
+#endif
+
     parsed = true;
 done:
     pa_xfree(type);
