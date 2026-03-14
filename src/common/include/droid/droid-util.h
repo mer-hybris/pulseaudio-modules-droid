@@ -47,7 +47,7 @@
 #define PROP_DROID_OUTPUT_VOIP          "droid.output.voip"
 #define PROP_DROID_INPUT_BUILTIN        "droid.input.builtin"
 #define PROP_DROID_INPUT_EXTERNAL       "droid.input.external"
-#define PROP_DROID_INPUT_VOIP           "droid.input.voip"
+#define PROP_DROID_INPUT_FM             "droid.input.fm"
 
 #define EXT_PROP_AUDIO_SOURCE           "audio.source"
 
@@ -105,6 +105,8 @@ struct pa_droid_hw_module {
     pa_idxset *inputs;
     pa_hook_slot *sink_put_hook_slot;
     pa_hook_slot *sink_unlink_hook_slot;
+    pa_hook_slot *source_put_hook_slot;
+    pa_hook_slot *source_unlink_hook_slot;
 
     pa_atomic_t active_outputs;
 
