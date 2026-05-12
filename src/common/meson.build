@@ -27,8 +27,7 @@ libdroid_util_deps = [
   pulsecore_dep,
 ]
 
-install_headers(libdroid_util_headers,
-                subdir : 'pulsecore/modules/droid' + droid_module_suffix)
+install_headers(libdroid_util_headers, subdir : header_install_path)
 
 libdroid_util = library('droid-util' + droid_module_suffix,
   libdroid_util_sources,
@@ -57,6 +56,7 @@ pc_cdata.set('libexecdir', get_option('libexecdir'))
 pc_cdata.set('PA_MAJORMINOR', pa_version_major_minor)
 pc_cdata.set('PA_MODULE_VERSION', pa_version_module)
 pc_cdata.set('DROID_MODULE_SUFFIX', droid_module_suffix)
+pc_cdata.set('PC_HEADER_DIR', pc_header_dir)
 
 configure_file(
   input : 'libdroid-util.pc.in',

@@ -45,9 +45,13 @@ rpath_dirs = join_paths(privlibdir) + ':' + join_paths(modlibexecdir)
 
 if get_option('module-suffix') == ''
   droid_module_suffix = ''
+  pc_header_dir = 'pulsecore/modules'
 else
   droid_module_suffix = '-' + get_option('module-suffix')
+  pc_header_dir = 'pulsecore/modules/droid' + droid_module_suffix
 endif
+
+header_install_path = pc_header_dir + '/droid'
 
 cdata = configuration_data()
 cdata.set_quoted('PACKAGE', meson.project_name())
