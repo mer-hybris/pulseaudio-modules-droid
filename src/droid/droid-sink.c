@@ -556,15 +556,29 @@ static void sink_write_volume_cb(pa_sink *s) {
 /* Called from main thread */
 static void set_voice_volume(struct userdata *u, pa_sink_input *i) {
     pa_cvolume vol;
+    pa_volume_t vol_avg;
     float val;
 
     pa_assert_ctl_context();
     pa_assert(u);
     pa_assert(i);
 
-    pa_sink_input_get_volume(i, &vol, true);
+    /*
+     * set_voice_volume() accepts value from 0.0 to 1.0 of unspecified scale.
+     * Inferring from Android code, the scale seems to be used linearly by the
+     * UI. Thus, using UI-based value as an input of set_voice_volume() seems
+     * to be the best bet, though the displayed dB in PA could be incorrect.
+     */
 
-    val = pa_sw_volume_to_linear(pa_cvolume_avg(&vol));
+    pa_sink_input_get_volume(i, &vol, true);
+    vol_avg = pa_cvolume_avg(&vol);
+    if (vol_avg == PA_VOLUME_MUTED)
+        val = 0.0;
+    else if (vol_avg >= PA_VOLUME_NORM) /* don't pass value higher than 1.0 */
+        val = 1.0;
+    else
+        val = ((float) vol_avg) / PA_VOLUME_NORM;
+
     pa_log_debug("Set voice volume %f", val);
 
     pa_droid_hw_module_lock(u->hw_module);
