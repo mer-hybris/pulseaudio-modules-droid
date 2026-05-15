@@ -5,6 +5,9 @@
   Copyright (C) 2019 UBports foundation.
   Author(s): Ratchanan Srirattanamet <ratchanan@ubports.com>
 
+  Copyright (C) 2026 Jolla Mobile Ltd
+  Author(s): Enni Hämäläinen <enni.hamalainen@jolla.com>
+
   PulseAudio is free software; you can redistribute it and/or modify
   it under the terms of the GNU Lesser General Public License as published
   by the Free Software Foundation; either version 2.1 of the License,
@@ -23,7 +26,7 @@
 
 typedef struct pa_droid_extevdev pa_droid_extevdev;
 
-pa_droid_extevdev *pa_droid_extevdev_new(pa_core *, pa_card *);
+pa_droid_extevdev *pa_droid_extevdev_new(pa_card *);
 
 void pa_droid_extevdev_free(pa_droid_extevdev *);
 

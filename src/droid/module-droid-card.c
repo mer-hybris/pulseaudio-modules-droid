@@ -904,9 +904,7 @@ int pa__init(pa_module *m) {
     u->extcon = pa_droid_extcon_new(m->core, u->card);
 
     if (!u->extcon)
-        u->extevdev = pa_droid_extevdev_new(m->core, u->card);
-    else
-        u->extevdev = NULL;
+        u->extevdev = pa_droid_extevdev_new(u->card);
 
     pa_card_put(u->card);
 
