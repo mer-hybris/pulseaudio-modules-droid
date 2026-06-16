@@ -585,7 +585,6 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
     pa_droid_port *p;
     pa_device_port_new_data dp_data;
     pa_device_port *dp;
-    pa_droid_port_data *data;
     uint32_t idx;
     int count = 0;
 
@@ -605,16 +604,12 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
             pa_device_port_new_data_set_direction(&dp_data, p->mapping->direction);
             pa_device_port_new_data_set_available(&dp_data, PA_AVAILABLE_YES);
 
-            dp = pa_device_port_new(core, &dp_data, sizeof(pa_droid_port_data));
+            dp = pa_droid_device_port_new(core, &dp_data, p->device_port);
             dp->priority = p->priority;
 
             pa_device_port_new_data_done(&dp_data);
 
             pa_hashmap_put(ports, dp->name, dp);
-            dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-
-            data = PA_DEVICE_PORT_DATA(dp);
-            data->device_port = p->device_port;
         } else
             pa_log_debug("  Port %s from cache", p->name);
 
@@ -2710,4 +2705,18 @@ pa_modargs *pa_droid_modargs_new(const char *args, const char* const keys[]) {
     pa_xfree(full_keys);
 
     return ma;
+}
+
+pa_device_port *pa_droid_device_port_new(pa_core *c, pa_device_port_new_data *dp_data, dm_config_port *device_port) {
+    pa_device_port *dp;
+    pa_droid_port_data *data;
+
+    pa_assert(c);
+    pa_assert(dp_data);
+
+    dp = pa_device_port_new(c, dp_data, sizeof(pa_droid_port_data));
+    dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    data = PA_DEVICE_PORT_DATA(dp);
+    data->device_port = device_port;
+    return dp;
 }

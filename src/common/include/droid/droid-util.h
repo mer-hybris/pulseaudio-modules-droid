@@ -353,6 +353,7 @@ bool pa_source_is_droid_source(pa_source *source);
 
 pa_modargs *pa_droid_modargs_new(const char *args, const char* const keys[]);
 
+pa_device_port *pa_droid_device_port_new(pa_core *c, pa_device_port_new_data *data, dm_config_port *device_port);
 /* Misc */
 size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size);
 
