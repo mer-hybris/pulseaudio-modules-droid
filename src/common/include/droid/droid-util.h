@@ -2,7 +2,7 @@
 #define foodroidutilfoo
 
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -75,6 +75,7 @@ enum pa_droid_option_type {
     DM_OPTION_OUTPUT_VOIP_RX,
     DM_OPTION_RECORD_VOICE_16K,
     DM_OPTION_USE_LEGACY_STREAM_SET_PARAMETERS,
+    DM_OPTION_USB_DEVICES,
     DM_OPTION_COUNT
 };
 

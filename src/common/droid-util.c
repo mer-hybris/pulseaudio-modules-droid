@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -92,6 +92,7 @@ struct droid_option valid_options[] = {
     { "output_voip_rx",                    DM_OPTION_OUTPUT_VOIP_RX                    },
     { "record_voice_16k",                  DM_OPTION_RECORD_VOICE_16K                  },
     { "use_legacy_stream_set_parameters",  DM_OPTION_USE_LEGACY_STREAM_SET_PARAMETERS  },
+    { "usb_devices",                       DM_OPTION_USB_DEVICES                       },
 
 };
 
