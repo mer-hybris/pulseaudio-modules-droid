@@ -1446,6 +1446,9 @@ static dm_config_port *stream_select_mix_port(pa_droid_stream *stream) {
             if (port->role != DM_CONFIG_ROLE_SINK)
                 continue;
 
+            if (port->port_type != DM_CONFIG_TYPE_MIX_PORT)
+                continue;
+
             if (port->flags & AUDIO_INPUT_FLAG_VOIP_TX) {
                 selected_port = port;
                 goto done;
@@ -1463,7 +1466,14 @@ static dm_config_port *stream_select_mix_port(pa_droid_stream *stream) {
                 if (port->role != DM_CONFIG_ROLE_SOURCE)
                     continue;
 
+                if (port->port_type != DM_CONFIG_TYPE_DEVICE_PORT)
+                    continue;
+
                 if (port->type == AUDIO_DEVICE_IN_TELEPHONY_RX) {
+                    if (route->sink->port_type != DM_CONFIG_TYPE_MIX_PORT) {
+                        pa_log_debug("Input device in odd place.");
+                        continue;
+                    }
                     selected_port = route->sink;
                     goto done;
                 }
