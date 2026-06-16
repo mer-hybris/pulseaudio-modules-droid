@@ -2328,8 +2328,10 @@ static int input_stream_set_route(pa_droid_stream *stream, const dm_config_port 
     input = stream->input;
 
      /* Input stream closed, no need for routing changes */
-    if (!input->stream)
+    if (!input->stream) {
+        pa_log_debug("No routing changes for closed input stream.");
         goto done;
+    }
 
     if (!pa_droid_option(stream->module, DM_OPTION_USE_LEGACY_STREAM_SET_PARAMETERS)) {
         audio_patch_release(stream);
