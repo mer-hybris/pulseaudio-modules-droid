@@ -2173,7 +2173,7 @@ static int droid_output_stream_audio_patch_update(pa_droid_stream *primary_strea
     pa_assert(primary_stream);
     pa_assert(primary_stream->output);
     pa_assert(primary_stream->mix_port);
-    pa_assert(primary_stream->mix_port->type == DM_CONFIG_TYPE_MIX);
+    pa_assert(primary_stream->mix_port->port_type == DM_CONFIG_TYPE_MIX_PORT);
     pa_assert(primary_stream->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY);
     pa_assert(device_port);
     pa_assert(device_port->role == DM_CONFIG_ROLE_SINK);
