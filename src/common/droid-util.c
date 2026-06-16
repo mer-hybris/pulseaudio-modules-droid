@@ -581,6 +581,35 @@ pa_droid_mapping *pa_droid_idxset_get_primary(pa_idxset *i) {
     return NULL;
 }
 
+/* Only physically connected ports are available initially. */
+static pa_available_t connected_port(dm_config_port *port) {
+    /* Parking pa_droid_port port doesn't have dm_config_port,
+     * but the port is always available. */
+    if (!port)
+        return PA_AVAILABLE_YES;
+
+    if (port->type & AUDIO_DEVICE_BIT_IN) {
+        audio_devices_t input_port = port->type & ~AUDIO_DEVICE_BIT_IN;
+        if (input_port & (AUDIO_DEVICE_IN_AMBIENT           |
+                          AUDIO_DEVICE_IN_BUILTIN_MIC       |
+                          AUDIO_DEVICE_IN_TELEPHONY_RX      |
+                          AUDIO_DEVICE_IN_BACK_MIC          |
+                          AUDIO_DEVICE_IN_REMOTE_SUBMIX))
+
+            return PA_AVAILABLE_YES;
+    } else {
+        if (port->type & (AUDIO_DEVICE_OUT_SPEAKER          |
+                          AUDIO_DEVICE_OUT_REMOTE_SUBMIX    |
+                          AUDIO_DEVICE_OUT_TELEPHONY_TX     |
+                          AUDIO_DEVICE_OUT_SPEAKER_SAFE     |
+                          AUDIO_DEVICE_OUT_PROXY))
+
+            return PA_AVAILABLE_YES;
+    }
+
+    return PA_AVAILABLE_NO;
+}
+
 static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_hashmap *extra) {
     pa_droid_port *p;
     pa_device_port_new_data dp_data;
@@ -602,7 +631,7 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
             pa_device_port_new_data_set_name(&dp_data, p->name);
             pa_device_port_new_data_set_description(&dp_data, p->description);
             pa_device_port_new_data_set_direction(&dp_data, p->mapping->direction);
-            pa_device_port_new_data_set_available(&dp_data, PA_AVAILABLE_YES);
+            pa_device_port_new_data_set_available(&dp_data, connected_port(p->device_port));
 
             dp = pa_droid_device_port_new(core, &dp_data, p->device_port);
             dp->priority = p->priority;
