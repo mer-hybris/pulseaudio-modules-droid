@@ -171,6 +171,10 @@ typedef struct pa_droid_mapping pa_droid_mapping;
 
 typedef struct pa_droid_port_data {
     dm_config_port *device_port;
+    struct {
+        int card;
+        int device;
+    } usb;
 } pa_droid_port_data;
 
 typedef struct pa_droid_port {
@@ -354,6 +358,10 @@ bool pa_source_is_droid_source(pa_source *source);
 pa_modargs *pa_droid_modargs_new(const char *args, const char* const keys[]);
 
 pa_device_port *pa_droid_device_port_new(pa_core *c, pa_device_port_new_data *data, dm_config_port *device_port);
+
+void pa_droid_device_port_set_usb_connected(pa_device_port *port, int card, int device);
+void pa_droid_device_port_set_usb_disconnected(pa_device_port *port);
+
 /* Misc */
 size_t pa_droid_buffer_size_round_up(size_t buffer_size, size_t block_size);
 

@@ -2747,5 +2747,25 @@ pa_device_port *pa_droid_device_port_new(pa_core *c, pa_device_port_new_data *dp
     dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
     data = PA_DEVICE_PORT_DATA(dp);
     data->device_port = device_port;
+    pa_droid_device_port_set_usb_disconnected(dp);
+
     return dp;
+}
+
+void pa_droid_device_port_set_usb_connected(pa_device_port *port, int card, int device) {
+    pa_assert(port);
+
+    pa_droid_port_data *data = PA_DEVICE_PORT_DATA(port);
+
+    data->usb.card = card;
+    data->usb.device = device;
+}
+
+void pa_droid_device_port_set_usb_disconnected(pa_device_port *port) {
+    pa_assert(port);
+
+    pa_droid_port_data *data = PA_DEVICE_PORT_DATA(port);
+
+    data->usb.card = -1;
+    data->usb.device = -1;
 }
