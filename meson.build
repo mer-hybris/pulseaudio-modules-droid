@@ -23,6 +23,7 @@ hybris_common_dep = cc.find_library('hybris-common', required : true)
 ltdl_dep = cc.find_library('ltdl', required : true)
 pulsecore_dep = dependency('pulsecore', version : '>= 14.2', required : true)
 libudev_dep = dependency('libudev', required : true)
+alsa_dep = dependency('alsa', required : true)
 
 pa_version_str = pulsecore_dep.version()
 # For tarballs, the first split will do nothing, but for builds in git, we
