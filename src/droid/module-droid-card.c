@@ -821,10 +821,24 @@ static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
         port->name, device,
         port->available == PA_AVAILABLE_YES ? "available" : "not available");
 
-    char * setparam = pa_sprintf_malloc("%s=%" PRIu32 "", verb, device);
-    pa_droid_set_parameters(u->hw_module, setparam);
 
-    pa_xfree(setparam);
+    pa_droid_port_data *data = PA_DEVICE_PORT_DATA(port);
+    #define PARAM_LEN (128)
+    char setparam[PARAM_LEN];
+    snprintf(setparam, PARAM_LEN, "%s=%" PRIu32, verb, device);
+
+    if (data->usb.card >= 0) {
+        size_t len = strlen(setparam);
+        char *w = setparam;
+        w += len;
+        snprintf(w, PARAM_LEN - len, ";card=%d", data->usb.card);
+        if (data->usb.device >= 0) {
+            size_t len2 = strlen(w);
+            w += len2;
+            snprintf(w, PARAM_LEN - len - len2, ";device=%d", data->usb.device);
+        }
+    }
+    pa_droid_set_parameters(u->hw_module, setparam);
 
     return PA_HOOK_OK;
 }
