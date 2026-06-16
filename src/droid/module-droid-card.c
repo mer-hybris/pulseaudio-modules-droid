@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -68,6 +68,7 @@
 #include "droid-source.h"
 #include "droid-extcon.h"
 #include "droid-extevdev.h"
+#include "droid-extusbdev.h"
 
 PA_MODULE_AUTHOR("Juho Hämäläinen");
 PA_MODULE_DESCRIPTION("Droid card");
@@ -156,6 +157,7 @@ struct userdata {
 
     pa_droid_extcon *extcon;
     pa_droid_extevdev *extevdev;
+    pa_droid_extusbdev *extusbdev;
 
     pa_modargs *modargs;
     pa_card *card;
@@ -949,6 +951,8 @@ int pa__init(pa_module *m) {
     if (!u->extcon)
         u->extevdev = pa_droid_extevdev_new(u->card);
 
+    u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
+
     pa_module_hook_connect(u->module,
                            &u->module->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED],
                            PA_HOOK_NORMAL,
@@ -985,6 +989,9 @@ void pa__done(pa_module *m) {
 
         if (u->extevdev)
             pa_droid_extevdev_free(u->extevdev);
+
+        if (u->extusbdev)
+            pa_droid_extusbdev_free(u->extusbdev);
 
         if (u->card)
             pa_card_free(u->card);
