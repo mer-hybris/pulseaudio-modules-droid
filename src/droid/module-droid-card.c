@@ -965,7 +965,8 @@ int pa__init(pa_module *m) {
     if (!u->extcon)
         u->extevdev = pa_droid_extevdev_new(u->card);
 
-    u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
+    if (pa_droid_option(u->hw_module, DM_OPTION_USB_DEVICES))
+        u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
 
     pa_module_hook_connect(u->module,
                            &u->module->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED],
