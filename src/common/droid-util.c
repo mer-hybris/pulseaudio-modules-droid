@@ -2140,7 +2140,7 @@ static int audio_patch_update_output(pa_droid_stream *stream, const dm_config_po
     sink.format = AUDIO_FORMAT_PCM_16_BIT;
     sink.ext.device.address[0] = '\0';
     if (strlen(device_port->address))
-        strncpy(sink.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN);
+        strncpy(sink.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN - 1);
     sink.ext.device.type = device_port->type;
 
     ret = stream->module->device->create_audio_patch(stream->module->device, 1, &source, 1, &sink, &stream->audio_patch);
@@ -2176,7 +2176,7 @@ static int audio_patch_update_input(pa_droid_stream *stream, const dm_config_por
     source.format = AUDIO_FORMAT_PCM_16_BIT;
     source.ext.device.address[0] = '\0';
     if (strlen(device_port->address))
-        strncpy(source.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN);
+        strncpy(source.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN - 1);
     source.ext.device.type = device_port->type;
 
     ret = stream->module->device->create_audio_patch(stream->module->device, 1, &source, 1, &sink, &stream->audio_patch);
