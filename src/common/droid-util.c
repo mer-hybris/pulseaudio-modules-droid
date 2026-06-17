@@ -2269,12 +2269,9 @@ done:
 
 int output_stream_set_parameter(pa_droid_stream *s, const dm_config_port *device_port){
     pa_droid_output_stream *output;
-    pa_droid_stream *slave;
-    uint32_t idx;
     char *parameters = NULL;
     int ret = 0;
     audio_devices_t device;
-    pa_droid_hw_module *hw_module;
     int set_bt_sco = -1;
 
     pa_assert(s);
@@ -2283,7 +2280,6 @@ int output_stream_set_parameter(pa_droid_stream *s, const dm_config_port *device
     pa_assert(s->module->output_mutex);
 
     output = s->output;
-    hw_module = s->module;
     device = device_port->type;
 
     pa_mutex_lock(s->module->output_mutex);
