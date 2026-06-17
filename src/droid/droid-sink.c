@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
  * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
  *
@@ -925,7 +925,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     dm_config_port *mix_port = NULL;
     dm_config_port *device_port = NULL;
     bool deferred_volume = false;
-    bool voice_virtual_stream = false;
+    bool voice_virtual_stream = true;
     char *thread_name = NULL;
     pa_sink_new_data data;
     const char *module_id = NULL;
