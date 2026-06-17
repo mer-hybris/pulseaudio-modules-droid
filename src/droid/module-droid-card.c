@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
- * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
+ * Contact: Enni Hämäläinen <enni.hamalainen@jolla.com>
  *
  * These PulseAudio Modules are free software; you can redistribute
  * it and/or modify it under the terms of the GNU Lesser General Public
@@ -70,7 +70,7 @@
 #include "droid-extevdev.h"
 #include "droid-extusbdev.h"
 
-PA_MODULE_AUTHOR("Juho Hämäläinen");
+PA_MODULE_AUTHOR("Enni Hämäläinen");
 PA_MODULE_DESCRIPTION("Droid card");
 PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_USAGE(
