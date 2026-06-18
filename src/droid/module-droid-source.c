@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013-2022 Jolla Ltd.
  *
- * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
+ * Contact: Enni Hämäläinen <enni.hamalainen@jolla.com>
  *
  * These PulseAudio Modules are free software; you can redistribute
  * it and/or modify it under the terms of the GNU Lesser General Public
@@ -40,7 +40,7 @@
 #include <droid/droid-util.h>
 #include "droid-source.h"
 
-PA_MODULE_AUTHOR("Juho Hämäläinen");
+PA_MODULE_AUTHOR("Enni Hämäläinen");
 PA_MODULE_DESCRIPTION("Droid source");
 PA_MODULE_USAGE("master_source=<source to connect to> "
                 "source_name=<name of created source>");

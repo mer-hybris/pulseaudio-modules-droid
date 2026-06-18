@@ -16,12 +16,14 @@ pa_c_args += ['-DDROID_DEVICE_@0@=1'.format(droiddevice.underscorify().to_upper(
 pa_c_args += ['-DDROID_DEVICE_STRING="@0@"'.format(droiddevice)]
 
 # dependencies
-droid_headers_dep = dependency('android-headers', required : true)
+droid_headers_dep = dependency(get_option('android-headers'), required : true)
 expat_dep = dependency('expat', version : '>= 2.1', required : true)
 hybris_dep = dependency('libhardware', version : '>= 0.1.0', required : true)
 hybris_common_dep = cc.find_library('hybris-common', required : true)
 ltdl_dep = cc.find_library('ltdl', required : true)
 pulsecore_dep = dependency('pulsecore', version : '>= 14.2', required : true)
+libudev_dep = dependency('libudev', required : true)
+alsa_dep = dependency('alsa', required : true)
 
 pa_version_str = pulsecore_dep.version()
 # For tarballs, the first split will do nothing, but for builds in git, we
@@ -42,6 +44,16 @@ endif
 
 privlibdir = join_paths(libdir, 'pulseaudio')
 rpath_dirs = join_paths(privlibdir) + ':' + join_paths(modlibexecdir)
+
+if get_option('module-suffix') == ''
+  droid_module_suffix = ''
+  pc_header_dir = 'pulsecore/modules'
+else
+  droid_module_suffix = '-' + get_option('module-suffix')
+  pc_header_dir = 'pulsecore/modules/droid' + droid_module_suffix
+endif
+
+header_install_path = pc_header_dir + '/droid'
 
 cdata = configuration_data()
 cdata.set_quoted('PACKAGE', meson.project_name())

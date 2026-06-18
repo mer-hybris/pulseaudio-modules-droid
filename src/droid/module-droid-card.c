@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
- * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
+ * Contact: Enni Hämäläinen <enni.hamalainen@jolla.com>
  *
  * These PulseAudio Modules are free software; you can redistribute
  * it and/or modify it under the terms of the GNU Lesser General Public
@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#include <inttypes.h>
 #include <signal.h>
 #include <stdio.h>
 
@@ -59,13 +60,17 @@
 //#include <droid/hardware/audio_policy.h>
 //#include <droid/system/audio_policy.h>
 
+#include <droid/conversion.h>
 #include <droid/droid-util.h>
 #include <droid/sllist.h>
 #include <droid/utils.h>
 #include "droid-sink.h"
 #include "droid-source.h"
+#include "droid-extcon.h"
+#include "droid-extevdev.h"
+#include "droid-extusbdev.h"
 
-PA_MODULE_AUTHOR("Juho Hämäläinen");
+PA_MODULE_AUTHOR("Enni Hämäläinen");
 PA_MODULE_DESCRIPTION("Droid card");
 PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_USAGE(
@@ -80,6 +85,7 @@ PA_MODULE_USAGE(
         "config=<location for droid audio configuration> "
         "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
         "voice_property_value=<proplist value for the key for voice control sink-input> "
+        "voice_virtual_stream=<true/false> create virtual stream for voice call volume control (default true)"
         "options=<comma separated list of options to enable/disable>"
 );
 
@@ -106,6 +112,7 @@ static const char* const valid_modargs[] = {
     "config",
     "voice_property_key",
     "voice_property_value",
+    "voice_virtual_stream",
     /* DM_OPTIONS */
     NULL,
 };
@@ -147,6 +154,10 @@ struct userdata {
     pa_droid_card_data card_data;
 
     pa_card_profile *real_profile;
+
+    pa_droid_extcon *extcon;
+    pa_droid_extevdev *extevdev;
+    pa_droid_extusbdev *extusbdev;
 
     pa_modargs *modargs;
     pa_card *card;
@@ -777,6 +788,61 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
     return 0;
 }
 
+static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
+                                                                void *call_data,
+                                                                void *slot_data) {
+    pa_device_port *port = call_data;
+    struct userdata *u = slot_data;
+
+    /* Not meant for us */
+    if (port->card != u->card)
+        return PA_HOOK_OK;
+
+    /* Track only outputs for now. */
+    if (port->direction != PA_DIRECTION_OUTPUT)
+        return PA_HOOK_OK;
+
+    /* We don't track availability of this port. */
+    if (port->available == PA_AVAILABLE_UNKNOWN)
+        return PA_HOOK_OK;
+
+    const char * verb = port->available == PA_AVAILABLE_YES
+        ? AUDIO_PARAMETER_DEVICE_CONNECT
+        : AUDIO_PARAMETER_DEVICE_DISCONNECT;
+
+    uint32_t device;
+    if (!pa_droid_output_port_name_to_device(port->name, &device)) {
+        pa_log_warn("Can't notify Android of port '%s' as it's unknown.",
+            port->name);
+        return PA_HOOK_OK;
+    }
+
+    pa_log_info("Notifying Android of port '%s' (%" PRIu32 ") becoming %s.",
+        port->name, device,
+        port->available == PA_AVAILABLE_YES ? "available" : "not available");
+
+
+    pa_droid_port_data *data = PA_DEVICE_PORT_DATA(port);
+    #define PARAM_LEN (128)
+    char setparam[PARAM_LEN];
+    snprintf(setparam, PARAM_LEN, "%s=%" PRIu32, verb, device);
+
+    if (data->usb.card >= 0) {
+        size_t len = strlen(setparam);
+        char *w = setparam;
+        w += len;
+        snprintf(w, PARAM_LEN - len, ";card=%d", data->usb.card);
+        if (data->usb.device >= 0) {
+            size_t len2 = strlen(w);
+            w += len2;
+            snprintf(w, PARAM_LEN - len - len2, ";device=%d", data->usb.device);
+        }
+    }
+    pa_droid_set_parameters(u->hw_module, setparam);
+
+    return PA_HOOK_OK;
+}
+
 
 int pa__init(pa_module *m) {
     struct userdata *u = NULL;
@@ -894,6 +960,19 @@ int pa__init(pa_module *m) {
 
     pa_card_choose_initial_profile(u->card);
     init_profile(u);
+    u->extcon = pa_droid_extcon_new(m->core, u->card);
+
+    if (!u->extcon)
+        u->extevdev = pa_droid_extevdev_new(u->card);
+
+    if (pa_droid_option(u->hw_module, DM_OPTION_USB_DEVICES))
+        u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
+
+    pa_module_hook_connect(u->module,
+                           &u->module->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED],
+                           PA_HOOK_NORMAL,
+                           port_availability_changed_hook_callback, u);
+
     pa_card_put(u->card);
 
     return 0;
@@ -917,8 +996,17 @@ void pa__done(pa_module *m) {
         if (u->card && u->card->sinks)
             pa_idxset_remove_all(u->card->sinks, (pa_free_cb_t) pa_droid_sink_free);
 
+        if (u->extcon)
+            pa_droid_extcon_free(u->extcon);
+
         if (u->card && u->card->sources)
             pa_idxset_remove_all(u->card->sources, (pa_free_cb_t) pa_droid_source_free);
+
+        if (u->extevdev)
+            pa_droid_extevdev_free(u->extevdev);
+
+        if (u->extusbdev)
+            pa_droid_extusbdev_free(u->extusbdev);
 
         if (u->card)
             pa_card_free(u->card);

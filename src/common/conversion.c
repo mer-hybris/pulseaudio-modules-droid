@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013-2022 Jolla Ltd.
  *
- * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
+ * Contact: Enni Hämäläinen <enni.hamalainen@jolla.com>
  *
  * These PulseAudio Modules are free software; you can redistribute
  * it and/or modify it under the terms of the GNU Lesser General Public
@@ -215,6 +215,10 @@ bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_so
 
 bool pa_droid_output_port_name(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_output_device_fancy, (uint32_t) value, to_str);
+}
+
+bool pa_droid_output_port_name_to_device(const char *str, audio_devices_t *to_value) {
+    return string_convert_str_to_num(string_conversion_table_output_device_fancy, str, to_value);
 }
 
 bool pa_droid_input_port_name(audio_devices_t value, const char **to_str) {

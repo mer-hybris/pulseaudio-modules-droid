@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
- * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
+ * Contact: Enni Hämäläinen <enni.hamalainen@jolla.com>
  *
  * These PulseAudio Modules are free software; you can redistribute
  * it and/or modify it under the terms of the GNU Lesser General Public
@@ -87,8 +87,10 @@ struct userdata {
 
     bool use_hw_volume;
     bool use_voice_volume;
+    bool voice_virtual_stream;
     char *voice_property_key;
     char *voice_property_value;
+    pa_sink_input *voice_virtual_sink_input;
     pa_hook_slot *sink_input_volume_changed_hook_slot;
 
     pa_hook_slot *sink_input_put_hook_slot;
@@ -671,6 +673,74 @@ static pa_hook_result_t sink_input_volume_changed_hook_cb(pa_core *c, pa_sink_in
     return PA_HOOK_OK;
 }
 
+/* For voice virtual stream, based on meego-mainvolume */
+static void sink_input_kill_cb(pa_sink_input *i) {
+    struct userdata *u;
+
+    pa_sink_input_assert_ref(i);
+    pa_assert_se(u = i->userdata);
+
+    pa_sink_input_unlink(u->voice_virtual_sink_input);
+    pa_sink_input_unref(u->voice_virtual_sink_input);
+    u->voice_virtual_sink_input = NULL;
+}
+
+/* no-op */
+static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk) {
+    return 0;
+}
+
+/* no-op */
+static void sink_input_process_rewind_cb(pa_sink_input *i, size_t nbytes) {
+}
+
+static void create_voice_virtual_stream(struct userdata *u) {
+    pa_sink_input_new_data data;
+
+    pa_assert(u);
+
+    if (!u->voice_virtual_stream || u->voice_virtual_sink_input)
+        return;
+
+    pa_sink_input_new_data_init(&data);
+
+    data.driver = __FILE__;
+    data.module = u->module;
+    pa_proplist_sets(data.proplist, PA_PROP_MEDIA_NAME, "Virtual Stream for Voice Volume Control (Droid)");
+    pa_proplist_sets(data.proplist, PA_PROP_MEDIA_ROLE, "phone");
+    pa_sink_input_new_data_set_sample_spec(&data, &u->core->default_sample_spec);
+    pa_sink_input_new_data_set_channel_map(&data, &u->core->default_channel_map);
+    data.flags = PA_SINK_INPUT_START_CORKED | PA_SINK_INPUT_NO_REMAP | PA_SINK_INPUT_NO_REMIX;
+
+    pa_sink_input_new(&u->voice_virtual_sink_input, u->module->core, &data);
+    pa_sink_input_new_data_done(&data);
+
+    if (!u->voice_virtual_sink_input) {
+        pa_log_warn("Failed to create virtual sink input.");
+        return;
+    }
+
+    u->voice_virtual_sink_input->userdata = u;
+    u->voice_virtual_sink_input->kill = sink_input_kill_cb;
+    u->voice_virtual_sink_input->pop = sink_input_pop_cb;
+    u->voice_virtual_sink_input->process_rewind = sink_input_process_rewind_cb;
+
+    pa_sink_input_put(u->voice_virtual_sink_input);
+
+    pa_log_debug("Created virtual sink input for voice call volume control.");
+}
+
+static void destroy_voice_virtual_stream(struct userdata *u) {
+    pa_assert(u);
+
+    if (!u->voice_virtual_sink_input)
+        return;
+
+    sink_input_kill_cb(u->voice_virtual_sink_input);
+
+    pa_log_debug("Removed virtual stream.");
+}
+
 /* Called from main thread */
 void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
     pa_sink_input *i;
@@ -698,6 +768,9 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
 
         pa_assert(!u->sink_input_volume_changed_hook_slot);
 
+        if (u->voice_virtual_stream)
+            create_voice_virtual_stream(u);
+
         u->sink_input_volume_changed_hook_slot = pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_INPUT_VOLUME_CHANGED],
                 PA_HOOK_LATE+10, (pa_hook_cb_t) sink_input_volume_changed_hook_cb, u);
 
@@ -707,6 +780,9 @@ void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable) {
 
     } else {
         pa_assert(u->sink_input_volume_changed_hook_slot);
+
+        if (u->voice_virtual_stream)
+            destroy_voice_virtual_stream(u);
 
         pa_hook_slot_free(u->sink_input_volume_changed_hook_slot);
         u->sink_input_volume_changed_hook_slot = NULL;
@@ -849,6 +925,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     dm_config_port *mix_port = NULL;
     dm_config_port *device_port = NULL;
     bool deferred_volume = false;
+    bool voice_virtual_stream = true;
     char *thread_name = NULL;
     pa_sink_new_data data;
     const char *module_id = NULL;
@@ -936,6 +1013,11 @@ pa_sink *pa_droid_sink_new(pa_module *m,
         goto fail;
     }
 
+    if (pa_modargs_get_value_boolean(ma, "voice_virtual_stream", &voice_virtual_stream) < 0) {
+        pa_log("Failed to parse voice_virtual_stream. Needs to be a boolean argument.");
+        goto fail;
+    }
+
     u = pa_xnew0(struct userdata, 1);
     u->core = m->core;
     u->module = m;
@@ -945,6 +1027,7 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
     u->parameters = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
                                         NULL, (pa_free_cb_t) parameter_free);
+    u->voice_virtual_stream = voice_virtual_stream;
     u->voice_property_key   = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_key", DEFAULT_VOICE_CONTROL_PROPERTY_KEY));
     u->voice_property_value = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_value", DEFAULT_VOICE_CONTROL_PROPERTY_VALUE));
     u->extra_devices_stack = dm_list_new();

@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2013-2022 Jolla Ltd.
+ * Copyright (C) 2013-2026 Jolla Mobile Ltd
  *
- * Contact: Juho Hämäläinen <juho.hamalainen@jolla.com>
+ * Contact: Enni Hämäläinen <enni.hamalainen@jolla.com>
  *
  * These PulseAudio Modules are free software; you can redistribute
  * it and/or modify it under the terms of the GNU Lesser General Public
@@ -92,6 +92,7 @@ struct droid_option valid_options[] = {
     { "output_voip_rx",                    DM_OPTION_OUTPUT_VOIP_RX                    },
     { "record_voice_16k",                  DM_OPTION_RECORD_VOICE_16K                  },
     { "use_legacy_stream_set_parameters",  DM_OPTION_USE_LEGACY_STREAM_SET_PARAMETERS  },
+    { "usb_devices",                       DM_OPTION_USB_DEVICES                       },
 
 };
 
@@ -581,11 +582,39 @@ pa_droid_mapping *pa_droid_idxset_get_primary(pa_idxset *i) {
     return NULL;
 }
 
+/* Only physically connected ports are available initially. */
+static pa_available_t connected_port(dm_config_port *port) {
+    /* Parking pa_droid_port port doesn't have dm_config_port,
+     * but the port is always available. */
+    if (!port)
+        return PA_AVAILABLE_YES;
+
+    if (port->type & AUDIO_DEVICE_BIT_IN) {
+        audio_devices_t input_port = port->type & ~AUDIO_DEVICE_BIT_IN;
+        if (input_port & (AUDIO_DEVICE_IN_AMBIENT           |
+                          AUDIO_DEVICE_IN_BUILTIN_MIC       |
+                          AUDIO_DEVICE_IN_TELEPHONY_RX      |
+                          AUDIO_DEVICE_IN_BACK_MIC          |
+                          AUDIO_DEVICE_IN_REMOTE_SUBMIX))
+
+            return PA_AVAILABLE_YES;
+    } else {
+        if (port->type & (AUDIO_DEVICE_OUT_SPEAKER          |
+                          AUDIO_DEVICE_OUT_REMOTE_SUBMIX    |
+                          AUDIO_DEVICE_OUT_TELEPHONY_TX     |
+                          AUDIO_DEVICE_OUT_SPEAKER_SAFE     |
+                          AUDIO_DEVICE_OUT_PROXY))
+
+            return PA_AVAILABLE_YES;
+    }
+
+    return PA_AVAILABLE_NO;
+}
+
 static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_hashmap *extra) {
     pa_droid_port *p;
     pa_device_port_new_data dp_data;
     pa_device_port *dp;
-    pa_droid_port_data *data;
     uint32_t idx;
     int count = 0;
 
@@ -603,18 +632,14 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
             pa_device_port_new_data_set_name(&dp_data, p->name);
             pa_device_port_new_data_set_description(&dp_data, p->description);
             pa_device_port_new_data_set_direction(&dp_data, p->mapping->direction);
-            pa_device_port_new_data_set_available(&dp_data, PA_AVAILABLE_YES);
+            pa_device_port_new_data_set_available(&dp_data, connected_port(p->device_port));
 
-            dp = pa_device_port_new(core, &dp_data, sizeof(pa_droid_port_data));
+            dp = pa_droid_device_port_new(core, &dp_data, p->device_port);
             dp->priority = p->priority;
 
             pa_device_port_new_data_done(&dp_data);
 
             pa_hashmap_put(ports, dp->name, dp);
-            dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
-
-            data = PA_DEVICE_PORT_DATA(dp);
-            data->device_port = p->device_port;
         } else
             pa_log_debug("  Port %s from cache", p->name);
 
@@ -1446,6 +1471,9 @@ static dm_config_port *stream_select_mix_port(pa_droid_stream *stream) {
             if (port->role != DM_CONFIG_ROLE_SINK)
                 continue;
 
+            if (port->port_type != DM_CONFIG_TYPE_MIX_PORT)
+                continue;
+
             if (port->flags & AUDIO_INPUT_FLAG_VOIP_TX) {
                 selected_port = port;
                 goto done;
@@ -1463,7 +1491,14 @@ static dm_config_port *stream_select_mix_port(pa_droid_stream *stream) {
                 if (port->role != DM_CONFIG_ROLE_SOURCE)
                     continue;
 
+                if (port->port_type != DM_CONFIG_TYPE_DEVICE_PORT)
+                    continue;
+
                 if (port->type == AUDIO_DEVICE_IN_TELEPHONY_RX) {
+                    if (route->sink->port_type != DM_CONFIG_TYPE_MIX_PORT) {
+                        pa_log_debug("Input device in odd place.");
+                        continue;
+                    }
                     selected_port = route->sink;
                     goto done;
                 }
@@ -2105,7 +2140,7 @@ static int audio_patch_update_output(pa_droid_stream *stream, const dm_config_po
     sink.format = AUDIO_FORMAT_PCM_16_BIT;
     sink.ext.device.address[0] = '\0';
     if (strlen(device_port->address))
-        strncpy(sink.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN);
+        strncpy(sink.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN - 1);
     sink.ext.device.type = device_port->type;
 
     ret = stream->module->device->create_audio_patch(stream->module->device, 1, &source, 1, &sink, &stream->audio_patch);
@@ -2141,7 +2176,7 @@ static int audio_patch_update_input(pa_droid_stream *stream, const dm_config_por
     source.format = AUDIO_FORMAT_PCM_16_BIT;
     source.ext.device.address[0] = '\0';
     if (strlen(device_port->address))
-        strncpy(source.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN);
+        strncpy(source.ext.device.address, device_port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN - 1);
     source.ext.device.type = device_port->type;
 
     ret = stream->module->device->create_audio_patch(stream->module->device, 1, &source, 1, &sink, &stream->audio_patch);
@@ -2163,7 +2198,7 @@ static int droid_output_stream_audio_patch_update(pa_droid_stream *primary_strea
     pa_assert(primary_stream);
     pa_assert(primary_stream->output);
     pa_assert(primary_stream->mix_port);
-    pa_assert(primary_stream->mix_port->type == DM_CONFIG_TYPE_MIX);
+    pa_assert(primary_stream->mix_port->port_type == DM_CONFIG_TYPE_MIX_PORT);
     pa_assert(primary_stream->mix_port->flags & AUDIO_OUTPUT_FLAG_PRIMARY);
     pa_assert(device_port);
     pa_assert(device_port->role == DM_CONFIG_ROLE_SINK);
@@ -2234,12 +2269,9 @@ done:
 
 int output_stream_set_parameter(pa_droid_stream *s, const dm_config_port *device_port){
     pa_droid_output_stream *output;
-    pa_droid_stream *slave;
-    uint32_t idx;
     char *parameters = NULL;
     int ret = 0;
     audio_devices_t device;
-    pa_droid_hw_module *hw_module;
     int set_bt_sco = -1;
 
     pa_assert(s);
@@ -2248,7 +2280,6 @@ int output_stream_set_parameter(pa_droid_stream *s, const dm_config_port *device
     pa_assert(s->module->output_mutex);
 
     output = s->output;
-    hw_module = s->module;
     device = device_port->type;
 
     pa_mutex_lock(s->module->output_mutex);
@@ -2294,8 +2325,10 @@ static int input_stream_set_route(pa_droid_stream *stream, const dm_config_port 
     input = stream->input;
 
      /* Input stream closed, no need for routing changes */
-    if (!input->stream)
+    if (!input->stream) {
+        pa_log_debug("No routing changes for closed input stream.");
         goto done;
+    }
 
     if (!pa_droid_option(stream->module, DM_OPTION_USE_LEGACY_STREAM_SET_PARAMETERS)) {
         audio_patch_release(stream);
@@ -2700,4 +2733,38 @@ pa_modargs *pa_droid_modargs_new(const char *args, const char* const keys[]) {
     pa_xfree(full_keys);
 
     return ma;
+}
+
+pa_device_port *pa_droid_device_port_new(pa_core *c, pa_device_port_new_data *dp_data, dm_config_port *device_port) {
+    pa_device_port *dp;
+    pa_droid_port_data *data;
+
+    pa_assert(c);
+    pa_assert(dp_data);
+
+    dp = pa_device_port_new(c, dp_data, sizeof(pa_droid_port_data));
+    dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+    data = PA_DEVICE_PORT_DATA(dp);
+    data->device_port = device_port;
+    pa_droid_device_port_set_usb_disconnected(dp);
+
+    return dp;
+}
+
+void pa_droid_device_port_set_usb_connected(pa_device_port *port, int card, int device) {
+    pa_assert(port);
+
+    pa_droid_port_data *data = PA_DEVICE_PORT_DATA(port);
+
+    data->usb.card = card;
+    data->usb.device = device;
+}
+
+void pa_droid_device_port_set_usb_disconnected(pa_device_port *port) {
+    pa_assert(port);
+
+    pa_droid_port_data *data = PA_DEVICE_PORT_DATA(port);
+
+    data->usb.card = -1;
+    data->usb.device = -1;
 }
