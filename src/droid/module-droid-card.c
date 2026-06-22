@@ -798,10 +798,6 @@ static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
     if (port->card != u->card)
         return PA_HOOK_OK;
 
-    /* Track only outputs for now. */
-    if (port->direction != PA_DIRECTION_OUTPUT)
-        return PA_HOOK_OK;
-
     /* We don't track availability of this port. */
     if (port->available == PA_AVAILABLE_UNKNOWN)
         return PA_HOOK_OK;
@@ -811,13 +807,21 @@ static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
         : AUDIO_PARAMETER_DEVICE_DISCONNECT;
 
     uint32_t device;
-    if (!pa_droid_output_port_name_to_device(port->name, &device)) {
-        pa_log_warn("Can't notify Android of port '%s' as it's unknown.",
-            port->name);
-        return PA_HOOK_OK;
+    if (port->direction == PA_DIRECTION_OUTPUT) {
+        if (!pa_droid_output_port_name_to_device(port->name, &device)) {
+            pa_log_warn("Can't notify audio hal of output port '%s' as it's unknown.",
+                        port->name);
+            return PA_HOOK_OK;
+        }
+    } else {
+        if (!pa_droid_input_port_name_to_device(port->name, &device)) {
+            pa_log_warn("Can't notify audio hal of input port '%s' as it's unknown.",
+                        port->name);
+            return PA_HOOK_OK;
+        }
     }
 
-    pa_log_info("Notifying Android of port '%s' (%" PRIu32 ") becoming %s.",
+    pa_log_info("Notifying audio hal of port '%s' (%" PRIu32 ") becoming %s.",
         port->name, device,
         port->available == PA_AVAILABLE_YES ? "available" : "not available");
 
