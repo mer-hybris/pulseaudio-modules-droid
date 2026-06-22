@@ -964,13 +964,6 @@ int pa__init(pa_module *m) {
 
     pa_card_choose_initial_profile(u->card);
     init_profile(u);
-    u->extcon = pa_droid_extcon_new(m->core, u->card);
-
-    if (!u->extcon)
-        u->extevdev = pa_droid_extevdev_new(u->card);
-
-    if (pa_droid_option(u->hw_module, DM_OPTION_USB_DEVICES))
-        u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
 
     pa_module_hook_connect(u->module,
                            &u->module->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED],
@@ -978,6 +971,14 @@ int pa__init(pa_module *m) {
                            port_availability_changed_hook_callback, u);
 
     pa_card_put(u->card);
+
+    u->extcon = pa_droid_extcon_new(m->core, u->card);
+
+    if (!u->extcon)
+        u->extevdev = pa_droid_extevdev_new(u->card);
+
+    if (pa_droid_option(u->hw_module, DM_OPTION_USB_DEVICES))
+        u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
 
     return 0;
 
