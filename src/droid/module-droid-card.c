@@ -798,10 +798,6 @@ static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
     if (port->card != u->card)
         return PA_HOOK_OK;
 
-    /* Track only outputs for now. */
-    if (port->direction != PA_DIRECTION_OUTPUT)
-        return PA_HOOK_OK;
-
     /* We don't track availability of this port. */
     if (port->available == PA_AVAILABLE_UNKNOWN)
         return PA_HOOK_OK;
@@ -811,13 +807,21 @@ static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
         : AUDIO_PARAMETER_DEVICE_DISCONNECT;
 
     uint32_t device;
-    if (!pa_droid_output_port_name_to_device(port->name, &device)) {
-        pa_log_warn("Can't notify Android of port '%s' as it's unknown.",
-            port->name);
-        return PA_HOOK_OK;
+    if (port->direction == PA_DIRECTION_OUTPUT) {
+        if (!pa_droid_output_port_name_to_device(port->name, &device)) {
+            pa_log_warn("Can't notify audio hal of output port '%s' as it's unknown.",
+                        port->name);
+            return PA_HOOK_OK;
+        }
+    } else {
+        if (!pa_droid_input_port_name_to_device(port->name, &device)) {
+            pa_log_warn("Can't notify audio hal of input port '%s' as it's unknown.",
+                        port->name);
+            return PA_HOOK_OK;
+        }
     }
 
-    pa_log_info("Notifying Android of port '%s' (%" PRIu32 ") becoming %s.",
+    pa_log_info("Notifying audio hal of port '%s' (%" PRIu32 ") becoming %s.",
         port->name, device,
         port->available == PA_AVAILABLE_YES ? "available" : "not available");
 
@@ -960,13 +964,6 @@ int pa__init(pa_module *m) {
 
     pa_card_choose_initial_profile(u->card);
     init_profile(u);
-    u->extcon = pa_droid_extcon_new(m->core, u->card);
-
-    if (!u->extcon)
-        u->extevdev = pa_droid_extevdev_new(u->card);
-
-    if (pa_droid_option(u->hw_module, DM_OPTION_USB_DEVICES))
-        u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
 
     pa_module_hook_connect(u->module,
                            &u->module->core->hooks[PA_CORE_HOOK_PORT_AVAILABLE_CHANGED],
@@ -974,6 +971,14 @@ int pa__init(pa_module *m) {
                            port_availability_changed_hook_callback, u);
 
     pa_card_put(u->card);
+
+    u->extcon = pa_droid_extcon_new(m->core, u->card);
+
+    if (!u->extcon)
+        u->extevdev = pa_droid_extevdev_new(u->card);
+
+    if (pa_droid_option(u->hw_module, DM_OPTION_USB_DEVICES))
+        u->extusbdev = pa_droid_extusbdev_new(u->hw_module, u->card);
 
     return 0;
 
