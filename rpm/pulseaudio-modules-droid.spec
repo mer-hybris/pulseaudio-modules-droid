@@ -13,6 +13,7 @@ Source0:    %{name}-%{version}.tar.bz2
 Requires:   pulseaudio >= %{pulseversion}
 Requires:   %{name}-common = %{version}-%{release}
 Requires:   pulseaudio-module-keepalive >= 1.0.0
+Requires(pre): /usr/sbin/usermod
 BuildRequires:  libtool-ltdl-devel
 BuildRequires:  meson
 BuildRequires:  ccache
@@ -58,6 +59,9 @@ fi
 
 %install
 %meson_install
+
+%pre
+usermod -G input -a pulse || :
 
 %files
 %{_libdir}/pulse-*/modules/libdroid-sink.so
