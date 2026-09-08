@@ -1150,6 +1150,17 @@ static void generate_config_for_module(struct module *module, dm_config_device *
             }
         }
 
+        /* Skip routes whose sink doesn't resolve to a known port; a NULL
+         * c_route->sink later crashes consumers that dereference route->sink
+         * (update_mapping(), input routing). */
+        if (!c_route->sink) {
+            pa_log_warn("Route with sink \"%s\" references an unknown port; skipping route.",
+                        pa_strnull(route->sink));
+            dm_list_free(c_route->sources, NULL);
+            pa_xfree(c_route);
+            continue;
+        }
+
         SLLIST_FOREACH(device, route->sources) {
             DM_LIST_FOREACH_DATA(c_port, c_module->ports, state) {
                 if (pa_safe_streq(device->name, c_port->name)) {
