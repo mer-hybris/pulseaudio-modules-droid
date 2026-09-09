@@ -325,6 +325,9 @@ static bool input_enabled(struct userdata *u, pa_droid_mapping *am) {
     if (dm_strcasestr(am->name, "primary"))
         enabled = true;
 
+    if (dm_strcasestr(am->name, "FM"))
+        enabled = true;
+
     pa_log_debug("Input mix port \"%s\" %s", am->name, enabled ? "enabled" : "disabled");
 
     return enabled;
