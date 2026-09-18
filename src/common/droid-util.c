@@ -835,6 +835,100 @@ static pa_hook_result_t sink_unlink_hook_cb(void *hook_data, void *call_data, vo
     return PA_HOOK_OK;
 }
 
+static void update_source_types(pa_droid_hw_module *hw, pa_source *ignore_source) {
+    pa_source *source;
+    pa_source *builtin_source       = NULL;
+    pa_source *external_source      = NULL;
+    pa_source *voip_source          = NULL;
+    pa_source *fm_source            = NULL;
+
+    pa_droid_stream *s;
+    uint32_t idx;
+
+    /* only update primary hw module types for now. */
+    if (!pa_streq(hw->module_id, PA_DROID_PRIMARY_DEVICE))
+        return;
+
+    PA_IDXSET_FOREACH(s, hw->inputs, idx) {
+        bool found = false;
+        dm_config_route *route;
+        dm_config_port *device_port;
+        void *state;
+
+        if (!(source = pa_droid_stream_get_data(s)))
+            continue;
+
+        if (source == ignore_source)
+            continue;
+
+        DM_LIST_FOREACH_DATA(route, s->module->enabled_module->routes, state) {
+            if (!route->sink) {
+                pa_log_warn("No sink for route!");
+                continue;
+            }
+
+            /* Our stream is part of this route, we can check device ports
+             * for device types. */
+            if (route->sink == s->mix_port) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            pa_log_warn("No stream with mix port!");
+            continue;
+        }
+
+        DM_LIST_FOREACH_DATA(device_port, route->sources, state) {
+            if (device_port->type == AUDIO_DEVICE_IN_BUILTIN_MIC)
+                builtin_source = source;
+            else if (device_port->type == AUDIO_DEVICE_IN_WIRED_HEADSET)
+                external_source = source;
+            else if (device_port->type == AUDIO_DEVICE_IN_VOICE_CALL)
+                voip_source = source;
+            else if (device_port->type == AUDIO_DEVICE_IN_FM_TUNER)
+                fm_source = source;
+        }
+    }
+
+    if (builtin_source)
+        pa_proplist_sets(builtin_source->proplist, PROP_DROID_INPUT_BUILTIN, "true");
+
+    if (external_source)
+        pa_proplist_sets(external_source->proplist, PROP_DROID_INPUT_EXTERNAL, "true");
+
+    if (voip_source)
+        pa_proplist_sets(voip_source->proplist, PROP_DROID_INPUT_VOICE, "true");
+
+    if (fm_source)
+        pa_proplist_sets(fm_source->proplist, PROP_DROID_INPUT_FM, "true");
+}
+
+static pa_hook_result_t source_put_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_source *source       = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_source_is_droid_source(source))
+        return PA_HOOK_OK;
+
+    update_source_types(hw, NULL);
+
+    return PA_HOOK_OK;
+}
+
+static pa_hook_result_t source_unlink_hook_cb(void *hook_data, void *call_data, void *slot_data) {
+    pa_source *source       = call_data;
+    pa_droid_hw_module *hw  = slot_data;
+
+    if (!pa_source_is_droid_source(source))
+        return PA_HOOK_OK;
+
+    update_source_types(hw, source);
+
+    return PA_HOOK_OK;
+}
+
 static char *shared_name_get(const char *module_id) {
     pa_assert(module_id);
     return pa_sprintf_malloc("droid-hardware-module-%s", module_id);
@@ -1003,6 +1097,10 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, dm_config_device 
                                                   sink_put_hook_cb, hw);
     hw->sink_unlink_hook_slot   = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY-10,
                                                   sink_unlink_hook_cb, hw);
+    hw->source_put_hook_slot    = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_PUT], PA_HOOK_EARLY-10,
+                                                  source_put_hook_cb, hw);
+    hw->source_unlink_hook_slot = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_UNLINK], PA_HOOK_EARLY-10,
+                                                  source_unlink_hook_cb, hw);
 
     pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
 
@@ -1105,6 +1203,10 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         pa_hook_slot_free(hw->sink_put_hook_slot);
     if (hw->sink_unlink_hook_slot)
         pa_hook_slot_free(hw->sink_unlink_hook_slot);
+    if (hw->source_put_hook_slot)
+        pa_hook_slot_free(hw->source_put_hook_slot);
+    if (hw->source_unlink_hook_slot)
+        pa_hook_slot_free(hw->source_unlink_hook_slot);
 
     if (hw->config)
         dm_config_free(hw->config);
@@ -1863,6 +1965,8 @@ open_done:
     buffer_size = input->stream->common.get_buffer_size(&input->stream->common);
     stream->buffer_size = buffer_size;
     stream->io_handle = hw_module->stream_id;
+
+    pa_idxset_put(hw_module->inputs, stream, NULL);
 
     /* Set input stream to standby */
     stream_standby(stream);
