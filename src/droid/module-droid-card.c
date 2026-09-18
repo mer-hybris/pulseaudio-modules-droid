@@ -315,21 +315,6 @@ static bool output_enabled(struct userdata *u, pa_droid_mapping *am) {
     return enabled;
 }
 
-static bool input_enabled(struct userdata *u, pa_droid_mapping *am) {
-    bool enabled = false;
-
-    pa_assert(u);
-    pa_assert(am);
-
-    /* Look for primary mix port as the one used for creating droid-source. */
-    if (dm_strcasestr(am->name, "primary"))
-        enabled = true;
-
-    pa_log_debug("Input mix port \"%s\" %s", am->name, enabled ? "enabled" : "disabled");
-
-    return enabled;
-}
-
 static uint32_t max_channels_for_mix_port(dm_config_port *mix_port, uint32_t previous_max_channels) {
     uint32_t max_channels = 0;
     dm_config_profile *profile;
@@ -427,9 +412,7 @@ static void init_profile(struct userdata *u) {
 
     if (d->droid_profile && pa_idxset_size(d->droid_profile->input_mappings) > 0) {
         PA_IDXSET_FOREACH(am, d->droid_profile->input_mappings, idx) {
-            if (!input_enabled(u, am))
-                continue;
-
+            pa_log_debug("Input mix port \"%s\"", am->name);
             am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
         }
     }
@@ -761,9 +744,6 @@ static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
 
     if (next->droid_profile && pa_idxset_size(next->droid_profile->input_mappings) > 0) {
         PA_IDXSET_FOREACH(am, next->droid_profile->input_mappings, idx) {
-            if (!input_enabled(u, am))
-                continue;
-
             if (!am->source)
                 am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
 
