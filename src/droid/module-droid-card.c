@@ -322,7 +322,8 @@ static bool input_enabled(struct userdata *u, pa_droid_mapping *am) {
     pa_assert(am);
 
     /* Look for primary mix port as the one used for creating droid-source. */
-    if (dm_strcasestr(am->name, "primary"))
+    if (!pa_droid_option(u->hw_module, DM_OPTION_PRIMARY_SOURCE_ONLY) ||
+        dm_strcasestr(am->name, "primary"))
         enabled = true;
 
     pa_log_debug("Input mix port \"%s\" %s", am->name, enabled ? "enabled" : "disabled");
