@@ -2215,14 +2215,20 @@ static void audio_patch_release(pa_droid_stream *stream) {
     pa_assert(stream);
 
     if (stream->audio_patch != AUDIO_PATCH_HANDLE_NONE) {
+        pa_log_level_t log_level = PA_LOG_INFO;
+
         ret = stream->module->device->release_audio_patch(stream->module->device, stream->audio_patch);
         stream->audio_patch = AUDIO_PATCH_HANDLE_NONE;
+
         if (ret < 0)
-            pa_log_info("Release %s audio patch %s:%s (%d)",
-                        stream->mix_port->role == DM_CONFIG_ROLE_SINK ? "output" : "input",
-                        stream->mix_port->name,
-                        stream->active_device_port->name,
-                        -ret);
+            log_level = PA_LOG_ERROR;
+
+        pa_log_info("Release %s audio patch %s%s%s (%d)",
+                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "output" : "input",
+                    stream->mix_port->name,
+                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "->" : "<-",
+                    stream->active_device_port->name,
+                    -ret);
     }
 }
 
