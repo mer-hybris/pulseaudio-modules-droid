@@ -94,7 +94,7 @@ struct droid_option valid_options[] = {
     { "use_legacy_stream_set_parameters",  DM_OPTION_USE_LEGACY_STREAM_SET_PARAMETERS  },
     { "usb_devices",                       DM_OPTION_USB_DEVICES                       },
     { "params_to_stream",                  DM_OPTION_PARAMS_TO_STREAM                  },
-
+    { "primary_source_only",               DM_OPTION_PRIMARY_SOURCE_ONLY               },
 };
 
 struct user_options {
@@ -702,6 +702,7 @@ static void set_options(pa_droid_options *options,
     options->enabled[DM_OPTION_OUTPUT_DEEP_BUFFER] = true;
     options->enabled[DM_OPTION_HW_VOLUME] = true;
     options->enabled[DM_OPTION_OUTPUT_VOIP_RX] = true;
+    options->enabled[DM_OPTION_PRIMARY_SOURCE_ONLY] = true;
 
 #if (ANDROID_VERSION_MAJOR >= 5) || defined(DROID_AUDIO_HAL_ATOI_FIX)
     options->enabled[DM_OPTION_INPUT_ATOI] = true;
@@ -2045,7 +2046,9 @@ bool pa_droid_stream_reconfigure_input(pa_droid_stream *stream,
     }
 
     if (input_stream_open(stream, false) < 0) {
-        if (!stream->input->first) {
+        if (stream->input->first) {
+            pa_log_info("Input stream initial reconfigure succeeded.");
+        } else {
             pa_log_warn("Input stream reconfigure failed, restore default values.");
             stream->input->req_sample_spec = stream->input->default_sample_spec;
             stream->input->req_channel_map = stream->input->default_channel_map;
@@ -2212,14 +2215,20 @@ static void audio_patch_release(pa_droid_stream *stream) {
     pa_assert(stream);
 
     if (stream->audio_patch != AUDIO_PATCH_HANDLE_NONE) {
+        pa_log_level_t log_level = PA_LOG_INFO;
+
         ret = stream->module->device->release_audio_patch(stream->module->device, stream->audio_patch);
         stream->audio_patch = AUDIO_PATCH_HANDLE_NONE;
+
         if (ret < 0)
-            pa_log_info("Release %s audio patch %s:%s (%d)",
-                        stream->mix_port->role == DM_CONFIG_ROLE_SINK ? "output" : "input",
-                        stream->mix_port->name,
-                        stream->active_device_port->name,
-                        -ret);
+            log_level = PA_LOG_ERROR;
+
+        pa_log_info("Release %s audio patch %s%s%s (%d)",
+                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "output" : "input",
+                    stream->mix_port->name,
+                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "->" : "<-",
+                    stream->active_device_port->name,
+                    -ret);
     }
 }
 
