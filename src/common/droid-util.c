@@ -1311,8 +1311,7 @@ static int stream_standby(pa_droid_stream *s) {
     pa_assert(s);
     pa_assert(s->output || s->input);
 
-    if ((s->output && !s->output->stream) ||
-        (s->input && !s->input->stream))
+    if (!pa_droid_stream_is_open(s))
         return ret;
 
     if (s->output) {
@@ -1846,7 +1845,7 @@ static int input_stream_open(pa_droid_stream *stream, bool resume_from_suspend) 
     pa_assert(stream->input);
     pa_assert_se((hw_module = stream->module));
 
-    if (stream->input->stream) /* already open */
+    if (pa_droid_stream_is_open(stream))
         return 0;
 
     input = stream->input;
@@ -1986,7 +1985,7 @@ static void input_stream_close(pa_droid_stream *s) {
     pa_assert(s);
     pa_assert(s->input);
 
-    if (!s->input->stream)
+    if (!pa_droid_stream_is_open(s))
         return;
 
     audio_patch_release(s);
@@ -2574,7 +2573,7 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
         }
     } else {
         if (suspend) {
-            if (s->input->stream) {
+            if (pa_droid_stream_is_open(s)) {
                 if (pa_droid_option(s->module, DM_OPTION_CLOSE_INPUT))
                     input_stream_close(s);
                 else
@@ -2596,7 +2595,7 @@ size_t pa_droid_stream_buffer_size(pa_droid_stream *s) {
 pa_usec_t pa_droid_stream_get_latency(pa_droid_stream *s) {
     pa_assert(s);
 
-    if (s->output && s->output->stream)
+    if (pa_droid_stream_is_open(s))
         return s->output->stream->get_latency(s->output->stream) * PA_USEC_PER_MSEC;
 
     return 0;
