@@ -853,7 +853,8 @@ static pa_hook_result_t port_availability_changed_hook_callback(void *hook_data,
         pa_idxset *idxset = port->direction == PA_DIRECTION_OUTPUT ? u->hw_module->outputs : u->hw_module->inputs;
 
         PA_IDXSET_FOREACH(stream, idxset, idx) {
-            pa_droid_stream_set_parameters(stream, setparam);
+            if (pa_droid_stream_is_open(stream))
+                pa_droid_stream_set_parameters(stream, setparam);
         }
     }
 

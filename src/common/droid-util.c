@@ -1311,8 +1311,7 @@ static int stream_standby(pa_droid_stream *s) {
     pa_assert(s);
     pa_assert(s->output || s->input);
 
-    if ((s->output && !s->output->stream) ||
-        (s->input && !s->input->stream))
+    if (!pa_droid_stream_is_open(s))
         return ret;
 
     if (s->output) {
@@ -1846,7 +1845,7 @@ static int input_stream_open(pa_droid_stream *stream, bool resume_from_suspend) 
     pa_assert(stream->input);
     pa_assert_se((hw_module = stream->module));
 
-    if (stream->input->stream) /* already open */
+    if (pa_droid_stream_is_open(stream))
         return 0;
 
     input = stream->input;
@@ -1986,7 +1985,7 @@ static void input_stream_close(pa_droid_stream *s) {
     pa_assert(s);
     pa_assert(s->input);
 
-    if (!s->input->stream)
+    if (!pa_droid_stream_is_open(s))
         return;
 
     audio_patch_release(s);
@@ -2223,12 +2222,14 @@ static void audio_patch_release(pa_droid_stream *stream) {
         if (ret < 0)
             log_level = PA_LOG_ERROR;
 
-        pa_log_info("Release %s audio patch %s%s%s (%d)",
-                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "output" : "input",
-                    stream->mix_port->name,
-                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "->" : "<-",
-                    stream->active_device_port->name,
-                    -ret);
+        pa_logl(log_level,
+                "%s %s audio patch %s%s%s (%d)",
+                ret < 0 ? "Failed to release" : "Release",
+                stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "output" : "input",
+                stream->mix_port->name,
+                stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "->" : "<-",
+                stream->active_device_port->name,
+                -ret);
     }
 }
 
@@ -2486,6 +2487,7 @@ int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters) {
     pa_assert(s);
     pa_assert(s->output || s->input);
     pa_assert(parameters);
+    pa_assert(pa_droid_stream_is_open(s));
 
     if (s->output) {
         pa_log_debug("output stream %p set_parameters(%s)", (void *) s, parameters);
@@ -2548,6 +2550,16 @@ bool pa_droid_stream_is_primary(pa_droid_stream *s) {
     return true;
 }
 
+bool pa_droid_stream_is_open(pa_droid_stream *s) {
+    pa_assert(s);
+    pa_assert(s->output || s->input);
+
+    if (s->output)
+        return s->output->stream != NULL;
+
+    return s->input->stream != NULL;
+}
+
 int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
     pa_assert(s);
     pa_assert(s->output || s->input);
@@ -2561,7 +2573,7 @@ int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
         }
     } else {
         if (suspend) {
-            if (s->input->stream) {
+            if (pa_droid_stream_is_open(s)) {
                 if (pa_droid_option(s->module, DM_OPTION_CLOSE_INPUT))
                     input_stream_close(s);
                 else
@@ -2583,7 +2595,7 @@ size_t pa_droid_stream_buffer_size(pa_droid_stream *s) {
 pa_usec_t pa_droid_stream_get_latency(pa_droid_stream *s) {
     pa_assert(s);
 
-    if (s->output && s->output->stream)
+    if (pa_droid_stream_is_open(s))
         return s->output->stream->get_latency(s->output->stream) * PA_USEC_PER_MSEC;
 
     return 0;
