@@ -338,6 +338,7 @@ const pa_sample_spec *pa_droid_stream_sample_spec(pa_droid_stream *stream);
 const pa_channel_map *pa_droid_stream_channel_map(pa_droid_stream *stream);
 
 bool pa_droid_stream_is_primary(pa_droid_stream *s);
+bool pa_droid_stream_is_open(pa_droid_stream *s);
 
 int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend);
 

@@ -2488,6 +2488,7 @@ int pa_droid_stream_set_parameters(pa_droid_stream *s, const char *parameters) {
     pa_assert(s);
     pa_assert(s->output || s->input);
     pa_assert(parameters);
+    pa_assert(pa_droid_stream_is_open(s));
 
     if (s->output) {
         pa_log_debug("output stream %p set_parameters(%s)", (void *) s, parameters);
@@ -2548,6 +2549,16 @@ bool pa_droid_stream_is_primary(pa_droid_stream *s) {
      * primary flag and we can just always reply true for
      * input streams. */
     return true;
+}
+
+bool pa_droid_stream_is_open(pa_droid_stream *s) {
+    pa_assert(s);
+    pa_assert(s->output || s->input);
+
+    if (s->output)
+        return s->output->stream != NULL;
+
+    return s->input->stream != NULL;
 }
 
 int pa_droid_stream_suspend(pa_droid_stream *s, bool suspend) {
