@@ -2223,12 +2223,14 @@ static void audio_patch_release(pa_droid_stream *stream) {
         if (ret < 0)
             log_level = PA_LOG_ERROR;
 
-        pa_log_info("Release %s audio patch %s%s%s (%d)",
-                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "output" : "input",
-                    stream->mix_port->name,
-                    stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "->" : "<-",
-                    stream->active_device_port->name,
-                    -ret);
+        pa_logl(log_level,
+                "%s %s audio patch %s%s%s (%d)",
+                ret < 0 ? "Failed to release" : "Release",
+                stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "output" : "input",
+                stream->mix_port->name,
+                stream->mix_port->role == DM_CONFIG_ROLE_SOURCE ? "->" : "<-",
+                stream->active_device_port->name,
+                -ret);
     }
 }
 
