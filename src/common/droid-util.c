@@ -1336,6 +1336,7 @@ static bool compatible_port(const dm_config_port *port,
                             audio_channel_mask_t *compatible_channel_mask) {
     const dm_config_profile *profile;
     void *state;
+    int pass;
 
     pa_assert(port);
     pa_assert(port->port_type != DM_CONFIG_TYPE_MIX);
@@ -1344,105 +1345,123 @@ static bool compatible_port(const dm_config_port *port,
     pa_assert(compatible_channel_map);
     pa_assert(compatible_channel_mask);
 
-    *compatible_sample_spec = *sample_spec;
-    *compatible_channel_map = *channel_map;
+    /* Pass 0 only considers profiles offering the requested sample format.
+     * If none of them fits, pass 1 falls back to profiles offering any other
+     * format we can convert, in the order the port lists them, and PulseAudio
+     * converts. Sample rate and channel count already fall back within a
+     * profile; without this a port declaring only e.g.
+     * AUDIO_FORMAT_PCM_8_24_BIT matched nothing and no stream could be
+     * created from it at all. */
+    for (pass = 0; pass < 2; pass++) {
+        *compatible_sample_spec = *sample_spec;
+        *compatible_channel_map = *channel_map;
 
-    DM_LIST_FOREACH_DATA(profile, port->profiles, state) {
-        uint32_t format = 0;
-        bool sample_rate_compatible = false;
-        bool channel_count_compatible = false;
-        int i;
+        DM_LIST_FOREACH_DATA(profile, port->profiles, state) {
+            uint32_t format = 0;
+            bool sample_rate_compatible = false;
+            bool channel_count_compatible = false;
+            int i;
 
-        if (!pa_convert_format(profile->format, CONV_FROM_HAL, &format))
-            continue;
+            if (!pa_convert_format(profile->format, CONV_FROM_HAL, &format))
+                continue;
 
-        if (sample_spec->format != (pa_sample_format_t) format)
-            continue;
+            if ((sample_spec->format == (pa_sample_format_t) format) != (pass == 0))
+                continue;
 
-        if (profile->sampling_rates[0] == 0) {
-            sample_rate_compatible = true;
-            pa_log_info("%s port \"%s\" profile has dynamic sample rate.",
-                        port->port_type == DM_CONFIG_TYPE_MIX_PORT ? "Mix" : "Device", port->name);
-        } else {
-            /* Rate count is used for reverse iteration if no direct matching sample rate is found. */
-            uint32_t rate_count = 0;
+            if (profile->sampling_rates[0] == 0) {
+                sample_rate_compatible = true;
+                pa_log_info("%s port \"%s\" profile has dynamic sample rate.",
+                            port->port_type == DM_CONFIG_TYPE_MIX_PORT ? "Mix" : "Device", port->name);
+            } else {
+                /* Rate count is used for reverse iteration if no direct matching sample rate is found. */
+                uint32_t rate_count = 0;
 
-            for (i = 0; profile->sampling_rates[i]; i++) {
-                if (profile->sampling_rates[i] == sample_spec->rate) {
-                    sample_rate_compatible = true;
-                    break;
-                }
-                rate_count++;
-            }
-
-            if (!sample_rate_compatible) {
-                /* Search from highest sample rate to lowest. */
-                for (i = rate_count - 1; i >= 0; i--) {
-                    if (profile->sampling_rates[i] % sample_spec->rate == 0) {
-                        sample_rate_compatible = true;
-                        compatible_sample_spec->rate = profile->sampling_rates[i];
-                        break;
-                    }
-
-                }
-            }
-
-            if (!sample_rate_compatible) {
                 for (i = 0; profile->sampling_rates[i]; i++) {
-                    compatible_sample_spec->rate = profile->sampling_rates[i];
-                    if (compatible_sample_spec->rate > sample_spec->rate) {
+                    if (profile->sampling_rates[i] == sample_spec->rate) {
+                        sample_rate_compatible = true;
                         break;
                     }
+                    rate_count++;
                 }
+
+                if (!sample_rate_compatible) {
+                    /* Search from highest sample rate to lowest. */
+                    for (i = rate_count - 1; i >= 0; i--) {
+                        if (profile->sampling_rates[i] % sample_spec->rate == 0) {
+                            sample_rate_compatible = true;
+                            compatible_sample_spec->rate = profile->sampling_rates[i];
+                            break;
+                        }
+
+                    }
+                }
+
+                if (!sample_rate_compatible) {
+                    for (i = 0; profile->sampling_rates[i]; i++) {
+                        compatible_sample_spec->rate = profile->sampling_rates[i];
+                        if (compatible_sample_spec->rate > sample_spec->rate) {
+                            break;
+                        }
+                    }
+                }
+
+                /* Sample rate is compatible if at least one sample rate is found. */
+                sample_rate_compatible = true;
             }
 
-            /* Sample rate is compatible if at least one sample rate is found. */
-            sample_rate_compatible = true;
-        }
-
-        if (profile->channel_masks[0] == 0) {
-            channel_count_compatible = true;
-            *compatible_channel_mask = 0;
-        } else {
-            for (i = 0; profile->channel_masks[i]; i++) {
-                if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == channel_map->channels) {
-                    channel_count_compatible = true;
-                    *compatible_channel_mask = profile->channel_masks[i];
-                    break;
-                }
-            }
-
-            if (!channel_count_compatible) {
-                /* We support only mono and stereo anyway at the moment so just choose either.
-                 * If we wanted mono and mono wasn't available above then use stereo if found,
-                 * and same if we wanted stereo and stereo wasn't available then use mono if found. */
+            if (profile->channel_masks[0] == 0) {
+                channel_count_compatible = true;
+                *compatible_channel_mask = 0;
+            } else {
                 for (i = 0; profile->channel_masks[i]; i++) {
-                    if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 2 &&
-                        channel_map->channels == 1) {
+                    if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == channel_map->channels) {
                         channel_count_compatible = true;
-                        pa_channel_map_init_stereo(compatible_channel_map);
-                        *compatible_channel_mask = profile->channel_masks[i];
-                        break;
-                    } else if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 1 &&
-                               channel_map->channels == 2) {
-                        channel_count_compatible = true;
-                        pa_channel_map_init_mono(compatible_channel_map);
                         *compatible_channel_mask = profile->channel_masks[i];
                         break;
                     }
                 }
+
+                if (!channel_count_compatible) {
+                    /* We support only mono and stereo anyway at the moment so just choose either.
+                     * If we wanted mono and mono wasn't available above then use stereo if found,
+                     * and same if we wanted stereo and stereo wasn't available then use mono if found. */
+                    for (i = 0; profile->channel_masks[i]; i++) {
+                        if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 2 &&
+                            channel_map->channels == 1) {
+                            channel_count_compatible = true;
+                            pa_channel_map_init_stereo(compatible_channel_map);
+                            *compatible_channel_mask = profile->channel_masks[i];
+                            break;
+                        } else if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 1 &&
+                                   channel_map->channels == 2) {
+                            channel_count_compatible = true;
+                            pa_channel_map_init_mono(compatible_channel_map);
+                            *compatible_channel_mask = profile->channel_masks[i];
+                            break;
+                        }
+                    }
+                }
             }
-        }
 
-        if (sample_rate_compatible && channel_count_compatible) {
-            if (compatible_profile)
-                *compatible_profile = profile;
+            if (sample_rate_compatible && channel_count_compatible) {
+                if (compatible_profile)
+                    *compatible_profile = profile;
 
-            compatible_sample_spec->channels = compatible_channel_map->channels;
+                compatible_sample_spec->channels = compatible_channel_map->channels;
 
-            return true;
-        }
-    } /* DM_LIST_FOREACH_DATA */
+                if (pass == 1) {
+                    compatible_sample_spec->format = (pa_sample_format_t) format;
+                    pa_log_info("%s port \"%s\" does not offer %s, using %s instead.",
+                                port->port_type == DM_CONFIG_TYPE_MIX_PORT ? "Mix" : "Device",
+                                port->name,
+                                pa_sample_format_to_string(sample_spec->format),
+                                pa_sample_format_to_string(compatible_sample_spec->format));
+                }
+
+                return true;
+            }
+        } /* DM_LIST_FOREACH_DATA */
+    }
 
     return false;
 }
@@ -1490,6 +1509,14 @@ static bool stream_config_fill(pa_droid_hw_module *hw,
     if (!compatible_port(mix_port, sample_spec, channel_map,
                          NULL, &compatible_sample_spec, &compatible_channel_map, &hal_channel_mask)) {
         pa_log("Couldn't find compatible configuration for mix port \"%s\"", mix_port->name);
+        goto fail;
+    }
+
+    /* compatible_port() may have selected a different sample format than the
+     * one requested, so the HAL format computed above has to be redone. */
+    if (compatible_sample_spec.format != sample_spec->format &&
+        !pa_convert_format(compatible_sample_spec.format, CONV_FROM_PA, &hal_audio_format)) {
+        pa_log_warn("Sample spec format %u not supported.", compatible_sample_spec.format);
         goto fail;
     }
 
