@@ -347,6 +347,14 @@ bool pa_conversion_parse_sampling_rates(const char *fn, const unsigned ln,
     return true;
 }
 
+static void log_unknown(const char *fn, const unsigned ln, const char *field, char *unknown) {
+    if (!unknown)
+        return;
+
+    pa_log_info("[%s:%u] Unknown %s entries: %s", fn, ln, field, unknown);
+    pa_xfree(unknown);
+}
+
 static bool check_and_log(const char *fn, const unsigned ln, const char *field,
                           const int count, const char *str, char *unknown,
                           const bool must_recognize_all) {
@@ -358,10 +366,7 @@ static bool check_and_log(const char *fn, const unsigned ln, const char *field,
 
     fail = must_recognize_all && unknown;
 
-    if (unknown) {
-        pa_log_info("[%s:%u] Unknown %s entries: %s", fn, ln, field, unknown);
-        pa_xfree(unknown);
-    }
+    log_unknown(fn, ln, field, unknown);
 
     if (count == 0 || fail) {
         pa_log("[%s:%u] Failed to parse %s (%s).", fn, ln, field, str);
@@ -493,30 +498,36 @@ bool pa_conversion_parse_input_devices(const char *fn, const unsigned ln,
 
 bool pa_conversion_parse_output_flags(const char *fn, const unsigned ln,
                                       const char *str, audio_output_flags_t *flags) {
-    int count;
     char *unknown = NULL;
 
     pa_assert(fn);
     pa_assert(str);
     pa_assert(flags);
 
-    count = pa_conversion_parse_list(CONV_STRING_OUTPUT_FLAG, "| ", str, flags, &unknown);
+    pa_conversion_parse_list(CONV_STRING_OUTPUT_FLAG, "| ", str, flags, &unknown);
 
-    return check_and_log(fn, ln, "flags", count, str, unknown, false);
+    /* An unknown flag is not a reason to reject the port: a configuration may
+     * name flags from a newer Android API level than this module was built
+     * against. Keep the recognized subset; no flags at all is a valid result. */
+    log_unknown(fn, ln, "flags", unknown);
+
+    return true;
 }
 
 bool pa_conversion_parse_input_flags(const char *fn, const unsigned ln,
                                      const char *str, uint32_t *flags) {
-    int count;
     char *unknown = NULL;
 
     pa_assert(fn);
     pa_assert(str);
     pa_assert(flags);
 
-    count = pa_conversion_parse_list(CONV_STRING_INPUT_FLAG, "| ", str, flags, &unknown);
+    pa_conversion_parse_list(CONV_STRING_INPUT_FLAG, "| ", str, flags, &unknown);
 
-    return check_and_log(fn, ln, "flags", count, str, unknown, false);
+    /* See pa_conversion_parse_output_flags(). */
+    log_unknown(fn, ln, "flags", unknown);
+
+    return true;
 }
 
 bool pa_conversion_parse_version(const char *fn, const unsigned ln, const char *str, uint32_t *version) {
