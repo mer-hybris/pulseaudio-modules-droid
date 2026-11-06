@@ -304,14 +304,37 @@ Currently there are following options:
       of 16kHz.
 * use_legacy_stream_set_parameters
     * Disabled by default.
-    * Enable this to fall back to set_parameters on stream. Only For audio 
-      HALs without create_audio_patch implemented, which causes pulse to 
-      segfault attempting to use create_audio_patch on an invalid or null 
+    * Enable this to fall back to set_parameters on stream. Only For audio
+      HALs without create_audio_patch implemented, which causes pulse to
+      segfault attempting to use create_audio_patch on an invalid or null
       address.
+* usb_devices
+    * Disabled by default
+    * Use USB audio through audio HAL.
+* params_to_stream
+    * Disabled by default
+    * Sometimes the connected parameters need to be set to the output/input
+      stream as well as to the hw module to get working routing. Try this
+      if accessory routing doesn't work properly.
+* primary_source_only
+    * Enabled by default
+    * When set to false all mix port definitions are generating
+      a source.
 
 Options can be enabled or disabled normally as module arguments, for example:
 
     load-module module-droid-card hw_volume=false record_voice_16k=true
+
+String options
+
+* evdev_path
+    * Set to absolute path to event device. May be comma separated list if
+      multiple event devices are associated with single hardware port.
+* evdev_match
+    * String to match event device against. Matching is partial match, so
+      "headset" matches with "dev-foo headset dev" etc. May be comma
+      separated list if multiple event devices are associated with single
+      hardware port.
 
 Volume control during voicecall
 -------------------------------

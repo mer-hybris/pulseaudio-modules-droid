@@ -31,25 +31,54 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <linux/input.h>
 #include <linux/types.h>
+
+#include <pulse/rtclock.h>
+#include <pulse/timeval.h>
 
 #include <pulsecore/device-port.h>
 #include <pulsecore/card.h>
 #include <pulsecore/core-error.h>
 #include <pulsecore/core-util.h>
 
+#include <droid/sllist.h>
+
 #include "droid-extevdev.h"
 
 #define DEV_INPUT_EVENT "/dev/input"
 
-struct pa_droid_extevdev {
-    pa_card *card;
+/* Jack switches for one physical plug can arrive from different evdev
+ * devices, each closed by its own SYN_REPORT. Hold the port update until
+ * every followed device has reported, or until this timer elapses. */
+#define HEADSET_SYNC_TIMEOUT_USEC ((pa_usec_t) 300 * PA_USEC_PER_MSEC)
+
+typedef struct extevdev_device {
+    struct pa_droid_extevdev *parent;
     int fd;
     int fd_type;
-    pa_io_event *event;
+    pa_io_event *io;
+    char *path;
+    bool dead;
 
-    /* Switch values */
+    /* Switch values reported by this device. */
+    int sw_headphone_insert;
+    int sw_microphone_insert;
+    int sw_lineout_insert;
+
+    /* Set for the current event batch. */
+    bool got_event;
+    bool got_syn;
+} extevdev_device;
+
+struct pa_droid_extevdev {
+    pa_card *card;
+    dm_list *devs;
+    pa_time_event *event_timer;
+
+    /* Switch values combined from every followed device. */
     int sw_headphone_insert;
     int sw_microphone_insert;
     int sw_lineout_insert;
@@ -77,6 +106,9 @@ static const char *headset_ports[] = {
 static void notify_ports(pa_droid_extevdev *u) {
     unsigned int i;
 
+    pa_log_debug("headset switches: headphone=%d microphone=%d lineout=%d",
+                 u->sw_headphone_insert, u->sw_microphone_insert, u->sw_lineout_insert);
+
     pa_available_t has_headphone =
         ((u->sw_headphone_insert || u->sw_lineout_insert)
         && !u->sw_microphone_insert) ? PA_AVAILABLE_YES : PA_AVAILABLE_NO;
@@ -98,77 +130,210 @@ static void notify_ports(pa_droid_extevdev *u) {
     }
 }
 
-static void event_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_event_flags_t events, void *userdata) {
-    pa_droid_extevdev *u = userdata;
+static void recompute_switches(pa_droid_extevdev *u) {
+    extevdev_device *dev;
+    void *state;
 
-    if (events & PA_IO_EVENT_HANGUP) {
-        pa_log("input device closed unexpectedly");
-        return;
+    u->sw_headphone_insert = 0;
+    u->sw_microphone_insert = 0;
+    u->sw_lineout_insert = 0;
+
+    DM_LIST_FOREACH_DATA(dev, u->devs, state) {
+        u->sw_headphone_insert |= dev->sw_headphone_insert;
+        u->sw_microphone_insert |= dev->sw_microphone_insert;
+        u->sw_lineout_insert |= dev->sw_lineout_insert;
     }
-
-    if (events & PA_IO_EVENT_ERROR) {
-        pa_log("input device had an I/O error");
-        return;
-    }
-
-    if (events & PA_IO_EVENT_INPUT) {
-        struct input_event ev;
-
-        if (pa_loop_read(u->fd, &ev, sizeof(ev), &u->fd_type) <= 0) {
-            pa_log("Failed to read from event device: %s", pa_cstrerror(errno));
-            return;
-        }
-
-        if (ev.type != EV_SW && ev.type != EV_SYN) {
-            pa_log("Ignoring input event type %d", ev.type);
-            return;
-        }
-
-        if (ev.type == EV_SYN) {
-            notify_ports(u);
-            return;
-        }
-
-        #define LOG_SW(x) pa_log_debug(#x " %d", u->x)
-
-        switch (ev.code) {
-            case SW_HEADPHONE_INSERT:   u->sw_headphone_insert  = ev.value; LOG_SW(sw_headphone_insert);    break;
-            case SW_MICROPHONE_INSERT:  u->sw_microphone_insert = ev.value; LOG_SW(sw_microphone_insert);   break;
-            case SW_LINEOUT_INSERT:     u->sw_lineout_insert    = ev.value; LOG_SW(sw_lineout_insert);      break;
-        }
-
-        #undef LOG_SW
-    }
-    return;
 }
 
-static void query_initial_state(pa_droid_extevdev *u)
-{
-    uint32_t bitmask[NBITS(KEY_MAX)];
+static void clear_report_flags(pa_droid_extevdev *u) {
+    extevdev_device *dev;
+    void *state;
+
+    DM_LIST_FOREACH_DATA(dev, u->devs, state) {
+        dev->got_event = false;
+        dev->got_syn = false;
+    }
+}
+
+static void stop_event_timer(pa_droid_extevdev *u) {
+    if (!u->event_timer)
+        return;
+
+    u->card->core->mainloop->time_free(u->event_timer);
+    u->event_timer = NULL;
+}
+
+/* True when every device that can still send events has delivered a switch
+ * event and the SYN_REPORT that closes it. */
+static bool all_devices_reported(pa_droid_extevdev *u) {
+    extevdev_device *dev;
+    void *state;
+    bool any = false;
+
+    DM_LIST_FOREACH_DATA(dev, u->devs, state) {
+        if (dev->dead)
+            continue;
+
+        if (!dev->got_event || !dev->got_syn)
+            return false;
+
+        any = true;
+    }
+
+    return any;
+}
+
+static void apply_device_state(pa_droid_extevdev *u, const char *why) {
+    pa_log_debug("applying headset state (%s)", why);
+    stop_event_timer(u);
+    recompute_switches(u);
+    notify_ports(u);
+    clear_report_flags(u);
+}
+
+static void device_event_timeout_cb(pa_mainloop_api *a, pa_time_event *e, const struct timeval *tv, void *userdata) {
+    pa_droid_extevdev *u = userdata;
+
+    pa_assert(u);
+    pa_assert(e == u->event_timer);
+    (void) a;
+    (void) tv;
+
+    apply_device_state(u, "event timer elapsed");
+}
+
+/* Start the timer on the first event of a batch. Later events from the same
+ * batch do not extend it. */
+static void setup_event_timer(pa_droid_extevdev *u) {
+    if (u->event_timer)
+        return;
+
+    u->event_timer = pa_core_rttime_new(u->card->core,
+                                        pa_rtclock_now() + HEADSET_SYNC_TIMEOUT_USEC,
+                                        device_event_timeout_cb, u);
+    if (!u->event_timer) {
+        apply_device_state(u, "timer failed");
+        return;
+    }
+}
+
+static void query_device_state(extevdev_device *dev) {
+    uint32_t bitmask[NBITS(SW_MAX)];
 
     memset(bitmask, 0, sizeof(bitmask));
 
-    if (ioctl(u->fd, EVIOCGSW(sizeof(bitmask)), &bitmask) < 0) {
-        pa_log("failed to query current connected state: %s",
-               pa_cstrerror(errno));
+    if (ioctl(dev->fd, EVIOCGSW(sizeof(bitmask)), &bitmask) < 0) {
+        pa_log("failed to query current connected state of %s: %s",
+               dev->path, pa_cstrerror(errno));
         return;
     }
 
-    u->sw_headphone_insert      = TEST_BIT(SW_HEADPHONE_INSERT    , bitmask);
-    u->sw_microphone_insert     = TEST_BIT(SW_MICROPHONE_INSERT   , bitmask);
-    u->sw_lineout_insert        = TEST_BIT(SW_LINEOUT_INSERT      , bitmask);
+    dev->sw_headphone_insert = !!TEST_BIT(SW_HEADPHONE_INSERT, bitmask);
+    dev->sw_microphone_insert = !!TEST_BIT(SW_MICROPHONE_INSERT, bitmask);
+    dev->sw_lineout_insert = !!TEST_BIT(SW_LINEOUT_INSERT, bitmask);
 
-    pa_log_debug("headphone is %sconnected" , u->sw_headphone_insert  ? "" : "dis");
-    pa_log_debug("microphone is %sconnected", u->sw_microphone_insert ? "" : "dis");
-    pa_log_debug("lineout is %sconnected"   , u->sw_lineout_insert    ? "" : "dis");
-
-    notify_ports(u);
+    pa_log_debug("%s: headphone is %sconnected", dev->path, dev->sw_headphone_insert ? "" : "dis");
+    pa_log_debug("%s: microphone is %sconnected", dev->path, dev->sw_microphone_insert ? "" : "dis");
+    pa_log_debug("%s: lineout is %sconnected", dev->path, dev->sw_lineout_insert ? "" : "dis");
 }
 
-static bool check_device(int fd)
-{
+static void process_event(extevdev_device *dev, const struct input_event *ev) {
+    if (ev->type == EV_SYN) {
+        if (ev->code == SYN_DROPPED) {
+            pa_log_debug("%s: events dropped, resyncing switch state", dev->path);
+            query_device_state(dev);
+            dev->got_event = true;
+            dev->got_syn = true;
+            return;
+        }
+
+        if (ev->code != SYN_REPORT || !dev->got_event)
+            return;
+
+        dev->got_syn = true;
+
+        return;
+    }
+
+    if (ev->type != EV_SW) {
+        pa_log_debug("ignoring input event type %d from %s", ev->type, dev->path);
+        return;
+    }
+
+    switch (ev->code) {
+        case SW_HEADPHONE_INSERT:
+            dev->sw_headphone_insert = ev->value;
+            pa_log_debug("%s: SW_HEADPHONE_INSERT %d", dev->path, ev->value);
+            break;
+        case SW_MICROPHONE_INSERT:
+            dev->sw_microphone_insert = ev->value;
+            pa_log_debug("%s: SW_MICROPHONE_INSERT %d", dev->path, ev->value);
+            break;
+        case SW_LINEOUT_INSERT:
+            dev->sw_lineout_insert = ev->value;
+            pa_log_debug("%s: SW_LINEOUT_INSERT %d", dev->path, ev->value);
+            break;
+        default:
+            return;
+    }
+
+    dev->got_event = true;
+}
+
+static void event_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_io_event_flags_t events, void *userdata) {
+    extevdev_device *dev = userdata;
+    pa_droid_extevdev *u = dev->parent;
+
+    (void) fd;
+
+    /* The fd is non-blocking, so take the whole pending report before
+     * deciding whether every device has checked in. */
+    if (events & PA_IO_EVENT_INPUT) {
+        for (;;) {
+            struct input_event ev;
+            ssize_t r;
+
+            r = pa_loop_read(dev->fd, &ev, sizeof(ev), &dev->fd_type);
+            if (r < 0) {
+                if (errno == EAGAIN)
+                    break;
+
+                pa_log("failed to read from %s: %s", dev->path, pa_cstrerror(errno));
+                dev->dead = true;
+                break;
+            }
+
+            if (r == 0 || (size_t) r != sizeof(ev)) {
+                if (r == 0)
+                    pa_log("input device %s closed unexpectedly", dev->path);
+                else
+                    pa_log("short read from %s (%zd bytes)", dev->path, r);
+                dev->dead = true;
+                break;
+            }
+
+            process_event(dev, &ev);
+        }
+    }
+
+    if (!dev->dead && (events & (PA_IO_EVENT_HANGUP | PA_IO_EVENT_ERROR))) {
+        pa_log("input device %s %s", dev->path,
+               (events & PA_IO_EVENT_ERROR) ? "had an I/O error" : "closed unexpectedly");
+        dev->dead = true;
+        io->io_enable(e, 0);
+        return;
+    }
+
+    if (all_devices_reported(u))
+        apply_device_state(u, "all devices reported");
+    else
+        setup_event_timer(u);
+}
+
+static bool check_device(int fd) {
     unsigned long evbit[NBITS(EV_MAX)];
     unsigned long swbit[NBITS(SW_MAX)];
+    bool has_headphone, has_microphone, has_lineout;
 
     memset(&evbit, 0, sizeof(evbit));
     memset(&swbit, 0, sizeof(swbit));
@@ -190,106 +355,223 @@ static bool check_device(int fd)
         return false;
     }
 
-    if (!TEST_BIT(SW_HEADPHONE_INSERT, swbit)) {
-        pa_log_debug("Device does NOT have SW_HEADPHONE_INSERT");
+    has_headphone = !!TEST_BIT(SW_HEADPHONE_INSERT, swbit);
+    has_microphone = !!TEST_BIT(SW_MICROPHONE_INSERT, swbit);
+    has_lineout = !!TEST_BIT(SW_LINEOUT_INSERT, swbit);
+
+    if (!has_headphone && !has_microphone && !has_lineout) {
+        pa_log_debug("device has no headset switches");
         return false;
     }
+
+    pa_log_debug("device headset switches: headphone=%d microphone=%d lineout=%d",
+                 has_headphone, has_microphone, has_lineout);
+    return true;
+}
+
+static bool device_is_open(pa_droid_extevdev *u, const char *path) {
+    extevdev_device *dev;
+    void *state;
+
+    DM_LIST_FOREACH_DATA(dev, u->devs, state) {
+        if (pa_streq(dev->path, path))
+            return true;
+    }
+
+    return false;
+}
+
+/* Takes ownership of fd. */
+static bool add_device(pa_droid_extevdev *u, int fd, const char *path) {
+    extevdev_device *dev;
+    char name[256];
+
+    dev = pa_xnew0(struct extevdev_device, 1);
+    dev->parent = u;
+    dev->fd = fd;
+    dev->path = pa_xstrdup(path);
+
+    dev->io = u->card->core->mainloop->io_new(u->card->core->mainloop,
+                                              fd,
+                                              PA_IO_EVENT_INPUT | PA_IO_EVENT_HANGUP | PA_IO_EVENT_ERROR,
+                                              event_callback,
+                                              dev);
+    if (!dev->io) {
+        pa_log("failed to watch input device %s", path);
+        pa_xfree(dev->path);
+        pa_xfree(dev);
+        close(fd);
+        return false;
+    }
+
+    dm_list_push_back(u->devs, dev);
+
+    memset(name, 0, sizeof(name));
+    if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && name[0])
+        pa_log_info("following input device %s (%s)", path, name);
+    else
+        pa_log_info("following input device %s", path);
 
     return true;
 }
 
-static int find_input_device(const char *name_string)
-{
+static bool open_path(pa_droid_extevdev *u, const char *path) {
+    int fd;
+
+    if (device_is_open(u, path)) {
+        pa_log_debug("input device %s is already followed", path);
+        return true;
+    }
+
+    if ((fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)) < 0) {
+        pa_log("failed to open %s for reading: %s", path, pa_cstrerror(errno));
+        return false;
+    }
+
+    if (!check_device(fd)) {
+        pa_log("not following %s, no headset switches", path);
+        close(fd);
+        return false;
+    }
+
+    return add_device(u, fd, path);
+}
+
+static dm_list *split_comma_list(const char *list) {
+    const char *split_state = NULL;
+    char *token;
+    dm_list *items;
+
+    items = dm_list_new();
+
+    if (!list || !*list)
+        return items;
+
+    while ((token = pa_split(list, ",", &split_state))) {
+        char *item = pa_strip(token);
+
+        if (item && *item)
+            dm_list_push_back(items, pa_xstrdup(item));
+
+        pa_xfree(token);
+    }
+
+    return items;
+}
+
+static bool name_matches(const char *name, dm_list *matches) {
+    char *match;
+    void *state;
+
+    DM_LIST_FOREACH_DATA(match, matches, state) {
+        if (strstr(name, match))
+            return true;
+    }
+
+    return false;
+}
+
+static void scan_input_devices(pa_droid_extevdev *u, const char *match_list) {
     DIR *dir;
     struct dirent *de;
-    char path[PATH_MAX];
-    int fd = -1;
+    dm_list *matches;
+
+    matches = split_comma_list(match_list);
 
     if (!(dir = opendir(DEV_INPUT_EVENT))) {
-        pa_log("failed to open directory " DEV_INPUT_EVENT);
-        return fd;
+        pa_log("failed to open directory " DEV_INPUT_EVENT ": %s", pa_cstrerror(errno));
+        dm_list_free(matches, pa_xfree);
+        return;
     }
 
     while ((de = readdir(dir)) != NULL) {
+        char path[PATH_MAX];
+        char name[256];
+        int fd;
+
         if (de->d_type != DT_CHR && de->d_type != DT_LNK)
             continue;
 
         pa_snprintf(path, sizeof(path), DEV_INPUT_EVENT "/%s", de->d_name);
 
-        if ((fd = open(path, O_RDONLY)) < 0) {
-            pa_log("failed to open %s for reading", path);
+        if (device_is_open(u, path))
+            continue;
+
+        if ((fd = open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)) < 0) {
+            pa_log("failed to open %s for reading: %s", path, pa_cstrerror(errno));
             continue;
         }
 
-        if (name_string) {
-            char name[256] = {0};
+        if (dm_list_size(matches) > 0) {
+            memset(name, 0, sizeof(name));
 
             if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) < 0) {
-                pa_log_warn("Could not get device name: %s", pa_cstrerror(errno));
+                pa_log_warn("could not get device name of %s: %s", path, pa_cstrerror(errno));
                 close(fd);
-                fd = -1;
-            } else {
-                if (strstr(name, name_string)) {
-                    pa_log_debug("input device %s matches '%s'", path, name_string);
-                } else {
-                    close(fd);
-                    fd = -1;
-                }
+                continue;
             }
+
+            if (!name_matches(name, matches)) {
+                close(fd);
+                continue;
+            }
+
+            pa_log_debug("input device %s (%s) matches", path, name);
         }
 
-        if (fd >= 0) {
-            if (check_device(fd)) {
-                pa_log_info("input device found at %s", path);
-                break;
-            } else {
-                close(fd);
-                fd = -1;
-            }
+        if (!check_device(fd)) {
+            close(fd);
+            continue;
         }
+
+        add_device(u, fd, path);
     }
 
     closedir(dir);
-
-    return fd;
+    dm_list_free(matches, pa_xfree);
 }
 
-static int static_input_device(const char *path)  {
-    int fd = -1;
+static void extevdev_device_free(void *p) {
+    extevdev_device *dev = p;
 
-    if ((fd = open(path, O_RDONLY)) < 0) {
-        pa_log("failed to open %s for reading", path);
-        return fd;
-    }
+    pa_assert(dev);
 
-    if (check_device(fd)) {
-        pa_log_info("input device found at %s", path);
-    } else {
-        close(fd);
-        fd = -1;
-    }
+    if (dev->io)
+        dev->parent->card->core->mainloop->io_free(dev->io);
 
-    return fd;
+    if (dev->fd >= 0)
+        close(dev->fd);
+
+    pa_xfree(dev->path);
+    pa_xfree(dev);
 }
 
 static bool setup(const char *evdev_device, const char *evdev_match, pa_droid_extevdev *u) {
-    if (evdev_device)
-        u->fd = static_input_device(evdev_device);
-    else
-        u->fd = find_input_device(evdev_match);
+    extevdev_device *dev;
+    void *state;
 
-    if (u->fd < 0) {
+    if (evdev_device) {
+        char *path;
+        dm_list *paths;
+
+        paths = split_comma_list(evdev_device);
+        DM_LIST_FOREACH_DATA(path, paths, state)
+            open_path(u, path);
+        dm_list_free(paths, pa_xfree);
+    } else {
+        scan_input_devices(u, evdev_match);
+    }
+
+    if (dm_list_size(u->devs) == 0) {
         pa_log("could not start input device detection.");
         return false;
     }
 
-    u->event = u->card->core->mainloop->io_new(u->card->core->mainloop,
-                                               u->fd,
-                                               PA_IO_EVENT_INPUT|PA_IO_EVENT_HANGUP|PA_IO_EVENT_ERROR,
-                                               event_callback,
-                                               u);
+    DM_LIST_FOREACH_DATA(dev, u->devs, state)
+        query_device_state(dev);
 
-    query_initial_state(u);
+    recompute_switches(u);
+    notify_ports(u);
 
     return true;
 }
@@ -300,6 +582,7 @@ pa_droid_extevdev *pa_droid_extevdev_new(const char *evdev_device, const char *e
     pa_assert(card);
 
     u->card = card;
+    u->devs = dm_list_new();
 
     if (!setup(evdev_device, evdev_match, u))
         goto fail;
@@ -315,8 +598,10 @@ void pa_droid_extevdev_free(pa_droid_extevdev *u) {
     if (!u)
         return;
 
-    if (u->event)
-        u->card->core->mainloop->io_free(u->event);
+    stop_event_timer(u);
+
+    if (u->devs)
+        dm_list_free(u->devs, extevdev_device_free);
 
     pa_xfree(u);
 }
