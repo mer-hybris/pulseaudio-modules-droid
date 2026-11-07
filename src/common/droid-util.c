@@ -449,7 +449,11 @@ static void add_output_ports(pa_droid_mapping *droid_mapping, dm_config_port *de
 
     pa_assert(droid_mapping);
 
-    pa_assert_se(pa_droid_output_port_name(device_port->type, &name));
+    if (!pa_droid_output_port_name(device_port->type, &name)) {
+        pa_log_warn("Skipping output device port \"%s\" with unsupported type %#010x",
+                    device_port->name, device_port->type);
+        return;
+    }
 
     /* First add parking port */
 
@@ -527,7 +531,11 @@ static void add_input_ports(pa_droid_mapping *droid_mapping, dm_config_port *dev
     pa_assert(droid_mapping);
     pa_assert(device_port);
 
-    pa_assert_se(pa_droid_input_port_name(device_port->type, &name));
+    if (!pa_droid_input_port_name(device_port->type, &name)) {
+        pa_log_warn("Skipping input device port \"%s\" with unsupported type %#010x",
+                    device_port->name, device_port->type);
+        return;
+    }
 
     /* First add parking port */
 
@@ -1347,6 +1355,9 @@ static bool compatible_port(const dm_config_port *port,
     *compatible_sample_spec = *sample_spec;
     *compatible_channel_map = *channel_map;
 
+    /* Prefer the requested format before trying other PCM profiles. */
+    bool exact_format = true;
+retry:
     DM_LIST_FOREACH_DATA(profile, port->profiles, state) {
         uint32_t format = 0;
         bool sample_rate_compatible = false;
@@ -1356,8 +1367,18 @@ static bool compatible_port(const dm_config_port *port,
         if (!pa_convert_format(profile->format, CONV_FROM_HAL, &format))
             continue;
 
-        if (sample_spec->format != (pa_sample_format_t) format)
+        if (exact_format && sample_spec->format != (pa_sample_format_t) format)
             continue;
+
+        if (!exact_format) {
+            pa_log_info("%s port \"%s\" no profile matches sample format %s; "
+                        "falling back to %s.",
+                        port->port_type == DM_CONFIG_TYPE_MIX_PORT ? "Mix" : "Device",
+                        port->name,
+                        pa_sample_format_to_string(sample_spec->format),
+                        pa_sample_format_to_string((pa_sample_format_t) format));
+            compatible_sample_spec->format = (pa_sample_format_t) format;
+        }
 
         if (profile->sampling_rates[0] == 0) {
             sample_rate_compatible = true;
@@ -1443,6 +1464,11 @@ static bool compatible_port(const dm_config_port *port,
             return true;
         }
     } /* DM_LIST_FOREACH_DATA */
+
+    if (exact_format) {
+        exact_format = false;
+        goto retry;
+    }
 
     return false;
 }
@@ -1673,8 +1699,9 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 
     option_audio_cal(module, mix_port->flags);
 
-    output->sample_spec = *spec;
-    output->channel_map = *map;
+    /* The sink must describe the format selected for the HAL. */
+    output->sample_spec = sample_spec;
+    output->channel_map = channel_map;
     stream->active_device_port = NULL;
     stream->io_handle = module->stream_id;
 
