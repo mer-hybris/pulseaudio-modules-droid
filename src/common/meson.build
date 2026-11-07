@@ -27,6 +27,17 @@ libdroid_util_deps = [
   pulsecore_dep,
 ]
 
+if gbinder_dep.found()
+  libdroid_util_sources += [
+    'aidl-binder.c',
+    'aidl-eventloop.c',
+    'aidl-fmq.c',
+    'aidl-config-builder.c',
+    'aidl-hal-wrapper.c',
+  ]
+  libdroid_util_deps += [gbinder_dep, glib_dep]
+endif
+
 install_headers(libdroid_util_headers, subdir : header_install_path)
 
 libdroid_util = library('droid-util' + droid_module_suffix,

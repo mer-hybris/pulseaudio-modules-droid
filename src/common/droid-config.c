@@ -104,6 +104,7 @@ static dm_config_port *config_port_dup(const dm_config_port *port, dm_config_mod
 
     copy->module = module;
     copy->port_type = port->port_type;
+    copy->id = port->id;
     copy->name = pa_xstrdup(port->name);
     copy->role = port->role;
     copy->profiles = dm_list_new();

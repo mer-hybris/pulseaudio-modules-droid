@@ -72,6 +72,11 @@
 #include "droid/conversion.h"
 #include "droid/sllist.h"
 #include "droid/utils.h"
+#ifdef HAVE_AIDL
+#include "droid/aidl-binder.h"
+#include "droid/aidl-config-builder.h"
+#include "droid/aidl-hal-wrapper.h"
+#endif
 
 struct droid_option {
     const char *name;
@@ -136,6 +141,12 @@ static bool droid_set_audio_source(pa_droid_stream *stream, audio_source_t audio
 static void add_output_ports(pa_droid_mapping *droid_mapping, dm_config_port *device_port);
 static void add_input_ports(pa_droid_mapping *droid_mapping, dm_config_port *device_port);
 static void audio_patch_release(pa_droid_stream *stream);
+static bool stream_config_convert(pa_direction_t direction,
+                                  const struct audio_config *config,
+                                  pa_sample_spec *sample_spec,
+                                  pa_channel_map *channel_map);
+static void voice_audio_patches_release(pa_droid_hw_module *hw_module);
+static void voice_audio_patches_update(pa_droid_hw_module *hw_module);
 
 static pa_droid_profile *profile_new(pa_droid_profile_set *ps,
                                      dm_config_module *module,
@@ -399,6 +410,22 @@ void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
     pa_xfree(ps);
 }
 
+static bool droid_device_port_is_attached(const dm_config_module *module,
+                                          const dm_config_port *device_port) {
+    const dm_config_port *attached_port;
+    void *state;
+
+    if (!module || !device_port || !module->attached_devices)
+        return false;
+
+    DM_LIST_FOREACH_DATA(attached_port, module->attached_devices, state) {
+        if (dm_config_port_equal(attached_port, device_port))
+            return true;
+    }
+
+    return false;
+}
+
 static pa_droid_port *create_output_port(pa_droid_mapping *am,
                                          dm_config_port *device_port,
                                          const char *name,
@@ -422,20 +449,11 @@ static pa_droid_port *create_output_port(pa_droid_mapping *am,
     p->device_port = device_port;
 
     if (device_port) {
-        if (am->module->attached_devices) {
-            const dm_config_port *attached_port;
-            void *state;
-
-            DM_LIST_FOREACH_DATA(attached_port, am->module->attached_devices, state) {
-                if (attached_port->type == device_port->type) {
-                    p->priority += DEFAULT_PRIORITY;
-                    break;
-                }
-            }
-        }
+        if (droid_device_port_is_attached(am->module, device_port))
+            p->priority += DEFAULT_PRIORITY;
 
         if (am->module->default_output_device &&
-            am->module->default_output_device->type == device_port->type)
+            dm_config_port_equal(am->module->default_output_device, device_port))
             p->priority += DEFAULT_PRIORITY;
     }
 
@@ -507,17 +525,8 @@ static pa_droid_port *create_input_port(pa_droid_mapping *am,
     p->device_port = device_port;
 
     if (device_port) {
-        if (am->module->attached_devices) {
-            const dm_config_port *attached_port;
-            void *state;
-
-            DM_LIST_FOREACH_DATA(attached_port, am->module->attached_devices, state) {
-                if (attached_port->type == device_port->type) {
-                    p->priority += DEFAULT_PRIORITY;
-                    break;
-                }
-            }
-        }
+        if (droid_device_port_is_attached(am->module, device_port))
+            p->priority += DEFAULT_PRIORITY;
     }
 
     return p;
@@ -1150,10 +1159,114 @@ static pa_droid_hw_module *droid_hw_module_shared_get(pa_core *core, const char 
     return hw;
 }
 
+/* Enumerate the AIDL policy instead of loading an XML configuration. */
+static pa_droid_hw_module *droid_hw_module_open_aidl(pa_core *core,
+                                                     const char *module_id,
+                                                     const struct user_options *user_options) {
+#ifdef HAVE_AIDL
+    pa_droid_hw_module *hw = NULL;
+    aidl_audio_module *aidl_module = NULL;
+    dm_config_device *config = NULL;
+    pa_hashmap *aidl_port_ids = NULL;
+    struct audio_hw_device *device = NULL;
+
+    pa_assert(core);
+    pa_assert(module_id);
+
+    if (!pa_streq(module_id, PA_DROID_PRIMARY_DEVICE)) {
+        pa_log("AIDL backend only supports the primary module");
+        return NULL;
+    }
+
+    pa_log_info("Droid hw module (AIDL backend) %s", VERSION);
+
+    aidl_module = aidl_audio_module_connect(core);
+    if (!aidl_module) {
+        pa_log("AIDL backend: failed to connect to IModule/default");
+        goto fail;
+    }
+
+    config = droid_aidl_build_config(aidl_module, module_id, &aidl_port_ids);
+    if (!config) {
+        pa_log("AIDL backend: failed to build dm_config_device from AIDL");
+        goto fail;
+    }
+
+    /* Sanity check: requested module_id must be present in the built config. */
+    if (!dm_config_find_module(config, module_id)) {
+        pa_log("AIDL backend: built config doesn't contain module \"%s\"", module_id);
+        goto fail;
+    }
+
+    device = aidl_hal_wrapper_open(aidl_module, config, aidl_port_ids);
+    if (!device) {
+        pa_log("AIDL backend: failed to synthesize audio_hw_device_t");
+        /* On failure here, ownership of aidl_module + aidl_port_ids stayed
+         * with aidl_hal_wrapper's caller (us), so we still need to free them. */
+        goto fail;
+    }
+    /* After this point, aidl_module and aidl_port_ids are owned by the wrapper. */
+    aidl_module = NULL;
+    aidl_port_ids = NULL;
+
+    hw = pa_xnew0(pa_droid_hw_module, 1);
+    set_options(&hw->options, device, user_options);
+    PA_REFCNT_INIT(hw);
+    hw->core = core;
+    hw->hwmod = NULL;  /* No libhardware module in AIDL path. */
+    hw->hw_mutex = pa_mutex_new(true, false);
+    hw->output_mutex = pa_mutex_new(true, false);
+    hw->input_mutex = pa_mutex_new(true, false);
+    hw->device = device;
+    hw->config = config;  /* Transfer ownership. */
+    hw->enabled_module = dm_config_find_module(hw->config, module_id);
+    hw->module_id = hw->enabled_module->name;
+    hw->shared_name = shared_name_get(hw->module_id);
+    hw->outputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+    hw->inputs = pa_idxset_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
+
+    hw->sink_put_hook_slot    = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_EARLY-10,
+                                                sink_put_hook_cb, hw);
+    hw->sink_unlink_hook_slot = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY-10,
+                                                sink_unlink_hook_cb, hw);
+
+    hw->source_put_hook_slot = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_PUT], PA_HOOK_EARLY-10,
+                                               source_put_hook_cb, hw);
+    hw->source_unlink_hook_slot = pa_hook_connect(&core->hooks[PA_CORE_HOOK_SOURCE_UNLINK], PA_HOOK_EARLY-10,
+                                                  source_unlink_hook_cb, hw);
+
+    pa_assert_se(pa_shared_set(core, hw->shared_name, hw) >= 0);
+
+    if (pa_streq(hw->module_id, PA_DROID_PRIMARY_DEVICE)) {
+        pa_shared_set(core, DROID_HW_HANDLE_V1, hw);
+        pa_shared_set(core, DROID_SET_PARAMETERS_V1, droid_set_parameters_v1_cb);
+        pa_shared_set(core, DROID_GET_PARAMETERS_V1, droid_get_parameters_v1_cb);
+    }
+
+    pa_log_info("AIDL backend: opened hw module \"%s\"", hw->module_id);
+    return hw;
+
+fail:
+    if (device) audio_hw_device_close(device);  /* Cleans up wrapper. */
+    else {
+        /* Wrapper never took ownership — clean up ourselves. */
+        if (aidl_port_ids) pa_hashmap_free(aidl_port_ids);
+        if (aidl_module) aidl_audio_module_disconnect(aidl_module);
+    }
+    if (config) dm_config_free(config);
+    if (hw) pa_xfree(hw);
+    return NULL;
+#else
+    pa_log("AIDL backend was disabled at build time");
+    return NULL;
+#endif
+}
+
 pa_droid_hw_module *pa_droid_hw_module_get2(pa_core *core, pa_modargs *ma, const char *module_id) {
     pa_droid_hw_module *hw = NULL;
     dm_config_device *config = NULL;
     struct user_options user_options;
+    const char *backend;
 
     pa_assert(core);
     pa_assert(ma);
@@ -1170,8 +1283,24 @@ pa_droid_hw_module *pa_droid_hw_module_get2(pa_core *core, pa_modargs *ma, const
     if (!droid_options_parse(&user_options, ma))
         return NULL;
 
-    if (!(config = dm_config_load(ma)))
+    backend = pa_modargs_get_value(ma, "backend", "auto");
+    if (!pa_streq(backend, "auto") && !pa_streq(backend, "legacy") && !pa_streq(backend, "aidl")) {
+        pa_log("Unknown audio backend \"%s\"", backend);
         return NULL;
+    }
+
+    if (pa_streq(backend, "aidl")) {
+        return droid_hw_module_open_aidl(core, module_id, &user_options);
+    }
+
+    config = dm_config_load(ma);
+    if (!config) {
+        if (pa_streq(backend, "auto")) {
+            pa_log_info("No XML audio policy config loaded; falling back to AIDL backend");
+            return droid_hw_module_open_aidl(core, module_id, &user_options);
+        }
+        return NULL;
+    }
 
     hw = droid_hw_module_open(core, config, module_id, &user_options);
 
@@ -1217,8 +1346,8 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
     if (hw->source_unlink_hook_slot)
         pa_hook_slot_free(hw->source_unlink_hook_slot);
 
-    if (hw->config)
-        dm_config_free(hw->config);
+    if (hw->device)
+        voice_audio_patches_release(hw);
 
     if (hw->device) {
         if (pa_droid_option(hw, DM_OPTION_UNLOAD_CALL_EXIT))
@@ -1226,6 +1355,9 @@ static void droid_hw_module_close(pa_droid_hw_module *hw) {
         else if (!pa_droid_option(hw, DM_OPTION_UNLOAD_NO_CLOSE))
             audio_hw_device_close(hw->device);
     }
+
+    if (hw->config)
+        dm_config_free(hw->config);
 
     if (hw->hw_mutex)
         pa_mutex_free(hw->hw_mutex);
@@ -1344,6 +1476,7 @@ static bool compatible_port(const dm_config_port *port,
                             audio_channel_mask_t *compatible_channel_mask) {
     const dm_config_profile *profile;
     void *state;
+    bool output;
 
     pa_assert(port);
     pa_assert(port->port_type != DM_CONFIG_TYPE_MIX);
@@ -1351,6 +1484,8 @@ static bool compatible_port(const dm_config_port *port,
     pa_assert(compatible_sample_spec);
     pa_assert(compatible_channel_map);
     pa_assert(compatible_channel_mask);
+
+    output = port->role == DM_CONFIG_ROLE_SOURCE;
 
     *compatible_sample_spec = *sample_spec;
     *compatible_channel_map = *channel_map;
@@ -1426,7 +1561,11 @@ retry:
             *compatible_channel_mask = 0;
         } else {
             for (i = 0; profile->channel_masks[i]; i++) {
-                if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == channel_map->channels) {
+                uint32_t channel_count = output
+                    ? audio_channel_count_from_out_mask(profile->channel_masks[i])
+                    : audio_channel_count_from_in_mask(profile->channel_masks[i]);
+
+                if (channel_count == channel_map->channels) {
                     channel_count_compatible = true;
                     *compatible_channel_mask = profile->channel_masks[i];
                     break;
@@ -1438,14 +1577,16 @@ retry:
                  * If we wanted mono and mono wasn't available above then use stereo if found,
                  * and same if we wanted stereo and stereo wasn't available then use mono if found. */
                 for (i = 0; profile->channel_masks[i]; i++) {
-                    if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 2 &&
-                        channel_map->channels == 1) {
+                    uint32_t channel_count = output
+                        ? audio_channel_count_from_out_mask(profile->channel_masks[i])
+                        : audio_channel_count_from_in_mask(profile->channel_masks[i]);
+
+                    if (channel_count == 2 && channel_map->channels == 1) {
                         channel_count_compatible = true;
                         pa_channel_map_init_stereo(compatible_channel_map);
                         *compatible_channel_mask = profile->channel_masks[i];
                         break;
-                    } else if (audio_channel_count_from_out_mask(profile->channel_masks[i]) == 1 &&
-                               channel_map->channels == 2) {
+                    } else if (channel_count == 1 && channel_map->channels == 2) {
                         channel_count_compatible = true;
                         pa_channel_map_init_mono(compatible_channel_map);
                         *compatible_channel_mask = profile->channel_masks[i];
@@ -1567,6 +1708,12 @@ static bool stream_config_fill(pa_droid_hw_module *hw,
                 mix_port->name,
                 tmp);
 
+    if (!pa_convert_format(compatible_sample_spec.format, CONV_FROM_PA, &hal_audio_format)) {
+        pa_log_warn("Compatible sample spec format %u not supported.",
+                    compatible_sample_spec.format);
+        goto fail;
+    }
+
     memset(config, 0, sizeof(*config));
     config->sample_rate = compatible_sample_spec.rate;
     config->channel_mask = hal_channel_mask;
@@ -1616,6 +1763,9 @@ static dm_config_port *stream_select_mix_port(pa_droid_stream *stream) {
         void *state1, *state2;
 
         DM_LIST_FOREACH_DATA(route, stream->module->enabled_module->routes, state1) {
+            if (route->sink->port_type != DM_CONFIG_TYPE_MIX_PORT)
+                continue;
+
             DM_LIST_FOREACH_DATA(port, route->sources, state2) {
                 if (port->role != DM_CONFIG_ROLE_SOURCE)
                     continue;
@@ -1699,6 +1849,9 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
 
     option_audio_cal(module, mix_port->flags);
 
+    if (!stream_config_convert(PA_DIRECTION_OUTPUT, &config_out, &sample_spec, &channel_map))
+        goto fail;
+
     /* The sink must describe the format selected for the HAL. */
     output->sample_spec = sample_spec;
     output->channel_map = channel_map;
@@ -1729,7 +1882,18 @@ pa_droid_stream *pa_droid_open_output_stream(pa_droid_hw_module *module,
     return stream;
 
 fail:
-    pa_xfree(stream);
+    if (output && output->stream) {
+        pa_mutex_lock(module->output_mutex);
+        module->device->close_output_stream(module->device, output->stream);
+        pa_mutex_unlock(module->output_mutex);
+    }
+
+    if (stream) {
+        if (stream->module)
+            pa_droid_hw_module_unref(stream->module);
+        pa_xfree(stream);
+    }
+
     pa_xfree(output);
 
     return NULL;
@@ -1798,7 +1962,11 @@ static bool stream_config_convert(pa_direction_t direction,
         uint32_t current = (1 << i++);
 
         if (channel_mask & current) {
-            if (!pa_convert_input_channel(current, CONV_FROM_HAL, &pa_channel)) {
+            bool converted = direction == PA_DIRECTION_OUTPUT
+                ? pa_convert_output_channel(current, CONV_FROM_HAL, &pa_channel)
+                : pa_convert_input_channel(current, CONV_FROM_HAL, &pa_channel);
+
+            if (!converted) {
                 pa_log_warn("Could not convert channel mask value %#010x", current);
                 return false;
             }
@@ -2260,6 +2428,390 @@ static void audio_patch_release(pa_droid_stream *stream) {
     }
 }
 
+static bool voice_port_is_null(const dm_config_port *port) {
+    return port && port->name && strncmp(port->name, "null-", 5) == 0;
+}
+
+static bool voice_route_exists(pa_droid_hw_module *hw_module,
+                               const dm_config_port *source,
+                               const dm_config_port *sink) {
+    dm_config_route *route;
+    void *state, *state2;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->enabled_module);
+
+    if (!source || !sink)
+        return false;
+
+    DM_LIST_FOREACH_DATA(route, hw_module->enabled_module->routes, state) {
+        dm_config_port *route_source;
+
+        if (!dm_config_port_equal(route->sink, sink))
+            continue;
+
+        DM_LIST_FOREACH_DATA(route_source, route->sources, state2) {
+            if (dm_config_port_equal(route_source, source))
+                return true;
+        }
+    }
+
+    return false;
+}
+
+static dm_config_port *voice_find_device_port(pa_droid_hw_module *hw_module,
+                                              audio_devices_t type,
+                                              dm_config_role_t role) {
+    dm_config_port *port, *fallback = NULL;
+    void *state;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->enabled_module);
+
+    DM_LIST_FOREACH_DATA(port, hw_module->enabled_module->device_ports, state) {
+        if (port->role != role)
+            continue;
+
+        if (port->type == type)
+            return port;
+
+        if (!fallback && type != 0 && (port->type & type) == type)
+            fallback = port;
+    }
+
+    return fallback;
+}
+
+static dm_config_port *voice_find_route_sink(pa_droid_hw_module *hw_module,
+                                             const dm_config_port *source,
+                                             audio_devices_t preferred_type) {
+    dm_config_route *route;
+    dm_config_port *fallback = NULL;
+    void *state, *state2;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->enabled_module);
+
+    if (!source)
+        return NULL;
+
+    DM_LIST_FOREACH_DATA(route, hw_module->enabled_module->routes, state) {
+        dm_config_port *route_source;
+
+        DM_LIST_FOREACH_DATA(route_source, route->sources, state2) {
+            if (!dm_config_port_equal(route_source, source))
+                continue;
+
+            if (!route->sink ||
+                route->sink->port_type != DM_CONFIG_TYPE_DEVICE_PORT ||
+                route->sink->role != DM_CONFIG_ROLE_SINK ||
+                voice_port_is_null(route->sink))
+                continue;
+
+            if (!fallback)
+                fallback = route->sink;
+
+            if (route->sink && route->sink->type == preferred_type)
+                return route->sink;
+        }
+    }
+
+    return fallback;
+}
+
+static dm_config_port *voice_find_route_source(pa_droid_hw_module *hw_module,
+                                               const dm_config_port *sink,
+                                               audio_devices_t preferred_type) {
+    dm_config_route *route;
+    dm_config_port *fallback = NULL;
+    void *state, *state2;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->enabled_module);
+
+    if (!sink)
+        return NULL;
+
+    DM_LIST_FOREACH_DATA(route, hw_module->enabled_module->routes, state) {
+        dm_config_port *source;
+
+        if (!dm_config_port_equal(route->sink, sink))
+            continue;
+
+        DM_LIST_FOREACH_DATA(source, route->sources, state2) {
+            if (source->port_type != DM_CONFIG_TYPE_DEVICE_PORT ||
+                source->role != DM_CONFIG_ROLE_SOURCE ||
+                voice_port_is_null(source))
+                continue;
+
+            if (!fallback)
+                fallback = source;
+
+            if (source->type == preferred_type)
+                return source;
+        }
+    }
+
+    return fallback;
+}
+
+static dm_config_port *voice_select_output_device(pa_droid_hw_module *hw_module,
+                                                  const dm_config_port *rx_source) {
+    pa_droid_stream *primary_output;
+    dm_config_port *port;
+
+    primary_output = pa_droid_hw_primary_output_stream(hw_module);
+    if (primary_output && primary_output->active_device_port &&
+        voice_route_exists(hw_module, rx_source, primary_output->active_device_port))
+        return (dm_config_port *) primary_output->active_device_port;
+
+    port = voice_find_device_port(hw_module, AUDIO_DEVICE_OUT_EARPIECE, DM_CONFIG_ROLE_SINK);
+    if (port && !voice_port_is_null(port) &&
+        voice_route_exists(hw_module, rx_source, port))
+        return port;
+
+    port = voice_find_device_port(hw_module, AUDIO_DEVICE_OUT_SPEAKER, DM_CONFIG_ROLE_SINK);
+    if (port && !voice_port_is_null(port) &&
+        voice_route_exists(hw_module, rx_source, port))
+        return port;
+
+    return voice_find_route_sink(hw_module, rx_source, AUDIO_DEVICE_OUT_EARPIECE);
+}
+
+static dm_config_port *voice_select_input_device(pa_droid_hw_module *hw_module,
+                                                 const dm_config_port *tx_sink) {
+    pa_droid_stream *stream;
+    dm_config_port *port;
+    uint32_t idx;
+
+    PA_IDXSET_FOREACH(stream, hw_module->inputs, idx) {
+        if (stream->active_device_port &&
+            voice_route_exists(hw_module, stream->active_device_port, tx_sink))
+            return (dm_config_port *) stream->active_device_port;
+    }
+
+    port = voice_find_device_port(hw_module, AUDIO_DEVICE_IN_BUILTIN_MIC, DM_CONFIG_ROLE_SOURCE);
+    if (port && !voice_port_is_null(port) &&
+        voice_route_exists(hw_module, port, tx_sink))
+        return port;
+
+    return voice_find_route_source(hw_module, tx_sink, AUDIO_DEVICE_IN_BUILTIN_MIC);
+}
+
+static void voice_audio_port_config_fill_profile(struct audio_port_config *config,
+                                                 const dm_config_port *port) {
+    dm_config_profile *profile;
+
+    pa_assert(config);
+    pa_assert(port);
+
+    if (!port->profiles)
+        return;
+
+    if (!port->profiles->head)
+        return;
+
+    profile = port->profiles->head->data;
+    if (!profile)
+        return;
+
+    if (profile->sampling_rates[0]) {
+        config->sample_rate = profile->sampling_rates[0];
+        config->config_mask |= AUDIO_PORT_CONFIG_SAMPLE_RATE;
+    }
+
+    if (profile->channel_masks[0]) {
+        config->channel_mask = profile->channel_masks[0];
+        config->config_mask |= AUDIO_PORT_CONFIG_CHANNEL_MASK;
+    }
+
+    if (profile->format != AUDIO_FORMAT_DEFAULT) {
+        config->format = profile->format;
+        config->config_mask |= AUDIO_PORT_CONFIG_FORMAT;
+    }
+}
+
+static void voice_audio_port_config_fill(struct audio_port_config *config,
+                                         const dm_config_port *port) {
+    pa_assert(config);
+    pa_assert(port);
+
+    memset(config, 0, sizeof(*config));
+
+    config->id = port->id;
+    config->role = port->role == DM_CONFIG_ROLE_SOURCE ? AUDIO_PORT_ROLE_SOURCE : AUDIO_PORT_ROLE_SINK;
+
+    voice_audio_port_config_fill_profile(config, port);
+
+    if (port->port_type == DM_CONFIG_TYPE_MIX_PORT) {
+        config->type = AUDIO_PORT_TYPE_MIX;
+        config->ext.mix.handle = 0;
+
+        if (port->flags) {
+            config->config_mask |= AUDIO_PORT_CONFIG_FLAGS;
+            if (port->role == DM_CONFIG_ROLE_SOURCE)
+                config->flags.output = (audio_output_flags_t) port->flags;
+            else
+                config->flags.input = (audio_input_flags_t) port->flags;
+        }
+    } else {
+        config->type = AUDIO_PORT_TYPE_DEVICE;
+        config->ext.device.type = port->type;
+        if (port->address && port->address[0])
+            strncpy(config->ext.device.address, port->address, AUDIO_DEVICE_MAX_ADDRESS_LEN - 1);
+    }
+}
+
+static int voice_audio_patch_create(pa_droid_hw_module *hw_module,
+                                    const dm_config_port *source_port,
+                                    const dm_config_port *sink_port,
+                                    audio_patch_handle_t *patch) {
+    struct audio_port_config source, sink;
+    int ret;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->device);
+    pa_assert(source_port);
+    pa_assert(sink_port);
+    pa_assert(patch);
+
+    voice_audio_port_config_fill(&source, source_port);
+    voice_audio_port_config_fill(&sink, sink_port);
+
+    ret = hw_module->device->create_audio_patch(hw_module->device, 1, &source, 1, &sink, patch);
+    if (ret < 0)
+        pa_log_warn("Failed to create voice audio patch \"%s\"->\"%s\" (%d)",
+                    source_port->name, sink_port->name, -ret);
+    else
+        pa_log_info("Created voice audio patch \"%s\"->\"%s\"",
+                    source_port->name, sink_port->name);
+
+    return ret;
+}
+
+static void voice_audio_patch_release(pa_droid_hw_module *hw_module,
+                                      audio_patch_handle_t *patch,
+                                      const dm_config_port **source_port,
+                                      const dm_config_port **sink_port) {
+    int ret;
+
+    pa_assert(hw_module);
+    pa_assert(hw_module->device);
+    pa_assert(patch);
+    pa_assert(source_port);
+    pa_assert(sink_port);
+
+    if (*patch == AUDIO_PATCH_HANDLE_NONE)
+        return;
+
+    ret = hw_module->device->release_audio_patch(hw_module->device, *patch);
+    if (ret < 0)
+        pa_log_warn("Failed to release voice audio patch \"%s\"->\"%s\" (%d)",
+                    *source_port ? (*source_port)->name : "<unknown>",
+                    *sink_port ? (*sink_port)->name : "<unknown>",
+                    -ret);
+    else
+        pa_log_info("Released voice audio patch \"%s\"->\"%s\"",
+                    *source_port ? (*source_port)->name : "<unknown>",
+                    *sink_port ? (*sink_port)->name : "<unknown>");
+
+    *patch = AUDIO_PATCH_HANDLE_NONE;
+    *source_port = NULL;
+    *sink_port = NULL;
+}
+
+static void voice_audio_patches_release(pa_droid_hw_module *hw_module) {
+    pa_assert(hw_module);
+
+    voice_audio_patch_release(hw_module,
+                              &hw_module->voice_rx_patch,
+                              &hw_module->voice_rx_source_port,
+                              &hw_module->voice_rx_sink_port);
+    voice_audio_patch_release(hw_module,
+                              &hw_module->voice_tx_patch,
+                              &hw_module->voice_tx_source_port,
+                              &hw_module->voice_tx_sink_port);
+}
+
+static bool voice_patch_matches(audio_patch_handle_t patch,
+                                const dm_config_port *current_source,
+                                const dm_config_port *current_sink,
+                                const dm_config_port *new_source,
+                                const dm_config_port *new_sink) {
+    return patch != AUDIO_PATCH_HANDLE_NONE &&
+           dm_config_port_equal(current_source, new_source) &&
+           dm_config_port_equal(current_sink, new_sink);
+}
+
+static void voice_audio_patches_update(pa_droid_hw_module *hw_module) {
+    dm_config_port *rx_source, *rx_sink, *tx_source, *tx_sink;
+
+    pa_assert(hw_module);
+
+    if (!hw_module->device->create_audio_patch || !hw_module->device->release_audio_patch)
+        return;
+
+    if (hw_module->state.mode != AUDIO_MODE_IN_CALL) {
+        voice_audio_patches_release(hw_module);
+        return;
+    }
+
+    /* Pixel AIDL policy exposes the legacy telephony device routes here.
+     * The vendor HAL internally expands those patches into voice-call
+     * downlink/uplink routes. */
+    rx_source = voice_find_device_port(hw_module, AUDIO_DEVICE_IN_TELEPHONY_RX, DM_CONFIG_ROLE_SOURCE);
+    tx_sink = voice_find_device_port(hw_module, AUDIO_DEVICE_OUT_TELEPHONY_TX, DM_CONFIG_ROLE_SINK);
+
+    rx_sink = voice_select_output_device(hw_module, rx_source);
+    tx_source = voice_select_input_device(hw_module, tx_sink);
+
+    pa_log_debug("Voice call patch candidates: rx %s -> %s, tx %s -> %s",
+                rx_source ? rx_source->name : "<none>",
+                rx_sink ? rx_sink->name : "<none>",
+                tx_source ? tx_source->name : "<none>",
+                tx_sink ? tx_sink->name : "<none>");
+
+    if (!rx_source || !rx_sink ||
+        !voice_route_exists(hw_module, rx_source, rx_sink)) {
+        voice_audio_patch_release(hw_module,
+                                  &hw_module->voice_rx_patch,
+                                  &hw_module->voice_rx_source_port,
+                                  &hw_module->voice_rx_sink_port);
+    } else if (!voice_patch_matches(hw_module->voice_rx_patch,
+                                    hw_module->voice_rx_source_port,
+                                    hw_module->voice_rx_sink_port,
+                                    rx_source, rx_sink)) {
+        voice_audio_patch_release(hw_module,
+                                  &hw_module->voice_rx_patch,
+                                  &hw_module->voice_rx_source_port,
+                                  &hw_module->voice_rx_sink_port);
+        if (voice_audio_patch_create(hw_module, rx_source, rx_sink, &hw_module->voice_rx_patch) == 0) {
+            hw_module->voice_rx_source_port = rx_source;
+            hw_module->voice_rx_sink_port = rx_sink;
+        }
+    }
+
+    if (!tx_source || !tx_sink ||
+        !voice_route_exists(hw_module, tx_source, tx_sink)) {
+        voice_audio_patch_release(hw_module,
+                                  &hw_module->voice_tx_patch,
+                                  &hw_module->voice_tx_source_port,
+                                  &hw_module->voice_tx_sink_port);
+    } else if (!voice_patch_matches(hw_module->voice_tx_patch,
+                                    hw_module->voice_tx_source_port,
+                                    hw_module->voice_tx_sink_port,
+                                    tx_source, tx_sink)) {
+        voice_audio_patch_release(hw_module,
+                                  &hw_module->voice_tx_patch,
+                                  &hw_module->voice_tx_source_port,
+                                  &hw_module->voice_tx_sink_port);
+        if (voice_audio_patch_create(hw_module, tx_source, tx_sink, &hw_module->voice_tx_patch) == 0) {
+            hw_module->voice_tx_source_port = tx_source;
+            hw_module->voice_tx_sink_port = tx_sink;
+        }
+    }
+}
+
 static int audio_patch_update_output(pa_droid_stream *stream, const dm_config_port *device_port) {
     pa_droid_output_stream *output;
     struct audio_port_config sink, source;
@@ -2501,6 +3053,8 @@ int pa_droid_stream_set_route(pa_droid_stream *s, dm_config_port *device_port) {
         } else {
             ret = output_stream_set_parameter(s, device_port);
         }
+        if (ret == 0 && s->module->state.mode == AUDIO_MODE_IN_CALL)
+            voice_audio_patches_update(s->module);
         return ret;
     } else {
         pa_droid_hw_set_input_device(s, device_port);
@@ -2718,11 +3272,13 @@ void pa_droid_hw_mic_set_mute(pa_droid_hw_module *hw_module, bool muted) {
 
 bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
     bool ret = true;
+    audio_mode_t old_mode;
 
     pa_assert(hw_module);
     pa_assert(hw_module->device);
 
     pa_log_info("Set mode to %s.", audio_mode_to_string(mode));
+    old_mode = hw_module->state.mode;
 
     if (pa_droid_option(hw_module, DM_OPTION_SPEAKER_BEFORE_VOICE) &&
         hw_module->state.mode != mode && mode == AUDIO_MODE_IN_CALL) {
@@ -2742,7 +3298,9 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
         ret = false;
         pa_log_warn("Failed to set mode.");
     } else {
-        if (hw_module->state.mode != mode && mode == AUDIO_MODE_IN_CALL) {
+        hw_module->state.mode = mode;
+
+        if (old_mode != mode && mode == AUDIO_MODE_IN_CALL) {
             pa_droid_stream *primary_output;
             dm_config_port *device_port;
 
@@ -2754,7 +3312,7 @@ bool pa_droid_hw_set_mode(pa_droid_hw_module *hw_module, audio_mode_t mode) {
                 pa_droid_stream_set_route(primary_output, device_port);
         }
 
-        hw_module->state.mode = mode;
+        voice_audio_patches_update(hw_module);
     }
     pa_droid_hw_module_unlock(hw_module);
 
@@ -2848,6 +3406,9 @@ bool pa_droid_hw_set_input_device(pa_droid_stream *stream,
     if (stream->active_device_port && (device_changed || source_changed))
         input_stream_set_route(stream, device_port);
 
+    if (stream->module->state.mode == AUDIO_MODE_IN_CALL)
+        voice_audio_patches_update(stream->module);
+
     return true;
 }
 
@@ -2873,13 +3434,16 @@ pa_modargs *pa_droid_modargs_new(const char *args, const char* const keys[]) {
 
     for (count = 0; keys[count]; count++) ;
 
-    full_keys = pa_xnew0(const char *, count + DM_OPTION_COUNT + 1);
+    /* +1 for "backend", +1 for the NULL terminator. */
+    full_keys = pa_xnew0(const char *, count + DM_OPTION_COUNT + 2);
 
     for (i = 0; keys[i]; i++)
         full_keys[i] = keys[i];
 
     for (k = 0; k < DM_OPTION_COUNT; k++)
         full_keys[i++] = valid_options[k].name;
+
+    full_keys[i++] = "backend";
 
     ma = pa_modargs_new(args, full_keys);
 

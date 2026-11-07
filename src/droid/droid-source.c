@@ -103,7 +103,7 @@ static void source_reconfigure(struct userdata *u,
 
 static int thread_read(struct userdata *u) {
     void *p;
-    ssize_t readd;
+    ssize_t readd = 0;
     pa_memchunk chunk;
 
     chunk.index = 0;
@@ -127,7 +127,8 @@ static int thread_read(struct userdata *u) {
     pa_memblock_release(chunk.memblock);
 
     if (readd < 0) {
-        pa_log("Failed to read from stream. (err %zd)", readd);
+        if (pa_log_ratelimit(PA_LOG_ERROR))
+            pa_log("Failed to read from stream. (err %zd)", readd);
         goto end;
     }
 
@@ -152,6 +153,9 @@ static int thread_read(struct userdata *u) {
         pa_source_post(u->source, &chunk);
 
 end:
+    if (readd <= 0)
+        u->timestamp = pa_rtclock_now() + PA_MAX(PA_USEC_PER_MSEC,
+                            pa_bytes_to_usec(u->buffer_size, &u->source->sample_spec));
     pa_memblock_unref(chunk.memblock);
 
     return 0;

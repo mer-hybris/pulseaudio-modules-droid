@@ -22,3 +22,8 @@ option('module-suffix',
        type : 'string',
        value : '',
        description : 'Specify suffixes to all modules and libraries. "-" will be included automatically')
+
+option('aidl',
+       type : 'feature',
+       value : 'auto',
+       description : 'Build the AIDL audio HAL backend using libgbinder')

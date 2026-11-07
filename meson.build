@@ -24,6 +24,8 @@ ltdl_dep = cc.find_library('ltdl', required : true)
 pulsecore_dep = dependency('pulsecore', version : '>= 14.2', required : true)
 libudev_dep = dependency('libudev', required : true)
 alsa_dep = dependency('alsa', required : true)
+gbinder_dep = dependency('libgbinder', version : '>= 1.1.49', required : get_option('aidl'))
+glib_dep = dependency('glib-2.0', required : gbinder_dep.found())
 
 pa_version_str = pulsecore_dep.version()
 # For tarballs, the first split will do nothing, but for builds in git, we
@@ -56,6 +58,9 @@ endif
 header_install_path = pc_header_dir + '/droid'
 
 cdata = configuration_data()
+if gbinder_dep.found()
+  cdata.set('HAVE_AIDL', 1)
+endif
 cdata.set_quoted('PACKAGE', meson.project_name())
 cdata.set_quoted('PACKAGE_NAME', meson.project_name())
 cdata.set_quoted('PACKAGE_VERSION', pa_version_str)
@@ -133,8 +138,16 @@ endif
 
 check_enums = [
   # Input devices
+  'AUDIO_DEVICE_IN_BLE_HEADSET',
+  'AUDIO_DEVICE_IN_HDMI_EARC',
   'AUDIO_DEVICE_IN_FM_RX',
   'AUDIO_DEVICE_IN_FM_RX_A2DP',
+  # Output devices
+  'AUDIO_DEVICE_OUT_BLE_HEADSET',
+  'AUDIO_DEVICE_OUT_BLE_SPEAKER',
+  'AUDIO_DEVICE_OUT_BLE_BROADCAST',
+  'AUDIO_DEVICE_OUT_HDMI_EARC',
+  'AUDIO_DEVICE_OUT_MULTICHANNEL_GROUP',
   # Audio sources
   'AUDIO_SOURCE_ECHO_REFERENCE',
   'AUDIO_SOURCE_FM_TUNER',
@@ -188,3 +201,5 @@ endforeach
 configure_file(output : 'config.h', configuration : cdata)
 
 subdir('src')
+
+subdir('tests')

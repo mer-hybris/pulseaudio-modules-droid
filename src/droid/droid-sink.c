@@ -257,8 +257,15 @@ static int thread_write(struct userdata *u) {
             pa_memblockq_drop(u->memblockq, c.length);
             pa_memblock_unref(c.memblock);
             u->write_time = 0;
-            pa_log("failed to write stream (%zd)", wrote);
+            if (pa_log_ratelimit(PA_LOG_ERROR))
+                pa_log("failed to write stream (%zd)", wrote);
             return -1;
+        }
+
+        if (wrote == 0) {
+            pa_memblock_unref(c.memblock);
+            u->write_time = 0;
+            return 1;
         }
 
         if (wrote < (ssize_t) c.length) {
@@ -363,9 +370,9 @@ static void thread_func(void *userdata) {
                     pa_sink_volume_change_apply(u->sink, NULL);
 
                 thread_render(u);
-                thread_write(u);
+                ret = thread_write(u);
 
-                if (u->write_time > u->write_threshold)
+                if (ret != 0 || u->write_time > u->write_threshold)
                     sleept = u->buffer_time;
 
                 pa_rtpoll_set_timer_relative(u->rtpoll, sleept);
