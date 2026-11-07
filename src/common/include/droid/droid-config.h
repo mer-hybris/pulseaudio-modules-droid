@@ -72,6 +72,7 @@ struct dm_config_port {
     /* common values */
 
     dm_config_type_t port_type; /* either mixPort or devicePort */
+    int id; /* AIDL AudioPort id, 0 when not available from XML policy */
     char *name;
     dm_config_role_t role;
     dm_list *profiles; /* dm_config_profile* */
