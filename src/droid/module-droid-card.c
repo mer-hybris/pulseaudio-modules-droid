@@ -335,11 +335,17 @@ static uint32_t max_channels_for_mix_port(dm_config_port *mix_port, uint32_t pre
     uint32_t max_channels = 0;
     dm_config_profile *profile;
     void *state;
+    bool output;
+
+    output = mix_port->role == DM_CONFIG_ROLE_SOURCE;
 
     DM_LIST_FOREACH_DATA(profile, mix_port->profiles, state) {
         for (int i = 0; profile->channel_masks[i]; i++) {
-            max_channels = audio_channel_count_from_out_mask(profile->channel_masks[i]) > max_channels
-                            ? audio_channel_count_from_out_mask(profile->channel_masks[i]) : max_channels;
+            uint32_t channel_count = output
+                ? audio_channel_count_from_out_mask(profile->channel_masks[i])
+                : audio_channel_count_from_in_mask(profile->channel_masks[i]);
+
+            max_channels = channel_count > max_channels ? channel_count : max_channels;
         }
     }
 

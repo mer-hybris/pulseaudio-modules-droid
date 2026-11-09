@@ -383,3 +383,24 @@ way as defined in Android audio.h. For example:
 
     set_parameters(handle, "route=2;");
     char *value = get_parameters(handle, "connected");
+
+## AIDL audio HAL
+
+The AIDL backend uses libgbinder to access the
+`android.hardware.audio.core.IModule/default` service directly.
+It needs the FMQ descriptor import API from
+[libgbinder PR #173](https://github.com/mer-hybris/libgbinder/pull/173).
+Build with `-Daidl=enabled` to require this backend, or
+`-Daidl=disabled` to build only the legacy backend. The default is `auto`.
+
+Pass `backend=aidl` to `module-droid-card` to select it explicitly. The default
+`backend=auto` uses the legacy HAL when an XML policy loads and tries AIDL when
+none loads. Use `backend=legacy` to require the legacy path. The AIDL backend
+currently supports the primary module and synchronous PCM streams; MMAP,
+compressed offload and external-device hotplug are not implemented. A HAL death
+requires reloading the card; a stream command timeout requires reopening the
+stream.
+
+The policy is built from the HAL's ports and routes. Voice calls use telephony
+patches when those routes and the patch callbacks are available, including on
+legacy HALs. Voice volume uses ITelephony on AIDL HALs.
