@@ -2284,6 +2284,7 @@ static int audio_patch_update_input(pa_droid_stream *stream, const dm_config_por
     sink.sample_rate = input->sample_spec.rate;
     sink.format = AUDIO_FORMAT_PCM_16_BIT;
     sink.ext.mix.handle = stream->io_handle;
+    sink.ext.mix.usecase.source = input->audio_source;
 
     source.role = AUDIO_PORT_ROLE_SOURCE;
     source.type = AUDIO_PORT_TYPE_DEVICE;
