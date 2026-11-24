@@ -62,6 +62,12 @@
 #include <droid/conversion.h>
 #include <droid/sllist.h>
 
+enum hac_state {
+    HAC_UNSET,
+    HAC_OFF,
+    HAC_ON
+};
+
 struct userdata {
     pa_core *core;
     pa_module *module;
@@ -97,6 +103,7 @@ struct userdata {
     pa_hook_slot *sink_input_unlink_hook_slot;
     pa_hook_slot *sink_proplist_changed_hook_slot;
     pa_hashmap *parameters;
+    enum hac_state hac_applied;
 
     pa_droid_card_data *card_data;
     pa_droid_hw_module *hw_module;
@@ -106,6 +113,7 @@ struct userdata {
 #define DEFAULT_MODULE_ID "primary"
 
 /* sink properties */
+#define PROP_DROID_HAC "droid.hac"
 #define PROP_DROID_PARAMETER_PREFIX "droid.parameter."
 typedef struct droid_parameter_mapping {
     char *key;
@@ -859,6 +867,28 @@ static pa_hook_result_t sink_input_unlink_hook_cb(pa_core *c, pa_sink_input *sin
     return PA_HOOK_OK;
 }
 
+static void update_hac(struct userdata *u) {
+    const char *value = pa_proplist_gets(u->sink->proplist, PROP_DROID_HAC);
+    enum hac_state requested;
+
+    if (!value)
+        return;
+
+    if (pa_streq(value, "on"))
+        requested = HAC_ON;
+    else if (pa_streq(value, "off"))
+        requested = HAC_OFF;
+    else
+        return;
+
+    if (requested == u->hac_applied)
+        return;
+
+    /* HACSetting is a device parameter even though policy targets the primary sink. */
+    if (pa_droid_set_parameters(u->hw_module, requested == HAC_ON ? "HACSetting=ON" : "HACSetting=OFF") == 0)
+        u->hac_applied = requested;
+}
+
 /* Watch for properties starting with droid.parameter. and translate them directly to
  * HAL set_parameters() calls. */
 static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink, struct userdata *u) {
@@ -876,6 +906,7 @@ static pa_hook_result_t sink_proplist_changed_hook_cb(pa_core *c, pa_sink *sink,
     if (u->sink != sink)
         return PA_HOOK_OK;
 
+    update_hac(u);
     while ((key = pa_proplist_iterate(sink->proplist, &state))) {
         if (!pa_startswith(key, PROP_DROID_PARAMETER_PREFIX))
             continue;
@@ -1178,6 +1209,8 @@ pa_sink *pa_droid_sink_new(pa_module *m,
     pa_droid_stream_suspend(u->stream, false);
     pa_droid_stream_set_data(u->stream, u->sink);
     pa_sink_put(u->sink);
+    if (pa_droid_stream_is_primary(u->stream))
+        update_hac(u);
 
     pa_xfree(sink_name);
 
@@ -1233,6 +1266,9 @@ static void userdata_free(struct userdata *u) {
 
     if (u->sink_proplist_changed_hook_slot)
         pa_hook_slot_free(u->sink_proplist_changed_hook_slot);
+
+    if (u->hac_applied == HAC_ON)
+        pa_droid_set_parameters(u->hw_module, "HACSetting=OFF");
 
     if (u->sink)
         pa_sink_unref(u->sink);

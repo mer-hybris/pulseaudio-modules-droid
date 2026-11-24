@@ -364,6 +364,14 @@ For example, if droid-sink has active port output-wired_headphone:
 As long as the new stream is connected to droid-sink, output routing is
 SPEAKER.
 
+Hearing-aid compatibility
+-------------------------
+
+On adaptations that support hearing-aid compatibility, audio policy can set
+`droid.hac` on the primary output sink to `on` or `off`. The sink forwards
+this to the audio device as `HACSetting=ON` or `HACSetting=OFF`. Leaving the
+property unset leaves the device setting alone.
+
 HAL API
 -------
 
