@@ -129,6 +129,9 @@ uint32_t conversion_table_default_audio_source[][2] = {
 #if defined(HAVE_ENUM_AUDIO_DEVICE_IN_FM_RX_A2DP) && defined(HAVE_ENUM_AUDIO_SOURCE_FM_RX_A2DP)
     { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP                 },
 #endif
+#if defined(HAVE_ENUM_AUDIO_DEVICE_IN_BLE_HEADSET)
+    { AUDIO_DEVICE_IN_BLE_HEADSET,                  AUDIO_SOURCE_MIC                        },
+#endif
 };
 
 /* Output devices */
@@ -165,6 +168,10 @@ struct string_conversion string_conversion_table_output_device[] = {
     STRING_ENTRY( AUDIO_DEVICE_OUT_HEARING_AID                      ),
     STRING_ENTRY( AUDIO_DEVICE_OUT_ECHO_CANCELLER                   ),
     STRING_ENTRY( AUDIO_DEVICE_OUT_DEFAULT                          ),
+
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_BLE_HEADSET
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_BLE_SPEAKER
+    STRING_ENTRY_IF_AUDIO_DEVICE_OUT_BLE_BROADCAST
 
     { 0, NULL }
 };
@@ -211,6 +218,10 @@ struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_ECHO_CANCELLER,                  "output-echo_canceller"             },
     { AUDIO_DEVICE_OUT_DEFAULT,                         "output-default"                    },
 
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_BLE_HEADSET       ( "output-ble_headset"                )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_BLE_SPEAKER       ( "output-ble_speaker"                )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_OUT_BLE_BROADCAST     ( "output-ble_broadcast"              )
+
     { 0, NULL }
 };
 
@@ -251,6 +262,7 @@ struct string_conversion string_conversion_table_input_device[] = {
     /* Devices which may or may not be defined for all devices. */
     STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX
     STRING_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX_A2DP
+    STRING_ENTRY_IF_AUDIO_DEVICE_IN_BLE_HEADSET
 
     { 0, NULL }
 };
@@ -288,6 +300,7 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     /* Devices which may or may not be defined for all devices. */
     FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX              ( "input-fm_rx"                       )
     FANCY_ENTRY_IF_AUDIO_DEVICE_IN_FM_RX_A2DP         ( "input-fm_rx_a2dp"                  )
+    FANCY_ENTRY_IF_AUDIO_DEVICE_IN_BLE_HEADSET        ( "input-ble_headset"                 )
 
     { 0, NULL }
 };
