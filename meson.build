@@ -24,6 +24,16 @@ ltdl_dep = cc.find_library('ltdl', required : true)
 pulsecore_dep = dependency('pulsecore', version : '>= 14.2', required : true)
 libudev_dep = dependency('libudev', required : true)
 alsa_dep = dependency('alsa', required : true)
+gbinder_dep = dependency('libgbinder', version : '>= 1.1.49', required : get_option('aidl'))
+have_aidl = false
+if gbinder_dep.found()
+  have_aidl = cc.has_function('gbinder_reader_read_fmq_descriptor',
+    prefix : '#include <gbinder.h>', dependencies : gbinder_dep)
+endif
+if get_option('aidl').enabled() and not have_aidl
+  error('AIDL requires libgbinder with FMQ descriptor import support')
+endif
+glib_dep = dependency('glib-2.0', required : have_aidl)
 
 pa_version_str = pulsecore_dep.version()
 # For tarballs, the first split will do nothing, but for builds in git, we
@@ -56,6 +66,9 @@ endif
 header_install_path = pc_header_dir + '/droid'
 
 cdata = configuration_data()
+if have_aidl
+  cdata.set('HAVE_AIDL', 1)
+endif
 cdata.set_quoted('PACKAGE', meson.project_name())
 cdata.set_quoted('PACKAGE_NAME', meson.project_name())
 cdata.set_quoted('PACKAGE_VERSION', pa_version_str)
@@ -133,8 +146,16 @@ endif
 
 check_enums = [
   # Input devices
+  'AUDIO_DEVICE_IN_BLE_HEADSET',
+  'AUDIO_DEVICE_IN_HDMI_EARC',
   'AUDIO_DEVICE_IN_FM_RX',
   'AUDIO_DEVICE_IN_FM_RX_A2DP',
+  # Output devices
+  'AUDIO_DEVICE_OUT_BLE_HEADSET',
+  'AUDIO_DEVICE_OUT_BLE_SPEAKER',
+  'AUDIO_DEVICE_OUT_BLE_BROADCAST',
+  'AUDIO_DEVICE_OUT_HDMI_EARC',
+  'AUDIO_DEVICE_OUT_MULTICHANNEL_GROUP',
   # Audio sources
   'AUDIO_SOURCE_ECHO_REFERENCE',
   'AUDIO_SOURCE_FM_TUNER',

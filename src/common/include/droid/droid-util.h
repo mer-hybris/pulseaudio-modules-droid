@@ -117,6 +117,13 @@ struct pa_droid_hw_module {
 
     pa_droid_options options;
 
+    audio_patch_handle_t voice_rx_patch;
+    audio_patch_handle_t voice_tx_patch;
+    const dm_config_port *voice_rx_source_port;
+    const dm_config_port *voice_rx_sink_port;
+    const dm_config_port *voice_tx_source_port;
+    const dm_config_port *voice_tx_sink_port;
+
     /* Mode and input control */
     struct _state {
         audio_mode_t mode;
